@@ -41,10 +41,14 @@ Dependency-Check requires external vulnerability data and supports NVD API keys.
 
 **Priority: medium**
 
+Renovate is enabled through `renovate.json`, which extends the shared HMCTS preset at `local>hmcts/.github:renovate-config`. It should raise dependency-update pull requests according to the centrally managed HMCTS rules.
+
 1. Review available Gatling releases and upgrade the Gradle plugin and Gatling runtime together in a dedicated pull request.
 2. Upgrade the Dependency-Check plugin to the current compatible release.
 3. Run the full vulnerability scan, compile, and one-user smoke test.
 4. Compare the Gatling report structure and request metrics before and after the upgrade.
+
+Renovate pull requests are inputs to this process, not automatic approval to merge: apply the validation steps above before merging any upgrade.
 
 Do not force individual transitive versions such as Netty or Jackson unless a completed vulnerability scan or an upstream Gatling advisory requires it. Gatling owns compatibility across these libraries.
 
