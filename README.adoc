@@ -22,6 +22,13 @@ From the repository root:
 
 `-Ddebug=on` runs one virtual user and is the recommended way to validate a change. Omit it to run the configured performance profile.
 
+Set `TEST_URL` to run the same journey against another approved environment. It must be the application origin, without the `/applications-list` path:
+
+[source,bash]
+----
+TEST_URL='https://appreg.test.apps.hmcts.net' ./gradlew gatlingRun -Ddebug=on
+----
+
 Gatling writes HTML reports to `build/reports/gatling/`; the final command output includes the exact report location.
 
 == Zscaler certificate issue
@@ -59,6 +66,10 @@ APPREG_ACCESS_TOKEN='token supplied by the pipeline' \
   ./gradlew gatlingRun -Ddebug=on -DauthMode=client-credentials
 ----
 
+For a local proof of concept, use the same pattern with a short-lived token for a dedicated test identity. Do not provide a user password, Key Vault credential, or client secret to Gatling.
+
+Authenticated runs against Cypress-supported demo or staging targets automatically use their paired AppReg API host. For any other target, set `APPREG_API_BASE_URL` explicitly to the API origin. Gatling calls the protected, read-only `GET /application-lists` endpoint after the UI shell request and expects a `200` JSON response.
+
 In Jenkins, the runner should use its workload identity to retrieve the OAuth client credential from Key Vault, request the token once, and expose only the short-lived token to Gatling. Do not commit credentials, add them to feeders, or use personal Microsoft accounts.
 
 Until the token endpoint is confirmed, it remains runtime configuration. To validate the client-credentials wiring directly, set all of the following variables before running with `-DauthMode=client-credentials`:
@@ -70,9 +81,14 @@ Until the token endpoint is confirmed, it remains runtime configuration. To vali
 
 This fallback obtains a token per virtual user, so it is intended only for wiring validation—not a scale test.
 
+For the temporary local proof of concept, `-DauthMode=password-grant` supports the same dedicated non-production test identity pattern used by the frontend API tests. It accepts `APPREG_TOKEN_ENDPOINT` as an endpoint override; otherwise it builds the Microsoft Entra endpoint from `APPREG_TENANT_ID`. The required client, scope, and test-user values can use either the `APPREG_`-prefixed names or the existing frontend-compatible names (`TENANT_ID`, `CLIENT_ID`, `CLIENT_SECRET`, `SCOPE`, `TEST_USER1_EMAIL`, and `TEST_USERS_PASSWORD`).
+
+Password grant is for this one-user POC only. Prefer `APPREG_ACCESS_TOKEN` when available, and do not use password grant for a scaled test or the long-term Key Vault integration.
+
 == Useful options
 
 * `-Ddebug=on` — run a single virtual user.
 * `-Denv=<name>` — override the configured environment label.
 * `-DauthMode=none` — run without authentication (default).
 * `-DauthMode=client-credentials` — attach a service access token to authenticated requests.
+* `-DauthMode=password-grant` — temporary dedicated-test-user authentication for the local POC.

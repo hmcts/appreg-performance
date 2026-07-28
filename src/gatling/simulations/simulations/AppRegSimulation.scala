@@ -29,7 +29,7 @@ class AppRegSimulation extends Simulation {
   /* ADDITIONAL COMMAND LINE ARGUMENT OPTIONS */
   val debugMode = System.getProperty("debug", "off") //runs a single user e.g. ./gradle gatlingRun -Ddebug=on (default: off)
   val env = System.getProperty("env", environment) //manually override the environment aat|perftest e.g. ./gradle gatlingRun -Denv=aat
-  val authMode = System.getProperty("authMode", "none") //none|client-credentials
+  val authMode = System.getProperty("authMode", "none") //none|client-credentials|password-grant
   /* ******************************** */
 
   /* PERFORMANCE TEST CONFIGURATION */
@@ -70,9 +70,10 @@ class AppRegSimulation extends Simulation {
       .exec(authMode match {
         case "none" => exec(session => session)
         case "client-credentials" => Authentication.clientCredentials
-        case _ => throw new IllegalArgumentException("authMode must be none or client-credentials")
+        case "password-grant" => Authentication.passwordGrant
+        case _ => throw new IllegalArgumentException("authMode must be none, client-credentials or password-grant")
       })
-      .exec(AppRegScenario.applicationsList(authMode == "client-credentials"))
+      .exec(AppRegScenario.applicationsList(authMode != "none"))
     }
 
   //defines the Gatling simulation model, based on the inputs
