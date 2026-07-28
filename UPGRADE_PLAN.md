@@ -17,6 +17,8 @@ Keep the Gatling performance-test project supportable and able to identify depen
 
 **Priority: high**
 
+**Decision gate:** before implementing this phase, confirm with the relevant HMRC/HMCTS security or platform team whether an NVD-backed Dependency-Check scan is required and approved for this repository. Check whether a centrally managed scanner, shared NVD cache, or existing organisational process should be used instead. Do not request or configure a new NVD API key until that decision is confirmed.
+
 1. Request an NVD API key and store it as a masked Jenkins secret.
 2. Configure the Dependency-Check task to read that value only at runtime.
 3. Run `./gradlew dependencyCheckAnalyze` in Jenkins and publish the resulting report.
