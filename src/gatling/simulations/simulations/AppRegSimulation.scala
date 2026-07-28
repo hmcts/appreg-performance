@@ -7,11 +7,11 @@ import io.gatling.core.controller.inject.open.OpenInjectionStep
 import io.gatling.commons.stats.assertion.Assertion
 import io.gatling.core.pause.PauseType
 import scenarios._
-import utils.Environment
+import utils.{Authentication, Environment}
 
 import scala.concurrent.duration._
 
-class Service_Simulation extends Simulation {
+class AppRegSimulation extends Simulation {
 
   /* TEST TYPE DEFINITION */
   /* pipeline = nightly pipeline against the perftest/AAT environment (configure the Jenkins_nightly file) */
@@ -29,6 +29,7 @@ class Service_Simulation extends Simulation {
   /* ADDITIONAL COMMAND LINE ARGUMENT OPTIONS */
   val debugMode = System.getProperty("debug", "off") //runs a single user e.g. ./gradle gatlingRun -Ddebug=on (default: off)
   val env = System.getProperty("env", environment) //manually override the environment aat|perftest e.g. ./gradle gatlingRun -Denv=aat
+  val authMode = System.getProperty("authMode", "none") //none|client-credentials
   /* ******************************** */
 
   /* PERFORMANCE TEST CONFIGURATION */
@@ -60,12 +61,18 @@ class Service_Simulation extends Simulation {
     println(s"Test Type: ${testType}")
     println(s"Test Environment: ${env}")
     println(s"Debug Mode: ${debugMode}")
+    println(s"Authentication Mode: ${authMode}")
   }
 
-  val Scenario = scenario( "Scenario")
+  val applicationsListScenario = scenario("AppReg applications list")
     .exitBlockOnFail {
       exec(_.set("env", s"${env}"))
-      .exec(DemoScenario.Homepage)
+      .exec(authMode match {
+        case "none" => exec(session => session)
+        case "client-credentials" => Authentication.clientCredentials
+        case _ => throw new IllegalArgumentException("authMode must be none or client-credentials")
+      })
+      .exec(AppRegScenario.applicationsList(authMode == "client-credentials"))
     }
 
   //defines the Gatling simulation model, based on the inputs
@@ -103,7 +110,7 @@ class Service_Simulation extends Simulation {
   }
 
   setUp(
-    Scenario.inject(simulationProfile(testType, ratePerSec, numberOfPipelineUsers)).pauses(pauseOption)
+    applicationsListScenario.inject(simulationProfile(testType, ratePerSec, numberOfPipelineUsers)).pauses(pauseOption)
   ).protocols(httpProtocol)
   .assertions(assertions(testType))
 
