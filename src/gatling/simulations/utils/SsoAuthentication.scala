@@ -37,6 +37,7 @@ object SsoAuthentication {
 
   private def password = requiredEnvironmentVariable("APPREG_TEST_USER_PASSWORD", "TEST_USERS_PASSWORD")
   private def tenantId = requiredEnvironmentVariable("APPREG_TENANT_ID", "TENANT_ID")
+  private val responseDiagnosticsEnabled = environmentVariable("APPREG_SSO_DIAGNOSTICS").contains("true")
   private val microsoftLoginBaseUrl = "https://login.microsoftonline.com"
 
   private val browserHeaders = Map(
@@ -48,10 +49,12 @@ object SsoAuthentication {
   private val credentialDiscoveryBody =
     """{"username":"#{username}","isOtherIdpSupported":true,"checkPhones":false,"isRemoteNGCSupported":true,"isCookieBannerShown":false,"isFidoSupported":true,"country":"GB","forceotclogin":false,"isExternalFederationDisallowed":false,"isRemoteConnectSupported":false,"federationFlags":0,"isSignup":false,"flowToken":"#{entraFlowToken}","isAccessPassSupported":true,"isQrCodePinSupported":true}"""
 
-  /** Captures the callback URL emitted by Entra's post-password page. */
-  private val callbackUrlCheck = regex(
-    """(?is).*?((?:https?:\\?/\\?/[^\\"'\s<>]+)?/sso/login-callback[^\\"'\s<>]+).*"""
-  ).saveAs("entraCallbackUrl")
+  private def responseShape(body: String): String = {
+    val lowerCaseBody = body.toLowerCase
+    val markers = Seq("form", "input", "urlpost", "urlget", "window.location", "location.href", "code", "kmsi", "redirect", "error")
+      .filter(lowerCaseBody.contains)
+    s"length=${body.length}; markers=${markers.mkString(",")}"
+  }
 
   def login: ChainBuilder =
     group("AppReg_000_SSO_Login") {
@@ -126,19 +129,12 @@ object SsoAuthentication {
             .formParam("DfpArtifact", "")
             .formParam("i19", "3306")
             .check(status.is(200))
-            .check(callbackUrlCheck)
+            .check(bodyString.saveAs("entraPasswordResponse"))
         )
         .exec { session =>
-          session("entraCallbackUrl").validate[String].map { callbackUrl =>
-            val normalisedCallbackUrl = callbackUrl
-              .replace("\\/", "/")
-              .replace("&amp;", "&")
-              .replace("\\u0026", "&")
-            session.set(
-              "entraCallbackUrl",
-              if (normalisedCallbackUrl.startsWith("/")) Environment.baseURL + normalisedCallbackUrl
-              else normalisedCallbackUrl
-            )
+          session("entraPasswordResponse").validate[String].map { body =>
+            if (responseDiagnosticsEnabled) println(s"Entra password response shape: ${responseShape(body)}")
+            session.remove("entraPasswordResponse")
           }
         }
         .exec(

@@ -47,6 +47,7 @@ withNightlyPipeline(type, product, component) {
                     env.TEST_URL = 'https://appreg.staging.apps.hmcts.net'
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
+                    env.APPREG_SSO_DIAGNOSTICS = 'true'
 
                     sh '''
                         for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID CLIENT_ID CLIENT_SECRET SCOPE; do
