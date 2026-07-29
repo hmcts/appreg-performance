@@ -8,7 +8,7 @@ Keep the Gatling performance-test project supportable and able to identify depen
 
 - Java 21 is the build target. Client Platform now enforces Java 21 for Gradle-based performance tests; Java 17 support was removed on 1 June 2026.
 - The Gradle wrapper is pinned to 8.14.5.
-- Gatling and the Gatling Gradle plugin are both pinned to 3.14.3.
+- Gatling is pinned to 3.15.1 and the matching Gatling Gradle plugin to 3.15.1.2.
 - The OWASP Dependency-Check Gradle plugin is pinned to 12.1.3.
 - `gatling.scalaVersion` is aligned to Scala 2.13.16, the version resolved by the Gatling runtime.
 - The one-user SSO/UI proof completed successfully in Client Platform Jenkins on Temurin Java 21.0.12 on 29 July 2026.
@@ -52,7 +52,7 @@ Dependency-Check requires external vulnerability data and supports NVD API keys.
 **Status: completed for the current versions.**
 
 1. Align the declared Scala version with the version resolved by Gatling (2.13.16). **Completed.**
-2. Keep the Gatling Gradle plugin version and `gatlingVersion` aligned when upgrading. They are both currently 3.14.3. **Completed for the current version.**
+2. Keep the Gatling Gradle plugin version and `gatlingVersion` aligned when upgrading. They are currently 3.15.1.2 and 3.15.1 respectively. **Completed for the current version.**
 3. Run `./gradlew gatlingClasses` and the one-user SSO/UI proof on the Client Platform Java 21 agent. **Completed on Temurin 21.0.12, 29 July 2026.**
 
 **Success criteria:** the dependency graph has no unintended Scala version substitution and the smoke journey remains successful.
@@ -61,9 +61,11 @@ Dependency-Check requires external vulnerability data and supports NVD API keys.
 
 **Priority: medium**
 
+**Status: Gatling 3.15.1 upgrade applied; Jenkins SSO/UI proof pending.**
+
 Renovate is enabled through `renovate.json`, which extends the shared HMCTS preset at `local>hmcts/.github:renovate-config`. It should raise dependency-update pull requests according to the centrally managed HMCTS rules.
 
-1. Review available Gatling releases and upgrade the Gradle plugin and Gatling runtime together in a dedicated pull request.
+1. Review available Gatling releases and upgrade the Gradle plugin and Gatling runtime together in a dedicated pull request. **Gatling 3.15.1 / plugin 3.15.1.2 applied; validate in Jenkins.**
 2. Upgrade the Dependency-Check plugin to the current compatible release.
 3. Run the full vulnerability scan, compile, and one-user smoke test.
 4. Compare the Gatling report structure and request metrics before and after the upgrade.
