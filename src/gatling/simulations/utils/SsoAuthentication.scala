@@ -54,7 +54,7 @@ object SsoAuthentication {
     * before any higher-rate run is enabled.
     */
   private val authorisationCodeCheck = regex(
-    """(?s).*(?:name=\"code\"\s+value=\"|[?&]code=)([^\"&]+).*"""
+    """(?is).*?<input\b(?=[^>]*\bname\s*=\s*["']code["'])(?=[^>]*\bvalue\s*=\s*["'])[^>]*\bvalue\s*=\s*["']([^"']+)"""
   ).saveAs("authorisationCode")
 
   def login: ChainBuilder =
