@@ -48,14 +48,10 @@ object SsoAuthentication {
   private val credentialDiscoveryBody =
     """{"username":"#{username}","isOtherIdpSupported":true,"checkPhones":false,"isRemoteNGCSupported":true,"isCookieBannerShown":false,"isFidoSupported":true,"country":"GB","forceotclogin":false,"isExternalFederationDisallowed":false,"isRemoteConnectSupported":false,"federationFlags":0,"isSignup":false,"flowToken":"#{entraFlowToken}","isAccessPassSupported":true,"isQrCodePinSupported":true}"""
 
-  /**
-    * The password-submit response is intentionally parsed for several Entra
-    * response variants. A one-user staging proof validates the active variant
-    * before any higher-rate run is enabled.
-    */
-  private val authorisationCodeCheck = regex(
-    """(?is).*?<input\b(?=[^>]*\bname\s*=\s*["']code["'])(?=[^>]*\bvalue\s*=\s*["'])[^>]*\bvalue\s*=\s*["']([^"']+)"""
-  ).saveAs("authorisationCode")
+  /** Captures the callback URL emitted by Entra's post-password page. */
+  private val callbackUrlCheck = regex(
+    """(?is).*?(https?:\\?/\\?/[^\\"'\s<>]+/sso/login-callback[^\\"'\s<>]+).*"""
+  ).saveAs("entraCallbackUrl")
 
   def login: ChainBuilder =
     group("AppReg_000_SSO_Login") {
@@ -130,11 +126,17 @@ object SsoAuthentication {
             .formParam("DfpArtifact", "")
             .formParam("i19", "3306")
             .check(status.is(200))
-            .check(authorisationCodeCheck)
+            .check(callbackUrlCheck)
         )
+        .exec { session =>
+          session("entraCallbackUrl").asOption[String]
+            .map(_.replace("\\/", "/").replace("&amp;", "&").replace("\\u0026", "&"))
+            .map(session.set("entraCallbackUrl", _))
+            .getOrElse(session)
+        }
         .exec(
           http("AppReg SSO callback")
-            .get("/sso/login-callback?code=#{authorisationCode}&state=#{oauthState}")
+            .get("#{entraCallbackUrl}")
             .headers(browserHeaders ++ Map("Referer" -> (microsoftLoginBaseUrl + "/")))
             .disableFollowRedirect
             .check(status.is(302))
