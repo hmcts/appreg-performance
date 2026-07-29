@@ -40,9 +40,12 @@ withNightlyPipeline(type, product, component) {
     env.AUTH_MODE = 'sso-login'
     env.PERFORMANCE_TEST_USERS = '1'
 
-    enablePerformanceTest(90)
-
-    afterFailure('test') {
-        publishPerformanceReports()
+    node {
+        stage('Direct Gatling proof') {
+            timeout(time: 90, unit: 'MINUTES') {
+                checkout scm
+                sh './gradlew --no-daemon gatlingRun'
+            }
+        }
     }
 }
