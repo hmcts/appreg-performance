@@ -7,7 +7,7 @@ import io.gatling.core.controller.inject.open.OpenInjectionStep
 import io.gatling.commons.stats.assertion.Assertion
 import io.gatling.core.pause.PauseType
 import scenarios._
-import utils.{Authentication, Environment}
+import utils.{Authentication, Environment, TokenPoolBootstrap}
 
 import scala.concurrent.duration._
 
@@ -29,7 +29,7 @@ class AppRegSimulation extends Simulation {
   /* ADDITIONAL COMMAND LINE ARGUMENT OPTIONS */
   val debugMode = System.getProperty("debug", "off") //runs a single user e.g. ./gradle gatlingRun -Ddebug=on (default: off)
   val env = System.getProperty("env", environment) //manually override the environment aat|perftest e.g. ./gradle gatlingRun -Denv=aat
-  val authMode = System.getProperty("authMode", "none") //none|client-credentials|password-grant
+  val authMode = System.getProperty("authMode", "none") //none|client-credentials|password-grant|token-pool
   /* ******************************** */
 
   /* PERFORMANCE TEST CONFIGURATION */
@@ -51,6 +51,20 @@ class AppRegSimulation extends Simulation {
   val numberOfPipelineUsers:Double = 10
   /* ******************************** */
 
+  // One dedicated test account is allocated per virtual user for token-pool runs.
+  // A manual override permits a profile to reserve a larger, known account range.
+  val requiredAccountCount: Int = Option(System.getProperty("accountCount"))
+    .map(_.toInt)
+    .getOrElse(testType match {
+      case "pipeline" => numberOfPipelineUsers.toInt
+      case "perftest" if debugMode == "on" => 1
+      case "perftest" => math.ceil(ratePerSec * ((rampUpDurationMins + testDurationMins + rampDownDurationMins) * 60 - ((rampUpDurationMins + rampDownDurationMins) * 30))).toInt
+      case _ => 1
+    })
+
+  val tokenPool = if (authMode == "token-pool") TokenPoolBootstrap.fetch(requiredAccountCount) else Vector.empty[String]
+  val tokenFeeder = tokenPool.iterator.map(token => Map("accessToken" -> token))
+
   val httpProtocol = http
     .baseUrl(Environment.baseURL)
     .doNotTrackHeader("1")
@@ -62,6 +76,7 @@ class AppRegSimulation extends Simulation {
     println(s"Test Environment: ${env}")
     println(s"Debug Mode: ${debugMode}")
     println(s"Authentication Mode: ${authMode}")
+    if (authMode == "token-pool") println(s"Token Pool Accounts: $requiredAccountCount")
   }
 
   val applicationsListScenario = scenario("AppReg applications list")
@@ -71,7 +86,8 @@ class AppRegSimulation extends Simulation {
         case "none" => exec(session => session)
         case "client-credentials" => Authentication.clientCredentials
         case "password-grant" => Authentication.passwordGrant
-        case _ => throw new IllegalArgumentException("authMode must be none, client-credentials or password-grant")
+        case "token-pool" => feed(tokenFeeder)
+        case _ => throw new IllegalArgumentException("authMode must be none, client-credentials, password-grant or token-pool")
       })
       .exec(AppRegScenario.applicationsList(authMode != "none"))
     }

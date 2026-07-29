@@ -81,9 +81,25 @@ Until the token endpoint is confirmed, it remains runtime configuration. To vali
 
 This fallback obtains a token per virtual user, so it is intended only for wiring validation—not a scale test.
 
-For the temporary local proof of concept, `-DauthMode=password-grant` supports the same dedicated non-production test identity pattern used by the frontend API tests. It accepts `APPREG_TOKEN_ENDPOINT` as an endpoint override; otherwise it builds the Microsoft Entra endpoint from `APPREG_TENANT_ID`. The required client, scope, and test-user values can use either the `APPREG_`-prefixed names or the existing frontend-compatible names (`TENANT_ID`, `CLIENT_ID`, `CLIENT_SECRET`, `SCOPE`, `TEST_USER1_EMAIL`, and `TEST_USERS_PASSWORD`).
+For the temporary local proof of concept, `-DauthMode=password-grant` supports the same dedicated non-production test identity pattern used by the frontend API tests. It accepts `APPREG_TOKEN_ENDPOINT` as an endpoint override; otherwise it builds the Microsoft Entra endpoint from `TENANT_ID`. The required client, scope, and test-user values can use either the `APPREG_`-prefixed names or the Jenkins-compatible names (`TENANT_ID`, `CLIENT_ID`, `CLIENT_SECRET`, `SCOPE`, `TEST_USER_EMAIL`, and `TEST_USERS_PASSWORD`).
 
-Password grant is for this one-user POC only. Prefer `APPREG_ACCESS_TOKEN` when available, and do not use password grant for a scaled test or the long-term Key Vault integration.
+Password grant is for this one-user POC only. Prefer `APPREG_ACCESS_TOKEN` when available, and do not use password grant for a scaled test.
+
+=== Token-pool bootstrap for a pipeline run
+
+`-DauthMode=token-pool` acquires a short-lived token for each dedicated performance-test account before Gatling begins the AppReg journey. Jenkins supplies the endpoint, client values, account password and account-name template from Key Vault as masked environment variables. Gatling receives only the resulting tokens in memory.
+
+The required variables are:
+
+* `TEST_USER_EMAIL` — account-name template containing `{index}`, for example `appreg-perf-{index}@example.test`. It is runtime configuration so the actual naming convention can be changed without code changes. `APPREG_TEST_ACCOUNT_TEMPLATE` remains an optional AppReg-specific alias.
+* `TEST_USERS_PASSWORD` — the shared password for the dedicated test accounts. `APPREG_TEST_USER_PASSWORD` remains an optional alias.
+* `TENANT_ID`, `CLIENT_ID`, `CLIENT_SECRET`, and `SCOPE`. The `APPREG_`-prefixed equivalents remain optional aliases.
+
+The profile calculates its account count: one for debug, `numberOfPipelineUsers` for the pipeline profile, and the expected number of users created by the perftest injection profile. Override the reservation explicitly with `-DaccountCount=<number>` when needed.
+
+Requests are serial, with a one-second default interval, retry only transient `429`/`5xx` responses, and honour a numeric `Retry-After` response. Configure `APPREG_TOKEN_REQUEST_INTERVAL_MILLIS` (default `1000`) and `APPREG_TOKEN_MAX_RETRIES` (default `3`) only when Entra capacity has been agreed.
+
+The utility records only the next account index in `build/appreg-token-pool.next-index`; it never writes tokens, passwords, client secrets, or Entra responses. Set `APPREG_ACCOUNT_CURSOR_FILE` to a retained Jenkins workspace path for consecutive batches, or set `APPREG_ACCOUNT_START_INDEX` to start a specific account range. Do not use one cursor file for concurrent jobs: each job needs its own allocated account range/cursor.
 
 == Useful options
 
@@ -92,3 +108,4 @@ Password grant is for this one-user POC only. Prefer `APPREG_ACCESS_TOKEN` when 
 * `-DauthMode=none` — run without authentication (default).
 * `-DauthMode=client-credentials` — attach a service access token to authenticated requests.
 * `-DauthMode=password-grant` — temporary dedicated-test-user authentication for the local POC.
+* `-DauthMode=token-pool` — pre-acquire one password-grant token per dedicated test account before the run.

@@ -66,7 +66,7 @@ object Authentication {
     val clientId = requiredEnvironmentVariable("APPREG_CLIENT_ID", "CLIENT_ID")
     val clientSecret = requiredEnvironmentVariable("APPREG_CLIENT_SECRET", "CLIENT_SECRET")
     val scope = requiredEnvironmentVariable("APPREG_TOKEN_SCOPE", "SCOPE")
-    val username = requiredEnvironmentVariable("APPREG_TEST_USER_EMAIL", "TEST_USER1_EMAIL")
+    val username = requiredEnvironmentVariable("APPREG_TEST_USER_EMAIL", "TEST_USER_EMAIL", "TEST_USER1_EMAIL")
     val password = requiredEnvironmentVariable("APPREG_TEST_USER_PASSWORD", "TEST_USERS_PASSWORD")
 
     exec(
