@@ -49,6 +49,10 @@ withNightlyPipeline(type, product, component) {
                     env.PERFORMANCE_TEST_USERS = '1'
 
                     sh '''
+                        export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
+                        export PATH="$JAVA_HOME/bin:$PATH"
+                        java -version
+
                         for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID CLIENT_ID CLIENT_SECRET SCOPE; do
                           if printenv "$variable" > /dev/null 2>&1; then
                             echo "$variable is set"
