@@ -46,7 +46,7 @@ object SsoAuthentication {
   )
 
   private val credentialDiscoveryBody =
-    """{"username":"#{username}","isOtherIdpSupported":true,"checkPhones":false,"isRemoteNGCSupported":true,"isCookieBannerShown":false,"isFidoSupported":true,"originalRequest":"#{entraOriginalRequest}","country":"GB","forceotclogin":false,"isExternalFederationDisallowed":false,"isRemoteConnectSupported":false,"federationFlags":0,"isSignup":false,"flowToken":"#{entraFlowToken}","isAccessPassSupported":true,"isQrCodePinSupported":true}"""
+    """{"username":"#{username}","isOtherIdpSupported":true,"checkPhones":false,"isRemoteNGCSupported":true,"isCookieBannerShown":false,"isFidoSupported":true,"country":"GB","forceotclogin":false,"isExternalFederationDisallowed":false,"isRemoteConnectSupported":false,"federationFlags":0,"isSignup":false,"flowToken":"#{entraFlowToken}","isAccessPassSupported":true,"isQrCodePinSupported":true}"""
 
   /**
     * The password-submit response is intentionally parsed for several Entra
@@ -77,7 +77,6 @@ object SsoAuthentication {
             .check(regex("""(?s).*?\"sCtx\"\s*:\s*\"([^\"]+)\".*""").saveAs("entraContext"))
             .check(regex("""(?s).*?\"sFT\"\s*:\s*\"([^\"]+)\".*""").saveAs("entraFlowToken"))
             .check(regex("""(?s).*?\"canary\"\s*:\s*\"([^\"]+)\".*""").saveAs("entraCanary"))
-            .check(regex("""(?s).*?\"originalRequest\"\s*:\s*\"([^\"]+)\".*""").saveAs("entraOriginalRequest"))
         )
         .exec(
           http("Entra credential discovery")
