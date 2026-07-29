@@ -32,18 +32,18 @@ def secrets = [
 
 
 withNightlyPipeline(type, product, component) {
-    overrideVaultEnvironments(vaultOverrides)
-    loadVaultSecrets(secrets)
-
-    env.TEST_TYPE = 'pipeline'
-    env.TEST_URL = 'https://appreg.staging.apps.hmcts.net'
-    env.AUTH_MODE = 'sso-login'
-    env.PERFORMANCE_TEST_USERS = '1'
-
     node {
         stage('Direct Gatling proof') {
             timeout(time: 90, unit: 'MINUTES') {
                 checkout scm
+                overrideVaultEnvironments(vaultOverrides)
+                loadVaultSecrets(secrets)
+
+                env.TEST_TYPE = 'pipeline'
+                env.TEST_URL = 'https://appreg.staging.apps.hmcts.net'
+                env.AUTH_MODE = 'sso-login'
+                env.PERFORMANCE_TEST_USERS = '1'
+
                 sh './gradlew --no-daemon gatlingRun'
             }
         }
