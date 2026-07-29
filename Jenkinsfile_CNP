@@ -1,18 +1,8 @@
-#!groovy
-
-properties([
-        //pipelineTriggers([cron('00 21 * * *')]),
-        //A build parameter TEST_TYPE is used to tell the script to use the pipeline simulation configuration
-        parameters([
-                choice(name: 'TEST_TYPE', choices: 'pipeline', description: 'Test type (must be \'pipeline\' for Jenkins use)')
-        ])
-])
-
 @Library("Infrastructure") _
 
 def product = "appreg"
+def type = "java"
 def component = "performance"
-
 
 def vaultOverrides = [
   'dev': 'stg',
@@ -40,11 +30,11 @@ def secrets = [
   ],
 ]
 
-withNightlyPipeline("java", product, component) {
 
+withNightlyPipeline(type, product, component) {
     overrideVaultEnvironments(vaultOverrides)
     loadVaultSecrets(secrets)
-    
+
     env.TEST_TYPE = 'pipeline'
 
     enablePerformanceTest(90)
@@ -52,5 +42,4 @@ withNightlyPipeline("java", product, component) {
     afterFailure('test') {
         publishPerformanceReports()
     }
-
 }
