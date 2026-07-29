@@ -50,7 +50,7 @@ object SsoAuthentication {
 
   /** Captures the callback URL emitted by Entra's post-password page. */
   private val callbackUrlCheck = regex(
-    """(?is).*?(https?:\\?/\\?/[^\\"'\s<>]+/sso/login-callback[^\\"'\s<>]+).*"""
+    """(?is).*?((?:https?:\\?/\\?/[^\\"'\s<>]+)?/sso/login-callback[^\\"'\s<>]+).*"""
   ).saveAs("entraCallbackUrl")
 
   def login: ChainBuilder =
@@ -130,9 +130,14 @@ object SsoAuthentication {
         )
         .exec { session =>
           session("entraCallbackUrl").validate[String].map { callbackUrl =>
+            val normalisedCallbackUrl = callbackUrl
+              .replace("\\/", "/")
+              .replace("&amp;", "&")
+              .replace("\\u0026", "&")
             session.set(
               "entraCallbackUrl",
-              callbackUrl.replace("\\/", "/").replace("&amp;", "&").replace("\\u0026", "&")
+              if (normalisedCallbackUrl.startsWith("/")) Environment.baseURL + normalisedCallbackUrl
+              else normalisedCallbackUrl
             )
           }
         }
