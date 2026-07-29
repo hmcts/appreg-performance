@@ -36,6 +36,9 @@ withNightlyPipeline(type, product, component) {
     loadVaultSecrets(secrets)
 
     env.TEST_TYPE = 'pipeline'
+    env.TEST_URL = 'https://appreg.staging.apps.hmcts.net'
+    env.AUTH_MODE = 'sso-login'
+    env.PERFORMANCE_TEST_USERS = '1'
 
     enablePerformanceTest(90)
 

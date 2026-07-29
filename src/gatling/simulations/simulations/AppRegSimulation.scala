@@ -7,7 +7,7 @@ import io.gatling.core.controller.inject.open.OpenInjectionStep
 import io.gatling.commons.stats.assertion.Assertion
 import io.gatling.core.pause.PauseType
 import scenarios._
-import utils.{Authentication, Environment, TokenPoolBootstrap}
+import utils.{Authentication, Environment, SsoAuthentication, TokenPoolBootstrap}
 
 import scala.concurrent.duration._
 
@@ -29,7 +29,10 @@ class AppRegSimulation extends Simulation {
   /* ADDITIONAL COMMAND LINE ARGUMENT OPTIONS */
   val debugMode = System.getProperty("debug", "off") //runs a single user e.g. ./gradle gatlingRun -Ddebug=on (default: off)
   val env = System.getProperty("env", environment) //manually override the environment aat|perftest e.g. ./gradle gatlingRun -Denv=aat
-  val authMode = System.getProperty("authMode", "none") //none|client-credentials|password-grant|token-pool
+  val authMode = System.getProperty(
+    "authMode",
+    scala.util.Properties.envOrElse("AUTH_MODE", "none")
+  ) //none|client-credentials|password-grant|token-pool|sso-login
   /* ******************************** */
 
   /* PERFORMANCE TEST CONFIGURATION */
@@ -48,7 +51,9 @@ class AppRegSimulation extends Simulation {
   /* ******************************** */
 
   /* PIPELINE CONFIGURATION */
-  val numberOfPipelineUsers:Double = 10
+  val numberOfPipelineUsers:Double = scala.util.Properties
+    .envOrElse("PERFORMANCE_TEST_USERS", "1")
+    .toDouble
   /* ******************************** */
 
   // One dedicated test account is allocated per virtual user for token-pool runs.
@@ -64,6 +69,7 @@ class AppRegSimulation extends Simulation {
 
   val tokenPool = if (authMode == "token-pool") TokenPoolBootstrap.fetch(requiredAccountCount) else Vector.empty[String]
   val tokenFeeder = tokenPool.iterator.map(token => Map("accessToken" -> token))
+  val ssoUserFeeder = if (authMode == "sso-login") SsoAuthentication.users(requiredAccountCount) else Iterator.empty
 
   val httpProtocol = http
     .baseUrl(Environment.baseURL)
@@ -77,6 +83,7 @@ class AppRegSimulation extends Simulation {
     println(s"Debug Mode: ${debugMode}")
     println(s"Authentication Mode: ${authMode}")
     if (authMode == "token-pool") println(s"Token Pool Accounts: $requiredAccountCount")
+    if (authMode == "sso-login") println(s"SSO Login Accounts: $requiredAccountCount")
   }
 
   val applicationsListScenario = scenario("AppReg applications list")
@@ -87,9 +94,13 @@ class AppRegSimulation extends Simulation {
         case "client-credentials" => Authentication.clientCredentials
         case "password-grant" => Authentication.passwordGrant
         case "token-pool" => feed(tokenFeeder)
-        case _ => throw new IllegalArgumentException("authMode must be none, client-credentials, password-grant or token-pool")
+        case "sso-login" => feed(ssoUserFeeder).exec(SsoAuthentication.login)
+        case _ => throw new IllegalArgumentException("authMode must be none, client-credentials, password-grant, token-pool or sso-login")
       })
-      .exec(AppRegScenario.applicationsList(authMode != "none"))
+      .exec(AppRegScenario.applicationsList(
+        apiAuthenticated = authMode != "none" && authMode != "sso-login",
+        sessionAuthenticated = authMode == "sso-login"
+      ))
     }
 
   //defines the Gatling simulation model, based on the inputs

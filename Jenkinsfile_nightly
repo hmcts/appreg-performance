@@ -46,6 +46,11 @@ withNightlyPipeline("java", product, component) {
     loadVaultSecrets(secrets)
     
     env.TEST_TYPE = 'pipeline'
+    env.TEST_URL = 'https://appreg.staging.apps.hmcts.net'
+    env.AUTH_MODE = 'sso-login'
+    // Start with one real SSO user. Increase only once an account template and
+    // Entra/AppReg login-rate capacity have been agreed.
+    env.PERFORMANCE_TEST_USERS = '1'
 
     enablePerformanceTest(90)
 

@@ -6,8 +6,8 @@ import utils.{Environment, Headers}
 
 object AppRegScenario {
 
-  def applicationsList(authenticated: Boolean) = {
-    val requestHeaders = if (authenticated) {
+  def applicationsList(apiAuthenticated: Boolean, sessionAuthenticated: Boolean) = {
+    val requestHeaders = if (apiAuthenticated) {
       Headers.commonHeader ++ Map("Authorization" -> "Bearer #{accessToken}")
     } else {
       Headers.commonHeader
@@ -24,15 +24,15 @@ object AppRegScenario {
           .get("/#{mainScript}")
           .check(status.is(200)))
     }
-      .exec(if (authenticated) {
-        http("Get application lists")
-          .get(s"${Environment.apiBaseURL}/application-lists")
+      .exec(if (apiAuthenticated || sessionAuthenticated) {
+        val dataRequest = http("Get application lists")
+          .get(if (sessionAuthenticated) "/application-lists" else s"${Environment.apiBaseURL}/application-lists")
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "1")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Authorization", "Bearer #{accessToken}")
           .check(status.is(200))
           .check(headerRegex("Content-Type", ".*json.*"))
+        if (apiAuthenticated) dataRequest.header("Authorization", "Bearer #{accessToken}") else dataRequest
       } else {
         exec(session => session)
       })

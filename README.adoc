@@ -101,6 +101,16 @@ Requests are serial, with a one-second default interval, retry only transient `4
 
 The utility records only the next account index in `build/appreg-token-pool.next-index`; it never writes tokens, passwords, client secrets, or Entra responses. Set `APPREG_ACCOUNT_CURSOR_FILE` to a retained Jenkins workspace path for consecutive batches, or set `APPREG_ACCOUNT_START_INDEX` to start a specific account range. Do not use one cursor file for concurrent jobs: each job needs its own allocated account range/cursor.
 
+=== Production-like SSO UI journey
+
+`-DauthMode=sso-login` runs AppReg's real HTTP SSO sequence for each virtual user: `/sso/login`, Entra authorisation and credential submission, `/sso/login-callback`, then `/sso/me`. Gatling keeps the resulting `appreg.sid` cookie in that virtual user's cookie jar while it performs the UI journey. This does not require an AppReg product change.
+
+The run uses `TEST_USER_EMAIL` (or `APPREG_TEST_ACCOUNT_TEMPLATE`) and `TEST_USERS_PASSWORD` from Jenkins. For more than one virtual user, the account template must contain `{index}`, for example `ar-test-{index}@hmcts.net`. The shared password is never put in a feeder, log, report, or file.
+
+SSO login is deliberately included in the measured traffic. AppReg currently rate-limits `/sso/login` to ten requests per minute, so start with one user and retain a login rate below that limit. Do not repeatedly log in inside a journey loop. The first staging run must be a one-user proof because Entra response shapes can change.
+
+The Jenkins pipeline defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE` and confirming there are enough dedicated accounts. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
+
 == Useful options
 
 * `-Ddebug=on` — run a single virtual user.
@@ -109,3 +119,4 @@ The utility records only the next account index in `build/appreg-token-pool.next
 * `-DauthMode=client-credentials` — attach a service access token to authenticated requests.
 * `-DauthMode=password-grant` — temporary dedicated-test-user authentication for the local POC.
 * `-DauthMode=token-pool` — pre-acquire one password-grant token per dedicated test account before the run.
+* `-DauthMode=sso-login` — execute the real AppReg/Entra HTTP login before the UI journey.
