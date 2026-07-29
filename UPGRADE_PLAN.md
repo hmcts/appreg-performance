@@ -6,7 +6,7 @@ Keep the Gatling performance-test project supportable and able to identify depen
 
 ## Current position
 
-- Java 17 is the build target. Client Platform's Gatling runtime currently runs Java 17; compiling simulations for Java 21 caused `UnsupportedClassVersionError` (class version 65 on a Java 17/class version 61 runtime).
+- Java 21 is the build target. Client Platform now enforces Java 21 for Gradle-based performance tests; Java 17 support was removed on 1 June 2026.
 - The Gradle wrapper is pinned to 8.14.5.
 - Gatling and the Gatling Gradle plugin are both pinned to 3.14.3.
 - The OWASP Dependency-Check Gradle plugin is pinned to 12.1.3.
@@ -15,18 +15,18 @@ Keep the Gatling performance-test project supportable and able to identify depen
 
 ## Java runtime compatibility
 
-**Status: implemented constraint**
+**Status: required Client Platform constraint**
 
-The project targets Java 17 so that the classes produced by Gradle can run in the Client Platform Jenkins Gatling process. The development machine may use a newer JDK, but the effective target must remain compatible with the JDK used to launch Gatling in Client Platform.
+The project targets Java 21 to comply with the Client Platform Jenkins policy. A previous direct Jenkins proof used a Java 17 agent and consequently could not load Java 21 classes; that agent configuration is no longer supported by the shared pipeline library.
 
-Before changing this target to a newer Java release:
+Before changing this target from Java 21:
 
 1. Confirm that the Client Platform performance-test agent launches both Gradle and Gatling with that Java release.
 2. Run `./gradlew clean gatlingClasses` on the target agent.
 3. Run the one-user authenticated SSO/UI proof and an unauthenticated smoke run.
 4. Record the Java version used by the Jenkins agent in the change or pipeline output.
 
-**Success criteria:** Gatling loads `AppRegSimulation` without a class-version error on Client Platform.
+**Success criteria:** Gatling loads `AppRegSimulation` on the Client Platform Java 21 runtime without a class-version error.
 
 ## Phase 1 — restore reliable vulnerability scanning
 
@@ -48,11 +48,11 @@ Dependency-Check requires external vulnerability data and supports NVD API keys.
 
 **Priority: medium; low risk**
 
-**Status: configuration aligned; Java 17 agent verification pending.**
+**Status: configuration aligned; Java 21 pipeline verification pending.**
 
 1. Align the declared Scala version with the version resolved by Gatling (2.13.16). **Completed.**
 2. Keep the Gatling Gradle plugin version and `gatlingVersion` aligned when upgrading. They are both currently 3.14.3. **Completed for the current version.**
-3. Run `./gradlew gatlingClasses` and `./gradlew gatlingRun -Ddebug=on` after the change on the Client Platform Java 17 agent. **Pending.**
+3. Run `./gradlew gatlingClasses` and `./gradlew gatlingRun -Ddebug=on` after the change on the Client Platform Java 21 agent. **Pending.**
 
 **Success criteria:** the dependency graph has no unintended Scala version substitution and the smoke journey remains successful.
 
