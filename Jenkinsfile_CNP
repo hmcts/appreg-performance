@@ -21,7 +21,7 @@ static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
 
 def secrets = [
   'appreg-${env}': [
-    secret('TEST-USER1-EMAIL', 'TEST_USER_EMAIL'),
+    secret('TEST-USER-EMAIL', 'TEST_USER_EMAIL'),
     secret('TEST-USERS-PASSWORD', 'TEST_USERS_PASSWORD'),
     secret('azure-tenant-id', 'TENANT_ID'),
     secret('azure-app-id', 'CLIENT_ID'),
@@ -44,7 +44,16 @@ withNightlyPipeline(type, product, component) {
                 env.AUTH_MODE = 'sso-login'
                 env.PERFORMANCE_TEST_USERS = '1'
 
-                sh './gradlew --no-daemon gatlingRun'
+                sh '''
+                    for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID CLIENT_ID CLIENT_SECRET SCOPE; do
+                      if printenv "$variable" > /dev/null 2>&1; then
+                        echo "$variable is set"
+                      else
+                        echo "$variable is missing"
+                      fi
+                    done
+                    ./gradlew --no-daemon gatlingRun
+                '''
             }
         }
     }
