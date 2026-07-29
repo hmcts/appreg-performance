@@ -21,7 +21,7 @@ repositories {
 
 gatling {
   gatlingVersion = '3.14.3'
-  scalaVersion = '2.13.11'
+  scalaVersion = '2.13.16'
 }
 
 sourceSets {
