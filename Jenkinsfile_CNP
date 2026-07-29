@@ -8,6 +8,7 @@ def vaultOverrides = [
   'dev': 'stg',
   'preview': 'stg',
 ]
+def stagingVaultUrl = 'https://appreg-stg.vault.azure.net/'
 
 static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
   [
@@ -36,24 +37,28 @@ withNightlyPipeline(type, product, component) {
         stage('Direct Gatling proof') {
             timeout(time: 90, unit: 'MINUTES') {
                 checkout scm
-                overrideVaultEnvironments(vaultOverrides)
-                loadVaultSecrets(secrets)
+                withAzureKeyvault(
+                    azureKeyVaultSecrets: secrets['appreg-${env}'],
+                    keyVaultURLOverride: stagingVaultUrl,
+                    applicationIDOverride: env.AZURE_CLIENT_ID,
+                    applicationSecretOverride: env.AZURE_CLIENT_SECRET
+                ) {
+                    env.TEST_TYPE = 'pipeline'
+                    env.TEST_URL = 'https://appreg.staging.apps.hmcts.net'
+                    env.AUTH_MODE = 'sso-login'
+                    env.PERFORMANCE_TEST_USERS = '1'
 
-                env.TEST_TYPE = 'pipeline'
-                env.TEST_URL = 'https://appreg.staging.apps.hmcts.net'
-                env.AUTH_MODE = 'sso-login'
-                env.PERFORMANCE_TEST_USERS = '1'
-
-                sh '''
-                    for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID CLIENT_ID CLIENT_SECRET SCOPE; do
-                      if printenv "$variable" > /dev/null 2>&1; then
-                        echo "$variable is set"
-                      else
-                        echo "$variable is missing"
-                      fi
-                    done
-                    ./gradlew --no-daemon gatlingRun
-                '''
+                    sh '''
+                        for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID CLIENT_ID CLIENT_SECRET SCOPE; do
+                          if printenv "$variable" > /dev/null 2>&1; then
+                            echo "$variable is set"
+                          else
+                            echo "$variable is missing"
+                          fi
+                        done
+                        ./gradlew --no-daemon gatlingRun
+                    '''
+                }
             }
         }
     }
