@@ -37,7 +37,6 @@ object SsoAuthentication {
 
   private def password = requiredEnvironmentVariable("APPREG_TEST_USER_PASSWORD", "TEST_USERS_PASSWORD")
   private def tenantId = requiredEnvironmentVariable("APPREG_TENANT_ID", "TENANT_ID")
-  private val responseDiagnosticsEnabled = environmentVariable("APPREG_SSO_DIAGNOSTICS").contains("true")
   private val microsoftLoginBaseUrl = "https://login.microsoftonline.com"
 
   private val browserHeaders = Map(
@@ -49,12 +48,9 @@ object SsoAuthentication {
   private val credentialDiscoveryBody =
     """{"username":"#{username}","isOtherIdpSupported":true,"checkPhones":false,"isRemoteNGCSupported":true,"isCookieBannerShown":false,"isFidoSupported":true,"country":"GB","forceotclogin":false,"isExternalFederationDisallowed":false,"isRemoteConnectSupported":false,"federationFlags":0,"isSignup":false,"flowToken":"#{entraFlowToken}","isAccessPassSupported":true,"isQrCodePinSupported":true}"""
 
-  private def responseShape(body: String): String = {
-    val lowerCaseBody = body.toLowerCase
-    val markers = Seq("form", "input", "urlpost", "urlget", "window.location", "location.href", "code", "kmsi", "redirect", "error")
-      .filter(lowerCaseBody.contains)
-    s"length=${body.length}; markers=${markers.mkString(",")}"
-  }
+  private val authorisationCodeCheck = regex(
+    """(?s).*?name="code"\s+value="([^"]+)".*"""
+  ).saveAs("authorisationCode")
 
   def login: ChainBuilder =
     group("AppReg_000_SSO_Login") {
@@ -129,17 +125,33 @@ object SsoAuthentication {
             .formParam("DfpArtifact", "")
             .formParam("i19", "3306")
             .check(status.is(200))
-            .check(bodyString.saveAs("entraPasswordResponse"))
+            .check(regex("""(?s).*?"sessionId"\s*:\s*"([^"]+)".*""").saveAs("entraSessionId"))
+            .check(regex("""(?s).*?"sCtx"\s*:\s*"([^"]+)".*""").saveAs("entraContext"))
+            .check(regex("""(?s).*?"sFT"\s*:\s*"([^"]+)".*""").saveAs("entraFlowToken"))
+            .check(regex("""(?s).*?"canary"\s*:\s*"([^"]+)".*""").saveAs("entraCanary"))
         )
-        .exec { session =>
-          session("entraPasswordResponse").validate[String].map { body =>
-            if (responseDiagnosticsEnabled) println(s"Entra password response shape: ${responseShape(body)}")
-            session.remove("entraPasswordResponse")
-          }
-        }
+        .exec(
+          http("Entra KMSI")
+            .post(s"$microsoftLoginBaseUrl/kmsi")
+            .headers(Map(
+              "Accept" -> "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+              "Content-Type" -> "application/x-www-form-urlencoded",
+              "Origin" -> microsoftLoginBaseUrl,
+              "Referer" -> s"$microsoftLoginBaseUrl/$tenantId/login"
+            ))
+            .formParam("LoginOptions", "3")
+            .formParam("type", "28")
+            .formParam("ctx", "#{entraContext}")
+            .formParam("hpgrequestid", "#{entraSessionId}")
+            .formParam("flowToken", "#{entraFlowToken}")
+            .formParam("canary", "#{entraCanary}")
+            .formParam("i19", "7178")
+            .check(status.in(200, 302))
+            .check(authorisationCodeCheck)
+        )
         .exec(
           http("AppReg SSO callback")
-            .get("#{entraCallbackUrl}")
+            .get("/sso/login-callback?code=#{authorisationCode}&state=#{oauthState}")
             .headers(browserHeaders ++ Map("Referer" -> (microsoftLoginBaseUrl + "/")))
             .disableFollowRedirect
             .check(status.is(302))
