@@ -25,9 +25,6 @@ def secrets = [
     secret('TEST-USER1-EMAIL', 'TEST_USER_EMAIL'),
     secret('TEST-USERS-PASSWORD', 'TEST_USERS_PASSWORD'),
     secret('azure-tenant-id', 'TENANT_ID'),
-    secret('azure-app-id', 'CLIENT_ID'),
-    secret('azure-client-secret', 'CLIENT_SECRET'),
-    secret('azure-scope', 'SCOPE'),
   ],
 ]
 
@@ -53,7 +50,7 @@ withNightlyPipeline(type, product, component) {
                         export PATH="$JAVA_HOME/bin:$PATH"
                         java -version
 
-                        for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID CLIENT_ID CLIENT_SECRET SCOPE; do
+                        for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID; do
                           if printenv "$variable" > /dev/null 2>&1; then
                             echo "$variable is set"
                           else

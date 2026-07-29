@@ -58,65 +58,27 @@ export GRADLE_OPTS="-Djavax.net.ssl.trustStore=$HOME/.gradle/zscaler-truststore.
 
 The default `-DauthMode=none` runs the unauthenticated application-load journey.
 
-For scale tests, acquire a short-lived application access token before starting Gatling and pass it through a masked runtime variable:
-
-[source,bash]
-----
-APPREG_ACCESS_TOKEN='token supplied by the pipeline' \
-  ./gradlew gatlingRun -Ddebug=on -DauthMode=client-credentials
-----
-
-For a local proof of concept, use the same pattern with a short-lived token for a dedicated test identity. Do not provide a user password, Key Vault credential, or client secret to Gatling.
-
-Authenticated runs against Cypress-supported demo or staging targets automatically use their paired AppReg API host. For any other target, set `APPREG_API_BASE_URL` explicitly to the API origin. Gatling calls the protected, read-only `GET /application-lists` endpoint after the UI shell request and expects a `200` JSON response.
-
-In Jenkins, the runner should use its workload identity to retrieve the OAuth client credential from Key Vault, request the token once, and expose only the short-lived token to Gatling. Do not commit credentials, add them to feeders, or use personal Microsoft accounts.
-
-Until the token endpoint is confirmed, it remains runtime configuration. To validate the client-credentials wiring directly, set all of the following variables before running with `-DauthMode=client-credentials`:
-
-* `APPREG_TOKEN_ENDPOINT`
-* `APPREG_CLIENT_ID`
-* `APPREG_CLIENT_SECRET`
-* `APPREG_TOKEN_SCOPE`
-
-This fallback obtains a token per virtual user, so it is intended only for wiring validation—not a scale test.
-
-For the temporary local proof of concept, `-DauthMode=password-grant` supports the same dedicated non-production test identity pattern used by the frontend API tests. It accepts `APPREG_TOKEN_ENDPOINT` as an endpoint override; otherwise it builds the Microsoft Entra endpoint from `TENANT_ID`. The required client, scope, and test-user values can use either the `APPREG_`-prefixed names or the Jenkins-compatible names (`TENANT_ID`, `CLIENT_ID`, `CLIENT_SECRET`, `SCOPE`, `TEST_USER_EMAIL`, and `TEST_USERS_PASSWORD`).
-
-Password grant is for this one-user POC only. Prefer `APPREG_ACCESS_TOKEN` when available, and do not use password grant for a scaled test.
-
-=== Token-pool bootstrap for a pipeline run
-
-`-DauthMode=token-pool` acquires a short-lived token for each dedicated performance-test account before Gatling begins the AppReg journey. Jenkins supplies the endpoint, client values, account password and account-name template from Key Vault as masked environment variables. Gatling receives only the resulting tokens in memory.
-
-The required variables are:
-
-* `TEST_USER_EMAIL` — account-name template containing `{index}`, for example `appreg-perf-{index}@example.test`. It is runtime configuration so the actual naming convention can be changed without code changes. `APPREG_TEST_ACCOUNT_TEMPLATE` remains an optional AppReg-specific alias.
-* `TEST_USERS_PASSWORD` — the shared password for the dedicated test accounts. `APPREG_TEST_USER_PASSWORD` remains an optional alias.
-* `TENANT_ID`, `CLIENT_ID`, `CLIENT_SECRET`, and `SCOPE`. The `APPREG_`-prefixed equivalents remain optional aliases.
-
-The profile calculates its account count: one for debug, `numberOfPipelineUsers` for the pipeline profile, and the expected number of users created by the perftest injection profile. Override the reservation explicitly with `-DaccountCount=<number>` when needed.
-
-Requests are serial, with a one-second default interval, retry only transient `429`/`5xx` responses, and honour a numeric `Retry-After` response. Configure `APPREG_TOKEN_REQUEST_INTERVAL_MILLIS` (default `1000`) and `APPREG_TOKEN_MAX_RETRIES` (default `3`) only when Entra capacity has been agreed.
-
-The utility records only the next account index in `build/appreg-token-pool.next-index`; it never writes tokens, passwords, client secrets, or Entra responses. Set `APPREG_ACCOUNT_CURSOR_FILE` to a retained Jenkins workspace path for consecutive batches, or set `APPREG_ACCOUNT_START_INDEX` to start a specific account range. Do not use one cursor file for concurrent jobs: each job needs its own allocated account range/cursor.
-
 === Production-like SSO UI journey
 
-`-DauthMode=sso-login` runs AppReg's real HTTP SSO sequence for each virtual user: `/sso/login`, Entra authorisation and credential submission, `/sso/login-callback`, then `/sso/me`. Gatling keeps the resulting `appreg.sid` cookie in that virtual user's cookie jar while it performs the UI journey. This does not require an AppReg product change.
+`-DauthMode=sso-login` runs AppReg's real HTTP SSO sequence for each virtual user: `/sso/login`, Entra authorisation, credential submission, Entra's KMSI continuation, then AppReg's SSO callback and `/sso/me`. Gatling follows the Entra redirects and keeps the resulting `appreg.sid` cookie in that virtual user's cookie jar while it performs the UI journey. This does not require an AppReg product change.
 
-The run uses `TEST_USER_EMAIL` (or `APPREG_TEST_ACCOUNT_TEMPLATE`) and `TEST_USERS_PASSWORD` from Jenkins. For more than one virtual user, the account template must contain `{index}`, for example `ar-test-{index}@hmcts.net`. The shared password is never put in a feeder, log, report, or file.
+The run requires these masked runtime variables:
+
+* `TEST_USER_EMAIL` — one dedicated account for the one-user proof, or an account-name template containing `{index}` for multi-user runs. `APPREG_TEST_ACCOUNT_TEMPLATE` is an optional alias.
+* `TEST_USERS_PASSWORD` — the shared password for dedicated test accounts. `APPREG_TEST_USER_PASSWORD` is an optional alias.
+* `TENANT_ID` — the Entra tenant. `APPREG_TENANT_ID` is an optional alias.
+
+The shared password is never put in a feeder, log, report, or file.
 
 SSO login is deliberately included in the measured traffic. AppReg currently rate-limits `/sso/login` to ten requests per minute, so start with one user and retain a login rate below that limit. Do not repeatedly log in inside a journey loop. The first staging run must be a one-user proof because Entra response shapes can change.
 
-The Jenkins pipeline defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE` and confirming there are enough dedicated accounts. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
+The Jenkins pipeline defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
+
+After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
 
 == Useful options
 
 * `-Ddebug=on` — run a single virtual user.
 * `-Denv=<name>` — override the configured environment label.
 * `-DauthMode=none` — run without authentication (default).
-* `-DauthMode=client-credentials` — attach a service access token to authenticated requests.
-* `-DauthMode=password-grant` — temporary dedicated-test-user authentication for the local POC.
-* `-DauthMode=token-pool` — pre-acquire one password-grant token per dedicated test account before the run.
 * `-DauthMode=sso-login` — execute the real AppReg/Entra HTTP login before the UI journey.

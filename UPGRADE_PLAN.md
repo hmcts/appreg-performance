@@ -11,6 +11,7 @@ Keep the Gatling performance-test project supportable and able to identify depen
 - Gatling and the Gatling Gradle plugin are both pinned to 3.14.3.
 - The OWASP Dependency-Check Gradle plugin is pinned to 12.1.3.
 - `gatling.scalaVersion` is aligned to Scala 2.13.16, the version resolved by the Gatling runtime.
+- The one-user SSO/UI proof completed successfully in Client Platform Jenkins on Temurin Java 21.0.12 on 29 July 2026.
 - A local OWASP scan could not complete because it could not retrieve NVD CVE data. This is a scan-data access issue, not a confirmed finding of vulnerable dependencies.
 
 ## Java runtime compatibility
@@ -48,11 +49,11 @@ Dependency-Check requires external vulnerability data and supports NVD API keys.
 
 **Priority: medium; low risk**
 
-**Status: configuration aligned; Java 21 pipeline verification pending.**
+**Status: completed for the current versions.**
 
 1. Align the declared Scala version with the version resolved by Gatling (2.13.16). **Completed.**
 2. Keep the Gatling Gradle plugin version and `gatlingVersion` aligned when upgrading. They are both currently 3.14.3. **Completed for the current version.**
-3. Run `./gradlew gatlingClasses` and `./gradlew gatlingRun -Ddebug=on` after the change on the Client Platform Java 21 agent. **Pending.**
+3. Run `./gradlew gatlingClasses` and the one-user SSO/UI proof on the Client Platform Java 21 agent. **Completed on Temurin 21.0.12, 29 July 2026.**
 
 **Success criteria:** the dependency graph has no unintended Scala version substitution and the smoke journey remains successful.
 

@@ -7,7 +7,7 @@ import io.gatling.core.controller.inject.open.OpenInjectionStep
 import io.gatling.commons.stats.assertion.Assertion
 import io.gatling.core.pause.PauseType
 import scenarios._
-import utils.{Authentication, Environment, SsoAuthentication, TokenPoolBootstrap}
+import utils.{Environment, SsoAuthentication}
 
 import scala.concurrent.duration._
 
@@ -32,7 +32,7 @@ class AppRegSimulation extends Simulation {
   val authMode = System.getProperty(
     "authMode",
     scala.util.Properties.envOrElse("AUTH_MODE", "none")
-  ) //none|client-credentials|password-grant|token-pool|sso-login
+  ) // none|sso-login
   /* ******************************** */
 
   /* PERFORMANCE TEST CONFIGURATION */
@@ -56,7 +56,7 @@ class AppRegSimulation extends Simulation {
     .toDouble
   /* ******************************** */
 
-  // One dedicated test account is allocated per virtual user for token-pool runs.
+  // One dedicated test account is allocated per SSO virtual user.
   // A manual override permits a profile to reserve a larger, known account range.
   val requiredAccountCount: Int = Option(System.getProperty("accountCount"))
     .map(_.toInt)
@@ -67,8 +67,6 @@ class AppRegSimulation extends Simulation {
       case _ => 1
     })
 
-  val tokenPool = if (authMode == "token-pool") TokenPoolBootstrap.fetch(requiredAccountCount) else Vector.empty[String]
-  val tokenFeeder = tokenPool.iterator.map(token => Map("accessToken" -> token))
   val ssoUserFeeder = if (authMode == "sso-login") SsoAuthentication.users(requiredAccountCount) else Iterator.empty
 
   val httpProtocol = http
@@ -82,7 +80,6 @@ class AppRegSimulation extends Simulation {
     println(s"Test Environment: ${env}")
     println(s"Debug Mode: ${debugMode}")
     println(s"Authentication Mode: ${authMode}")
-    if (authMode == "token-pool") println(s"Token Pool Accounts: $requiredAccountCount")
     if (authMode == "sso-login") println(s"SSO Login Accounts: $requiredAccountCount")
   }
 
@@ -91,14 +88,10 @@ class AppRegSimulation extends Simulation {
       exec(_.set("env", s"${env}"))
       .exec(authMode match {
         case "none" => exec(session => session)
-        case "client-credentials" => Authentication.clientCredentials
-        case "password-grant" => Authentication.passwordGrant
-        case "token-pool" => feed(tokenFeeder)
         case "sso-login" => feed(ssoUserFeeder).exec(SsoAuthentication.login)
-        case _ => throw new IllegalArgumentException("authMode must be none, client-credentials, password-grant, token-pool or sso-login")
+        case _ => throw new IllegalArgumentException("authMode must be none or sso-login")
       })
       .exec(AppRegScenario.applicationsList(
-        apiAuthenticated = authMode != "none" && authMode != "sso-login",
         sessionAuthenticated = authMode == "sso-login"
       ))
     }
