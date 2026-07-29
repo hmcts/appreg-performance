@@ -129,10 +129,12 @@ object SsoAuthentication {
             .check(callbackUrlCheck)
         )
         .exec { session =>
-          session("entraCallbackUrl").asOption[String]
-            .map(_.replace("\\/", "/").replace("&amp;", "&").replace("\\u0026", "&"))
-            .map(session.set("entraCallbackUrl", _))
-            .getOrElse(session)
+          session("entraCallbackUrl").validate[String].map { callbackUrl =>
+            session.set(
+              "entraCallbackUrl",
+              callbackUrl.replace("\\/", "/").replace("&amp;", "&").replace("\\u0026", "&")
+            )
+          }
         }
         .exec(
           http("AppReg SSO callback")
