@@ -8,6 +8,7 @@ def vaultOverrides = [
   'dev': 'stg',
   'preview': 'stg',
 ]
+def stagingVaultUrl = 'https://appreg-stg.vault.azure.net/'
 
 static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
   [
@@ -24,22 +25,42 @@ def secrets = [
     secret('TEST-USER1-EMAIL', 'TEST_USER_EMAIL'),
     secret('TEST-USERS-PASSWORD', 'TEST_USERS_PASSWORD'),
     secret('azure-tenant-id', 'TENANT_ID'),
-    secret('azure-app-id', 'CLIENT_ID'),
-    secret('azure-client-secret', 'CLIENT_SECRET'),
-    secret('azure-scope', 'SCOPE'),
   ],
 ]
 
 
 withNightlyPipeline(type, product, component) {
-    overrideVaultEnvironments(vaultOverrides)
-    loadVaultSecrets(secrets)
+    node {
+        stage('Direct Gatling proof') {
+            timeout(time: 90, unit: 'MINUTES') {
+                checkout scm
+                withAzureKeyvault(
+                    azureKeyVaultSecrets: secrets['appreg-${env}'],
+                    keyVaultURLOverride: stagingVaultUrl,
+                    applicationIDOverride: env.AZURE_CLIENT_ID,
+                    applicationSecretOverride: env.AZURE_CLIENT_SECRET
+                ) {
+                    env.TEST_TYPE = 'pipeline'
+                    env.TEST_URL = 'https://appreg.staging.apps.hmcts.net'
+                    env.AUTH_MODE = 'sso-login'
+                    env.PERFORMANCE_TEST_USERS = '1'
 
-    env.TEST_TYPE = 'pipeline'
+                    sh '''
+                        export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
+                        export PATH="$JAVA_HOME/bin:$PATH"
+                        java -version
 
-    enablePerformanceTest(90)
-
-    afterFailure('test') {
-        publishPerformanceReports()
+                        for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID; do
+                          if printenv "$variable" > /dev/null 2>&1; then
+                            echo "$variable is set"
+                          else
+                            echo "$variable is missing"
+                          fi
+                        done
+                        ./gradlew --no-daemon gatlingRun
+                    '''
+                }
+            }
+        }
     }
 }

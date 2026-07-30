@@ -2,9 +2,13 @@ package utils
 
 object Environment {
 
-  val baseURL = "https://<url>.#{env}.platform.hmcts.net"
+  private val defaultBaseURL = "https://appreg.test.apps.hmcts.net"
 
-  val minThinkTime = 5
-  val maxThinkTime = 7
+  val baseURL = Option(System.getenv("TEST_URL"))
+    .filter(_.nonEmpty)
+    .map(_.stripSuffix("/"))
+    .getOrElse(defaultBaseURL)
+
+  val applicationsListPath = "/applications-list"
 
 }

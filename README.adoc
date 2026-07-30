@@ -1,22 +1,84 @@
-### <Service Name> Gatling Performance Tests
+= AppReg Gatling performance tests
 
-*** INSTRUCTIONS (Remove this list once complete):
- 1. Rename the Service_Simulation and DemoScenario files
- 2. Create scenarios as required using the DemoScenario template
- 3. Update the simulation with the scenarios required, volumes, workload model, etc
- 4. Update the url in the Environment file
- 5. Update the build.gradle with the simulation name
- 6. Update the Jenkins_nightly file to run in a nightly pipeline (ensure you add the necessary tags to the repo for Jenkins to pick it up)
+Gatling performance tests for the HMCTS Applications Register. The current smoke journey loads the Applications Register page at `https://appreg.test.apps.hmcts.net/applications-list`.
 
-To run locally:
-- Performance test against the perftest environment: `./gradlew gatlingRun`
+== Prerequisites
 
-Flags:
-- Debug (single-user mode): `-Ddebug=on e.g. ./gradlew gatlingRun -Ddebug=on`
-- Run against AAT: `Denv=aat e.g. ./gradlew gatlingRun -Denv=aat`
+* Java 21 (JDK), available as `java` on your `PATH`
+* Git
+* Network access to the AppReg test environment and Maven Central/Gradle services
 
-*** REMOVE THE BELOW IF NOT USING A CLIENT SECRET
+Gradle does not need to be installed separately: the included Gradle wrapper downloads the required version and Gatling dependencies on its first run.
 
-Before running locally, update the client secret in src/gatling/resources/application.conf then run `git update-index --assume-unchanged src/gatling/resources/application.conf` to ensure the changes aren't pushed to github.
+== Build and run locally
 
-To make other configuration changes to the file, first run `git update-index --no-assume-unchanged src/gatling/resources/application.conf`, ensuring to remove the client secret before pushing to origin
+From the repository root:
+
+[source,bash]
+----
+./gradlew gatlingClasses
+./gradlew gatlingRun -Ddebug=on
+----
+
+`-Ddebug=on` runs one virtual user and is the recommended way to validate a change. Omit it to run the configured performance profile.
+
+Set `TEST_URL` to run the same journey against another approved environment. It must be the application origin, without the `/applications-list` path:
+
+[source,bash]
+----
+TEST_URL='https://appreg.test.apps.hmcts.net' ./gradlew gatlingRun -Ddebug=on
+----
+
+Gatling writes HTML reports to `build/reports/gatling/`; the final command output includes the exact report location.
+
+== Zscaler certificate issue
+
+If the Gradle wrapper fails while downloading Gradle or dependencies with a `PKIX path building failed` or `certificate_unknown` error, Java does not trust the Zscaler TLS-inspection certificate.
+
+Download the current Zscaler certificates from https://git.cgi.com/sam.franklin/wsl-zscalar-config, then add the root certificate to a Java trust store used by Gradle. Do not disable TLS validation.
+
+For example, create a dedicated local trust store from the downloaded PEM certificate:
+
+[source,bash]
+----
+keytool -importcert -noprompt \
+  -alias zscaler-root-ca \
+  -file /path/to/ZscalerRootCertificate.pem \
+  -keystore "$HOME/.gradle/zscaler-truststore.p12" \
+  -storetype PKCS12 \
+  -storepass changeit
+
+export GRADLE_OPTS="-Djavax.net.ssl.trustStore=$HOME/.gradle/zscaler-truststore.p12 -Djavax.net.ssl.trustStoreType=PKCS12 -Djavax.net.ssl.trustStorePassword=changeit"
+./gradlew gatlingClasses
+----
+
+*Use the certificate file name supplied by the download. The trust store is local-only and should not be committed.*
+
+== Authentication
+
+The default `-DauthMode=none` runs the unauthenticated application-load journey.
+
+=== Production-like SSO UI journey
+
+`-DauthMode=sso-login` runs AppReg's real HTTP SSO sequence for each virtual user: `/sso/login`, Entra authorisation, credential submission, Entra's KMSI continuation, then AppReg's SSO callback and `/sso/me`. Gatling follows the Entra redirects and keeps the resulting `appreg.sid` cookie in that virtual user's cookie jar while it performs the UI journey. This does not require an AppReg product change.
+
+The run requires these masked runtime variables:
+
+* `TEST_USER_EMAIL` — one dedicated account for the one-user proof, or an account-name template containing `{index}` for multi-user runs. `APPREG_TEST_ACCOUNT_TEMPLATE` is an optional alias.
+* `TEST_USERS_PASSWORD` — the shared password for dedicated test accounts. `APPREG_TEST_USER_PASSWORD` is an optional alias.
+* `TENANT_ID` — the Entra tenant. `APPREG_TENANT_ID` is an optional alias.
+
+The shared password is never put in a feeder, log, report, or file.
+
+SSO login is deliberately included in the measured traffic. AppReg currently rate-limits `/sso/login` to ten requests per minute, so start with one user and retain a login rate below that limit. Do not repeatedly log in inside a journey loop. The first staging run must be a one-user proof because Entra response shapes can change.
+
+The Jenkins pipeline defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
+
+After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
+
+== Useful options
+
+* `-Ddebug=on` — run a single virtual user.
+* `-Denv=<name>` — override the configured environment label.
+* `-DauthMode=none` — run without authentication (default).
+* `-DauthMode=sso-login` — execute the real AppReg/Entra HTTP login before the UI journey.
