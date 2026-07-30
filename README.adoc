@@ -76,6 +76,10 @@ The Jenkins pipeline defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`
 
 After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
 
+== Application List create template
+
+`ApplicationListCreateScenario` is a compile-safe placeholder for ARCPOC-1597. It is deliberately not attached to a performance profile until a recorded browser journey has been reviewed. The recording will supply the actual create routes, dynamic form values, unique test-data requirements, assertions and any downstream processing to monitor.
+
 == Useful options
 
 * `-Ddebug=on` — run a single virtual user.
