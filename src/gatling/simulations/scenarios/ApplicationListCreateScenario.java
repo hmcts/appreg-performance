@@ -12,6 +12,7 @@ import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.Headers.COMMON_HEADER;
 
 /**
  * Creates an application list using disposable data generated for each virtual user.
@@ -29,6 +30,7 @@ public final class ApplicationListCreateScenario {
         .set("applicationListDescription", "Gatling create-list proof " + UUID.randomUUID()))
         .exec(http("Application lists page")
           .get("/applications-list")
+          .headers(COMMON_HEADER)
           .check(status().is(200)))
         .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
         .exec(http("Create application list")
