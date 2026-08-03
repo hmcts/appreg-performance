@@ -32,3 +32,14 @@ sourceSets {
     }
   }
 }
+
+tasks.named('gatlingRecorder') {
+  // Keep browser recordings separate from curated performance journeys.
+  simulationPackage = 'recorded'
+  simulationClass = 'RecordedSimulation'
+}
+
+tasks.named('gatlingRun') {
+  // Keep CI and the default local run focused on the curated load profile.
+  simulationClassName = 'simulations.AppRegSimulation'
+}

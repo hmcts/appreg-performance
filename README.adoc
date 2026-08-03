@@ -31,6 +31,89 @@ TEST_URL='https://appreg.test.apps.hmcts.net' ./gradlew gatlingRun -Ddebug=on
 
 Gatling writes HTML reports to `build/reports/gatling/`; the final command output includes the exact report location.
 
+== Recording browser journeys
+
+Recordings are raw browser evidence, not production-ready performance tests. They must not be added to a load profile or deployed directly. After recording, extract useful requests into the curated scenarios, replace dynamic values with session variables/feeders, define safe unique test data, and add appropriate assertions. Delete the raw recording once that assimilation is complete.
+
+Use a dedicated, approved test account and a disposable Chrome profile. Never commit credentials, cookies, access tokens, captured personal data, or Recorder-generated response-body files.
+
+Set the application origin and its Recorder allow-list regular expression for the approved environment. Do not include a path in `RECORDING_APP_URL`.
+
+[source,bash]
+----
+export RECORDING_APP_URL='https://<approved-recording-host>'
+export RECORDING_APP_URL_REGEX='https://<approved-recording-host-regex>/.*'
+----
+
+=== One-time HTTPS certificate setup
+
+Chrome cannot bypass a self-signed certificate for an HSTS-enabled application. Create and trust a short-lived local certificate authority (CA) for Gatling Recorder instead:
+
+[source,bash]
+----
+mkdir -p /private/tmp/gatling-recorder-ca
+
+openssl genrsa -out /private/tmp/gatling-recorder-ca/ca-key.pem 4096
+
+openssl req -x509 -new -sha256 -days 7 \
+  -key /private/tmp/gatling-recorder-ca/ca-key.pem \
+  -out /private/tmp/gatling-recorder-ca/ca-cert.pem \
+  -subj "/CN=Gatling Recorder Local CA" \
+  -addext "basicConstraints=critical,CA:TRUE" \
+  -addext "keyUsage=critical,keyCertSign,cRLSign" \
+  -addext "subjectKeyIdentifier=hash"
+
+sudo security add-trusted-cert -d -r trustRoot \
+  -k /Library/Keychains/System.keychain \
+  /private/tmp/gatling-recorder-ca/ca-cert.pem
+----
+
+Fully quit Chrome after installing the CA. Trust it only for this dedicated recording workflow; remove it from the System keychain and delete `/private/tmp/gatling-recorder-ca` when recording work is complete.
+
+=== Authenticate without the Recorder proxy
+
+Start the disposable Chrome profile without a proxy and authenticate using the approved test account:
+
+[source,bash]
+----
+open -na "Google Chrome" --args \
+  --user-data-dir=/private/tmp/gatling-recording-chrome \
+  --no-proxy-server
+----
+
+Open `$RECORDING_APP_URL` and confirm the intended authenticated page is available. Fully quit this Chrome instance when complete. The profile retains the authenticated session for the next step.
+
+=== Configure and start the Recorder
+
+Launch Gatling Recorder from the repository root:
+
+[source,bash]
+----
+./gradlew gatlingRecorder
+----
+
+Configure the Recorder as follows, then click `Start!` and confirm it switches to the recording screen with a `Stop` control:
+
+* Mode: `HTTP Proxy`; port: `8000`.
+* HTTPS mode: `Certificate Authority`.
+* Certificate: `/private/tmp/gatling-recorder-ca/ca-cert.pem`; private key: `/private/tmp/gatling-recorder-ca/ca-key.pem`.
+* Package: `recorded`; format: `Java 17`; class name: a descriptive `Recorded...` name, for example `RecordedApplicationListCreate`.
+* Enable Filters; add `$RECORDING_APP_URL_REGEX` as the only AllowList entry; leave DenyList empty.
+* Keep Follow Redirects, Infer HTML resources, Automatic Referers, and Remove cache headers enabled. Leave Save & check response bodies disabled.
+
+=== Record the browser journey
+
+Only after the Recorder is running, launch the same Chrome profile through its proxy:
+
+[source,bash]
+----
+open -na "Google Chrome" --args \
+  --user-data-dir=/private/tmp/gatling-recording-chrome \
+  --proxy-server=http://127.0.0.1:8000
+----
+
+Open `$RECORDING_APP_URL` and confirm an application request appears in Gatling before completing the journey. Stop and save when finished. The generated Java source is written under `src/gatling/java/recorded/`.
+
 == Zscaler certificate issue
 
 If the Gradle wrapper fails while downloading Gradle or dependencies with a `PKIX path building failed` or `certificate_unknown` error, Java does not trust the Zscaler TLS-inspection certificate.
@@ -76,9 +159,30 @@ The Jenkins pipeline defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`
 
 After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
 
-== Application List create template
+== Application List create proof
 
-`ApplicationListCreateScenario` is a compile-safe placeholder for ARCPOC-1597. It is deliberately not attached to a performance profile until a recorded browser journey has been reviewed. The recording will supply the actual create routes, dynamic form values, unique test-data requirements, assertions and any downstream processing to monitor.
+`ApplicationListCreateScenario` is a reusable authenticated chain that loads the Application Lists page, extracts the anti-forgery token, creates a list with a unique description, and retrieves the created list. It is consumed by `ApplicationListCreateProofSimulation`, a dedicated single-user validation simulation.
+
+The proof creates persistent test data. Run it only against an approved environment with a dedicated test account, and remove or otherwise manage the created list according to the environment's test-data policy.
+
+To run the one-user proof, set `TEST_URL` to the approved origin and supply the SSO variables described above:
+
+[source,bash]
+----
+TEST_URL="$RECORDING_APP_URL" \
+  ./gradlew gatlingRun \
+  --simulation simulations.ApplicationListCreateProofSimulation
+----
+
+The recorded court-location code is the default. Override it with an approved code when required:
+
+[source,bash]
+----
+TEST_URL="$RECORDING_APP_URL" \
+  ./gradlew gatlingRun \
+  -DappRegCourtLocationCode=<approved-court-location-code> \
+  --simulation simulations.ApplicationListCreateProofSimulation
+----
 
 == Useful options
 
