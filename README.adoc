@@ -97,7 +97,7 @@ Configure the Recorder as follows, then click `Start!` and confirm it switches t
 * Mode: `HTTP Proxy`; port: `8000`.
 * HTTPS mode: `Certificate Authority`.
 * Certificate: `/private/tmp/gatling-recorder-ca/ca-cert.pem`; private key: `/private/tmp/gatling-recorder-ca/ca-key.pem`.
-* Package: `recorded`; format: `Java 17`; class name: a descriptive `Recorded...` name, for example `RecordedApplicationListCreate`.
+* Package: `recorded`; format: `Java 17`; class name: a descriptive `Recorded...` name, for example `RecordedApplicationListCreate`. Java 17 is Gatling Recorder's newest Java source template; generated code is compiled and run with this project's Java 21 toolchain.
 * Enable Filters; add `$RECORDING_APP_URL_REGEX` as the only AllowList entry; leave DenyList empty.
 * Keep Follow Redirects, Infer HTML resources, Automatic Referers, and Remove cache headers enabled. Leave Save & check response bodies disabled.
 
@@ -155,7 +155,9 @@ The shared password is never put in a feeder, log, report, or file.
 
 SSO login is deliberately included in the measured traffic. AppReg currently rate-limits `/sso/login` to ten requests per minute, so start with one user and retain a login rate below that limit. Do not repeatedly log in inside a journey loop. The first staging run must be a one-user proof because Entra response shapes can change.
 
-The Jenkins pipeline defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
+The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
+
+The CNP push pipeline runs the curated `AppRegSimulation` and the one-user `ApplicationListCreateProofSimulation` explicitly. The latter creates persistent test data, so it must retain its dedicated account and test-data controls.
 
 After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
 

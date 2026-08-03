@@ -10,15 +10,16 @@ Keep the Gatling performance-test project supportable and able to identify depen
 - The Gradle wrapper is pinned to 8.14.5.
 - Gatling is pinned to 3.15.1 and the matching Gatling Gradle plugin to 3.15.1.2.
 - The OWASP Dependency-Check Gradle plugin is pinned to 12.1.3.
-- `gatling.scalaVersion` is aligned to Scala 2.13.16, the version resolved by the Gatling runtime.
+- The project source and Gradle configuration are Java-only. Gatling may retain Scala implementation dependencies internally, but the repository has no Scala source or Scala Gradle plugin.
 - The one-user SSO/UI proof completed successfully in Client Platform Jenkins on Temurin Java 21.0.12 on 29 July 2026.
+- The one-user Application List create proof compiled and completed successfully against the approved staging environment on Java 21 on 3 August 2026.
 - No repository-managed NVD API key or OWASP Dependency-Check scan is required for this POC unless an HMCTS security or platform requirement is identified. The current Dependency-Check plugin is retained but is not part of the required build validation.
 
 ## Java runtime compatibility
 
 **Status: required Client Platform constraint**
 
-The project targets Java 21 to comply with the Client Platform Jenkins policy. A previous direct Jenkins proof used a Java 17 agent and consequently could not load Java 21 classes; that agent configuration is no longer supported by the shared pipeline library.
+The project targets Java 21 to comply with the Client Platform Jenkins policy. Gatling simulations are authored in Java; Gatling Recorder's Java 17 template is source-compatible with the Java 21 toolchain. A previous direct Jenkins proof used a Java 17 agent and consequently could not load Java 21 classes; that agent configuration is no longer supported by the shared pipeline library.
 
 Before changing this target from Java 21:
 
@@ -27,7 +28,7 @@ Before changing this target from Java 21:
 3. Run the one-user authenticated SSO/UI proof and an unauthenticated smoke run.
 4. Record the Java version used by the Jenkins agent in the change or pipeline output.
 
-**Success criteria:** Gatling loads `AppRegSimulation` on the Client Platform Java 21 runtime without a class-version error.
+**Success criteria:** Gatling loads the Java simulations on the Client Platform Java 21 runtime without a class-version error.
 
 ## Phase 1 — vulnerability-scanning decision
 
@@ -41,17 +42,17 @@ If scanning is enabled later, agree the CVSS threshold and exception/suppression
 
 **Re-entry criteria:** a documented HMCTS security/platform requirement for this repository, or a decision to adopt an available centrally managed scanning service.
 
-## Phase 2 — configuration alignment
+## Phase 2 — Java-only configuration alignment
 
 **Priority: medium; low risk**
 
 **Status: completed for the current versions.**
 
-1. Align the declared Scala version with the version resolved by Gatling (2.13.16). **Completed.**
+1. Remove Scala source and the Scala Gradle plugin. **Completed.**
 2. Keep the Gatling Gradle plugin version and `gatlingVersion` aligned when upgrading. They are currently 3.15.1.2 and 3.15.1 respectively. **Completed for the current version.**
-3. Run `./gradlew gatlingClasses` and the one-user SSO/UI proof on the Client Platform Java 21 agent. **Completed on Temurin 21.0.12, 29 July 2026.**
+3. Run `./gradlew gatlingClasses`, the one-user SSO/UI proof, and the one-user Application List create proof on Java 21. **Completed.**
 
-**Success criteria:** the dependency graph has no unintended Scala version substitution and the smoke journey remains successful.
+**Success criteria:** Java Gatling source compiles and the smoke and create-list proof journeys remain successful.
 
 ## Phase 3 — dependency maintenance
 
@@ -63,7 +64,7 @@ Renovate is enabled through `renovate.json`, which extends the shared HMCTS pres
 
 1. Review available Gatling releases and upgrade the Gradle plugin and Gatling runtime together in a dedicated pull request. **Completed: Gatling 3.15.1 / plugin 3.15.1.2 compiled locally and completed the Jenkins one-user SSO/UI proof.**
 2. Upgrade the Dependency-Check plugin to the current compatible release. **Deferred: no scanning requirement for the current POC.**
-3. Run the full vulnerability scan, compile, and one-user smoke test. **Partially completed: compile and one-user SSO/UI proof passed; scan deferred under Phase 1.**
+3. Run the full vulnerability scan, compile, and one-user smoke and create-list proof tests. **Partially completed: compile and both one-user proofs passed; scan deferred under Phase 1.**
 4. Compare the Gatling report structure and request metrics before and after the upgrade. **Pending: retain the current Jenkins run as the post-upgrade baseline when the next recorded journey is added.**
 
 Renovate pull requests are inputs to this process, not automatic approval to merge: apply the validation steps above before merging any upgrade.
@@ -93,7 +94,7 @@ The current Gradle release can be checked at the [official Gradle versions endpo
 | --- | --- | --- | --- |
 | 1 | Confirm a centrally managed or repository-specific scanning requirement | Security/Platform and performance-test maintainers | Security or platform decision |
 | 2 | Confirm Client Platform Java runtime before any Java-target change | Platform/CI and performance-test maintainers | Client Platform agent configuration |
-| 3 | Align Scala configuration | Performance-test maintainers | None |
+| 3 | Maintain Java-only Gatling configuration | Performance-test maintainers | None |
 | 4 | Upgrade Gatling | Performance-test maintainers | Java runtime compatibility |
 | 5 | Maintain Dependency-Check if scanning becomes required | Performance-test maintainers | Phase 1 re-entry criteria |
 | 6 | Migrate Gradle to version 9 | Performance-test maintainers and CI | Compatible Gatling and Dependency-Check plugins |
