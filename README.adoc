@@ -212,6 +212,31 @@ TEST_URL="$RECORDING_APP_URL" \
   --simulation simulations.ApplicationListSearchProofSimulation
 ----
 
+== Application update proof
+
+`UpdateApplicationScenario` is a reusable authenticated chain for ARCPOC-1615. It loads an explicitly selected Application List and Application, retrieves the relevant application-code metadata, then submits the update and verifies a successful response. It is consumed by `UpdateApplicationProofSimulation`.
+
+This proof is destructive. It requires one isolated, approved Application entry that is not shared with another virtual user or test run. The scenario deliberately generates new disposable values on every execution; it must not be run against production or a record containing real personal data.
+
+To run the one-user proof, set the target IDs captured from the approved test data, alongside the SSO values described above:
+
+[source,bash]
+----
+TEST_URL="$RECORDING_APP_URL" \
+  ./gradlew gatlingRun \
+  -DappRegUpdateApplicationListId=<approved-list-id> \
+  -DappRegUpdateApplicationEntryId=<approved-entry-id> \
+  --simulation simulations.UpdateApplicationProofSimulation
+----
+
+The proof defaults to the recorded application code `MX99006` and wording-field key `Describe Seized Food`. Override both when the isolated target entry uses a different application code:
+
+[source,bash]
+----
+-DappRegUpdateApplicationCode=<approved-application-code> \
+-DappRegUpdateApplicationWordingFieldKey=<wording-field-key>
+----
+
 == Useful options
 
 * `-Ddebug=on` — run a single virtual user.
