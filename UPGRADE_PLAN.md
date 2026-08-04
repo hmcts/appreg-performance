@@ -77,16 +77,22 @@ Do not force individual transitive versions such as Netty or Jackson unless a co
 
 **Priority: planned work**
 
-The project currently emits deprecation warnings that say it will be incompatible with Gradle 9. Upgrade Gradle in a separate change, resolving those warnings before moving to the current Gradle major release.
+**Status: deferred pending Gatling Gradle-plugin compatibility.**
 
-1. Record the existing `./gradlew tasks`, `gatlingClasses`, `gatlingRun -Ddebug=on`, authenticated one-user SSO/UI proof, and Dependency-Check results.
-2. Upgrade the wrapper to a supported Gradle 9 release.
-3. Resolve all Gradle 9 compatibility warnings and plugin incompatibilities.
-4. Repeat the baseline commands and review generated reports.
+Renovate PR #8 proposes a wrapper upgrade from Gradle 8.14.5 to 9.6.1. Java 21 satisfies Gradle 9's Java 17-or-later runtime requirement. However, the project's current `io.gatling.gradle` plugin version (3.15.1.2) is documented by Gatling as tested through Gradle 8.6; Gradle 9 is outside its published tested range. Do not merge the Renovate update as an automatic dependency update.
+
+First confirm a Gatling Gradle-plugin version with explicit Gradle 9 support, or demonstrate compatibility through the validation below and record the evidence in the upgrade pull request. Review the [Gradle 9 migration guide](https://docs.gradle.org/current/userguide/upgrading_major_version_9.html) and [Gatling Gradle-plugin compatibility guidance](https://docs.gatling.io/integrations/build-tools/gradle-plugin/) at the time of the upgrade.
+
+1. On Gradle 8.14.5, record `./gradlew help --warning-mode=all`, `./gradlew tasks`, `gatlingClasses`, the authenticated one-user SSO/UI proof, and existing report output.
+2. Upgrade the wrapper and, if required, the Gatling Gradle plugin and Gatling runtime together in a dedicated pull request.
+3. Resolve Gradle 9 errors, warnings and plugin incompatibilities; do not suppress them without a documented rationale.
+4. Run `./gradlew clean gatlingClasses` on Java 21.
+5. Run the authenticated one-user SSO/UI, Application List create, and Application List search proofs against the approved environment. Confirm the CNP pipeline executes the same proofs successfully.
+6. Review generated Gatling reports and compare request names, response outcomes and metrics against the pre-upgrade baseline.
 
 The current Gradle release can be checked at the [official Gradle versions endpoint](https://services.gradle.org/versions/current).
 
-**Success criteria:** no Gradle 9 compatibility warnings, successful compilation and smoke test, and a working dependency scan.
+**Success criteria:** a Gatling plugin with demonstrated Gradle 9 compatibility; no unresolved Gradle 9 warnings; successful Java 21 compilation and all one-user proofs; no unexplained change to Gatling report structure or request outcomes; and, if Phase 1 is re-entered, a working dependency scan.
 
 ## Proposed order and ownership
 
