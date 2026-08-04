@@ -1,6 +1,7 @@
 results/*
 .DS_Store
 .idea/
+.vscode/
 target/**
 *.iml
 *.project
@@ -9,3 +10,6 @@ build/**
 *.log
 out/**
 *.lock
+src/gatling/java/recorded/
+src/gatling/resources/recorded/
+src/gatling/resources/recorder.conf

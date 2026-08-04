@@ -57,7 +57,10 @@ withNightlyPipeline(type, product, component) {
                             echo "$variable is missing"
                           fi
                         done
-                        ./gradlew --no-daemon gatlingRun
+                        ./gradlew --no-daemon gatlingRun \
+                          --simulation simulations.AppRegSimulation
+                        ./gradlew --no-daemon gatlingRun \
+                          --simulation simulations.ApplicationListCreateProofSimulation
                     '''
                 }
             }
