@@ -72,6 +72,10 @@ withNightlyPipeline(type, product, component) {
             }
         }
     }
+
+    afterAlways('test') {
+        archiveDependencyCheckReport()
+    }
 }
 
 def publishGatlingReports() {
@@ -130,4 +134,16 @@ def publishGatlingReports() {
         reportFiles: 'index.html',
         reportName: 'Gatling Performance Reports'
     ]
+}
+
+def archiveDependencyCheckReport() {
+    def dependencyCheckReport = 'build/reports/dependency-check-report.html'
+
+    if (!fileExists(dependencyCheckReport)) {
+        echo "No Dependency-Check report found at ${dependencyCheckReport}; nothing to archive."
+        return
+    }
+
+    writeFile file: 'dependency-check-report.html', text: readFile(dependencyCheckReport)
+    archiveArtifacts allowEmptyArchive: true, artifacts: 'dependency-check-report.html'
 }
