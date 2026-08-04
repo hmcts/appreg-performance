@@ -50,4 +50,47 @@ withNightlyPipeline("java", product, component) {
     env.PERFORMANCE_TEST_USERS = '1'
 
     enablePerformanceTest(90)
+
+    afterAlways('test') {
+        publishGatlingReports()
+    }
+}
+
+def publishGatlingReports() {
+    def reportsDirectory = 'build/reports/gatling'
+
+    if (!fileExists(reportsDirectory)) {
+        echo "No Gatling reports found in ${reportsDirectory}; nothing to publish."
+        return
+    }
+
+    def reportIndexes = findFiles(glob: "${reportsDirectory}/*/index.html")
+    def reportLinks = reportIndexes.collect { report ->
+        def relativePath = report.path.substring(reportsDirectory.length() + 1)
+        def reportDirectory = relativePath.substring(0, relativePath.lastIndexOf('/'))
+        "<li><a href=\"${relativePath}\">${reportDirectory}</a></li>"
+    }.join('\n')
+
+    writeFile(
+        file: "${reportsDirectory}/index.html",
+        text: """<!doctype html>
+<html lang=\"en\">
+  <head><meta charset=\"utf-8\"><title>Gatling Performance Reports</title></head>
+  <body>
+    <h1>Gatling Performance Reports</h1>
+    <ul>${reportLinks ?: '<li>No Gatling report was generated.</li>'}</ul>
+  </body>
+</html>
+"""
+    )
+
+    archiveArtifacts allowEmptyArchive: true, artifacts: "${reportsDirectory}/**/*"
+    publishHTML target: [
+        allowMissing: true,
+        alwaysLinkToLastBuild: true,
+        keepAll: true,
+        reportDir: reportsDirectory,
+        reportFiles: 'index.html',
+        reportName: 'Gatling Performance Reports'
+    ]
 }
