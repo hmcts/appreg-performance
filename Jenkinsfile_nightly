@@ -51,7 +51,7 @@ withNightlyPipeline("java", product, component) {
 
     enablePerformanceTest(90)
 
-    afterFailure('test') {
+    afterAlways('test') {
         publishPerformanceReports()
     }
 
