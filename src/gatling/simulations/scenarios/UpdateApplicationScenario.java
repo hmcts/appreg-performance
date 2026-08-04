@@ -2,7 +2,7 @@ package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
-import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -29,7 +29,7 @@ public final class UpdateApplicationScenario {
   public static ChainBuilder updateApplication() {
     return group("AppReg_040_Application_Update").on(
       exec(session -> {
-        String updateId = UUID.randomUUID().toString();
+        String updateId = String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
         return session
           .set("applicationUpdateId", updateId)
           .set("applicationUpdateDate", LocalDate.now().toString());
@@ -70,7 +70,7 @@ public final class UpdateApplicationScenario {
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
           .body(StringBody("""
-            {"applicationCode":"#{applicationCode}","applicant":{"person":{"name":{"title":"mr","firstName":"Gatling","middleName":"Proof","lastName":"#{applicationUpdateId}"},"contactDetails":{"addressLine1":"1 Gatling Way","addressLine2":"Performance Test","addressLine3":"Test City","addressLine5":"Test County","postcode":"TE1 1ST","phone":"01632960001","mobile":"07700900001","email":"gatling-#{applicationUpdateId}@example.invalid"}}},"respondent":{"person":{"name":{"title":"other","firstName":"Gatling","lastName":"Respondent #{applicationUpdateId}"},"dateOfBirth":"2001-08-04","contactDetails":{"addressLine1":"2 Gatling Way","addressLine2":"Performance Test","postcode":"TE1 1ST","phone":"01632960002","mobile":"07700900002","email":"respondent-#{applicationUpdateId}@example.invalid"}}},"numberOfRespondents":null,"wordingFields":[{"key":"%s","value":"Gatling update proof #{applicationUpdateId}"}],"feeStatuses":[{"paymentReference":null,"paymentStatus":"DUE","statusDate":"#{applicationUpdateDate}"}],"hasOffsiteFee":false,"caseReference":"GATLING-#{applicationUpdateId}","accountNumber":"GATLING-#{applicationUpdateId}","notes":"Gatling update proof #{applicationUpdateId}","officials":[]}
+            {"applicationCode":"#{applicationCode}","applicant":{"person":{"name":{"title":"mr","firstName":"Gatling","middleName":"Proof","lastName":"Taylor #{applicationUpdateId}"},"contactDetails":{"addressLine1":"1 Gatling Way","addressLine2":"Performance Test","addressLine3":"Test City","addressLine5":"Test County","postcode":"SW1A 1AA","phone":"01632960001","mobile":"07700900001","email":"gatling#{applicationUpdateId}@example.com"}}},"respondent":{"person":{"name":{"title":"other","firstName":"Gatling","lastName":"Clark #{applicationUpdateId}"},"dateOfBirth":"2001-08-04","contactDetails":{"addressLine1":"2 Gatling Way","addressLine2":"Performance Test","postcode":"SW1A 1AA","phone":"01632960002","mobile":"07700900002","email":"respondent#{applicationUpdateId}@example.com"}}},"numberOfRespondents":null,"wordingFields":[{"key":"%s","value":"Gatling update #{applicationUpdateId}"}],"feeStatuses":[{"paymentReference":null,"paymentStatus":"DUE","statusDate":"#{applicationUpdateDate}"}],"hasOffsiteFee":false,"caseReference":"CASE-#{applicationUpdateId}","accountNumber":"ACC-FEE-#{applicationUpdateId}","notes":"Gatling update #{applicationUpdateId}","officials":[]}
             """.formatted(WORDING_FIELD_KEY)))
           .check(status().is(200)))
     );
