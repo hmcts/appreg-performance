@@ -68,7 +68,13 @@ def publishGatlingReports() {
     def reportLinks = reportIndexes.collect { report ->
         def relativePath = report.path.substring(reportsDirectory.length() + 1)
         def reportDirectory = relativePath.substring(0, relativePath.lastIndexOf('/'))
-        "<li><a href=\"${relativePath}\">${reportDirectory}</a></li>"
+        [path: relativePath, name: reportDirectory]
+    }
+    def publishedReportLinks = reportLinks.collect { report ->
+        "<li><a href=\"${report.path}\">${report.name}</a></li>"
+    }.join('\n')
+    def archivedReportLinks = reportLinks.collect { report ->
+        "<li><a href=\"${reportsDirectory}/${report.path}\">${report.name}</a></li>"
     }.join('\n')
 
     writeFile(
@@ -78,13 +84,26 @@ def publishGatlingReports() {
   <head><meta charset=\"utf-8\"><title>Gatling Performance Reports</title></head>
   <body>
     <h1>Gatling Performance Reports</h1>
-    <ul>${reportLinks ?: '<li>No Gatling report was generated.</li>'}</ul>
+    <ul>${publishedReportLinks ?: '<li>No Gatling report was generated.</li>'}</ul>
+  </body>
+</html>
+"""
+    )
+    writeFile(
+        file: 'gatling-performance-reports.html',
+        text: """<!doctype html>
+<html lang=\"en\">
+  <head><meta charset=\"utf-8\"><title>Gatling Performance Reports</title></head>
+  <body>
+    <h1>Gatling Performance Reports</h1>
+    <ul>${archivedReportLinks ?: '<li>No Gatling report was generated.</li>'}</ul>
   </body>
 </html>
 """
     )
 
     archiveArtifacts allowEmptyArchive: true, artifacts: "${reportsDirectory}/**/*"
+    archiveArtifacts allowEmptyArchive: true, artifacts: 'gatling-performance-reports.html'
     publishHTML target: [
         allowMissing: true,
         alwaysLinkToLastBuild: true,
