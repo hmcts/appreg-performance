@@ -31,6 +31,8 @@ TEST_URL='https://appreg.test.apps.hmcts.net' ./gradlew gatlingRun -Ddebug=on
 
 Gatling writes HTML reports to `build/reports/gatling/`; the final command output includes the exact report location.
 
+Jenkins is configured to publish Gatling reports after every CNP and nightly performance-test run, including failed runs. Each build archives `build/reports/gatling/**`, exposes a root-level `gatling-performance-reports.html` artifact alongside the Dependency-Check report, and provides a `Gatling Performance Reports` HTML link. The HTML landing pages link to the timestamped report for each simulation generated in the build; Jenkins' standard `all files in zip` download contains the complete report set.
+
 == Test design and code structure
 
 This project uses a modular, business-action design rather than a browser-test Page Object Model. Gatling tests the application's HTTP traffic directly, so production code is organised by reusable AppReg actions instead of pages or UI selectors.
