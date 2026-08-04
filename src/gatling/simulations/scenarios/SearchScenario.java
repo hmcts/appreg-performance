@@ -4,6 +4,7 @@ import io.gatling.javaapi.core.ChainBuilder;
 
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
+import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.headerRegex;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
@@ -39,7 +40,8 @@ public final class SearchScenario {
           .queryParam("sort", SORT_ORDER)
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .check(status().is(200))
-          .check(headerRegex("Content-Type", ".*json.*")))
+          .check(headerRegex("Content-Type", ".*json.*"))
+          .check(jsonPath("$.content[0].id").optional().saveAs("applicationListId")))
     );
   }
 }

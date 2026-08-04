@@ -188,7 +188,7 @@ SSO login is deliberately included in the measured traffic. AppReg currently rat
 
 The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
 
-The CNP push pipeline runs the curated `AppRegSimulation`, the one-user `ApplicationListCreateProofSimulation`, and the one-user `ApplicationListSearchProofSimulation` explicitly. The create proof creates persistent test data, so it must retain its dedicated account and test-data controls.
+The CNP push pipeline runs the curated `AppRegSimulation`, the one-user `ApplicationListCreateProofSimulation`, and the one-user `UpdateApplicationProofSimulation` explicitly. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. The create and update proofs change persistent test data, so they must retain their dedicated account and test-data controls.
 
 After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
 
@@ -229,6 +229,29 @@ TEST_URL="$RECORDING_APP_URL" \
   ./gradlew gatlingRun \
   -DappRegApplicationListSearchDescription=<approved-search-description> \
   --simulation simulations.ApplicationListSearchProofSimulation
+----
+
+== Application update proof
+
+`UpdateApplicationScenario` is a reusable authenticated chain for ARCPOC-1615. It loads an explicitly selected Application List and Application, retrieves the relevant application-code metadata, then submits the update and verifies a successful response. It is consumed by `UpdateApplicationProofSimulation`.
+
+This proof is destructive. For the single-user POC it searches for `Bulk`, selects the first returned Application List and its first entry, then updates it with new disposable values. It must not be run against production or a record containing real personal data. Before a multi-user workload is introduced, replace this temporary selection with deterministic allocation of one isolated entry per virtual user.
+
+To run the one-user proof, supply the SSO values described above:
+
+[source,bash]
+----
+TEST_URL="$RECORDING_APP_URL" \
+  ./gradlew gatlingRun \
+  --simulation simulations.UpdateApplicationProofSimulation
+----
+
+The proof reads the application code from the selected entry. It uses the shared search action, which defaults to searching for `Bulk`; override the search description or wording-field key when the approved POC data requires it:
+
+[source,bash]
+----
+-DappRegApplicationListSearchDescription=<approved-list-description> \
+-DappRegUpdateApplicationWordingFieldKey=<wording-field-key>
 ----
 
 == Useful options
