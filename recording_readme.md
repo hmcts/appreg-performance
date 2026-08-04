@@ -12,9 +12,11 @@ Raw recordings are not performance tests. They must be cleaned up, parameterised
 - The following paths exist locally:
 
   ```text
-  /private/tmp/gatling-recorder-ca/ca-cert.pem
-  /private/tmp/gatling-recorder-ca/ca-key.pem
+  ~/.config/gatling-recorder/staging/ca-cert.pem
+  ~/.config/gatling-recorder/staging/ca-key.pem
   ```
+
+The certificate is trusted once in the macOS System keychain and survives restarts. The local, ignored Recorder configuration must use those same paths. This Recorder CA is separate from the Zscaler certificate used by Java and Gradle.
 
 Set the approved environment origin and matching allow-list regular expression. Do not add a path to `RECORDING_APP_URL`.
 
@@ -35,6 +37,8 @@ open -na "Google Chrome" --args \
 
 Open `$RECORDING_APP_URL`, sign in using the approved test account, and confirm the intended AppReg page is available. Fully quit this Chrome instance (`⌘Q`) when complete. The isolated profile retains the authenticated session for recording.
 
+For an HMCTS recording session, follow the approved procedure: temporarily disconnect the relevant Zscaler Private Access/security connection, reconnect through F5, then start the Recorder and proxied Chrome profile. Restore normal Zscaler/F5 connectivity immediately after recording; this is not a permanent security bypass.
+
 ## 2. Configure and start Gatling Recorder
 
 From the repository root run:
@@ -50,8 +54,8 @@ Use these settings before clicking **Start!**:
 | Recorder mode | `HTTP Proxy` |
 | Listening port | `8000` |
 | HTTPS mode | `Certificate Authority` |
-| Certificate | `/private/tmp/gatling-recorder-ca/ca-cert.pem` |
-| Private key | `/private/tmp/gatling-recorder-ca/ca-key.pem` |
+| Certificate | `~/.config/gatling-recorder/staging/ca-cert.pem` |
+| Private key | `~/.config/gatling-recorder/staging/ca-key.pem` |
 | Package | `recorded` |
 | Class name | A descriptive `Recorded...` name, such as `RecordedApplicationSearch` |
 | Format | `Java 17` |

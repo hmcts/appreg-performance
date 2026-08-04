@@ -57,30 +57,42 @@ export RECORDING_APP_URL='https://<approved-recording-host>'
 export RECORDING_APP_URL_REGEX='https://<approved-recording-host-regex>/.*'
 ----
 
-=== One-time HTTPS certificate setup
+=== Persistent HTTPS certificate setup
 
-Chrome cannot bypass a self-signed certificate for an HSTS-enabled application. Create and trust a short-lived local certificate authority (CA) for Gatling Recorder instead:
+Chrome cannot bypass a self-signed certificate for an HSTS-enabled application. Create and trust a dedicated local certificate authority (CA) for Gatling Recorder instead. Keep it in a user configuration directory so recording continues to work after a restart; never commit the private key.
 
 [source,bash]
 ----
-mkdir -p /private/tmp/gatling-recorder-ca
+mkdir -p "$HOME/.config/gatling-recorder/staging"
 
-openssl genrsa -out /private/tmp/gatling-recorder-ca/ca-key.pem 4096
+openssl genrsa -out "$HOME/.config/gatling-recorder/staging/ca-key.pem" 4096
 
-openssl req -x509 -new -sha256 -days 7 \
-  -key /private/tmp/gatling-recorder-ca/ca-key.pem \
-  -out /private/tmp/gatling-recorder-ca/ca-cert.pem \
-  -subj "/CN=Gatling Recorder Local CA" \
+openssl req -x509 -new -sha256 -days 365 \
+  -key "$HOME/.config/gatling-recorder/staging/ca-key.pem" \
+  -out "$HOME/.config/gatling-recorder/staging/ca-cert.pem" \
+  -subj "/CN=Gatling Recorder Staging CA" \
   -addext "basicConstraints=critical,CA:TRUE" \
   -addext "keyUsage=critical,keyCertSign,cRLSign" \
   -addext "subjectKeyIdentifier=hash"
 
+chmod 600 "$HOME/.config/gatling-recorder/staging/ca-key.pem"
+
 sudo security add-trusted-cert -d -r trustRoot \
   -k /Library/Keychains/System.keychain \
-  /private/tmp/gatling-recorder-ca/ca-cert.pem
+  "$HOME/.config/gatling-recorder/staging/ca-cert.pem"
 ----
 
-Fully quit Chrome after installing the CA. Trust it only for this dedicated recording workflow; remove it from the System keychain and delete `/private/tmp/gatling-recorder-ca` when recording work is complete.
+Fully quit Chrome after installing the CA. The `sudo` command requires macOS administrator approval because it changes the System keychain. Keep this CA only for the dedicated recording workflow. If it must be replaced, remove the existing `Gatling Recorder Staging CA` certificate from Keychain Access' *System* keychain before trusting the replacement.
+
+The Recorder configuration is local and ignored by Git. In the Recorder UI, or in `src/gatling/resources/recorder.conf` when it exists locally, set these persistent paths:
+
+[source,text]
+----
+certificatePath="/Users/<your-user>/.config/gatling-recorder/staging/ca-cert.pem"
+privateKeyPath="/Users/<your-user>/.config/gatling-recorder/staging/ca-key.pem"
+----
+
+This Recorder CA is separate from the Zscaler certificate used by Java/Gradle. See <<zscaler-certificate-issue,Zscaler certificate issue>> if Gradle reports a TLS trust error.
 
 === Authenticate without the Recorder proxy
 
@@ -95,6 +107,12 @@ open -na "Google Chrome" --args \
 
 Open `$RECORDING_APP_URL` and confirm the intended authenticated page is available. Fully quit this Chrome instance when complete. The profile retains the authenticated session for the next step.
 
+=== HMCTS connection during recording
+
+Follow the approved HMCTS procedure for the recording session: temporarily disconnect the relevant Zscaler Private Access/security connection, reconnect to HMCTS through F5, and then start the Recorder and disposable proxied Chrome profile. Restore the normal Zscaler/F5 connection immediately after recording.
+
+Do not make this a permanent security bypass. Use the disposable profile only for the approved AppReg journey and do not browse unrelated sites or enter non-test credentials while the Recorder proxy is active.
+
 === Configure and start the Recorder
 
 Launch Gatling Recorder from the repository root:
@@ -108,7 +126,7 @@ Configure the Recorder as follows, then click `Start!` and confirm it switches t
 
 * Mode: `HTTP Proxy`; port: `8000`.
 * HTTPS mode: `Certificate Authority`.
-* Certificate: `/private/tmp/gatling-recorder-ca/ca-cert.pem`; private key: `/private/tmp/gatling-recorder-ca/ca-key.pem`.
+* Certificate: `$HOME/.config/gatling-recorder/staging/ca-cert.pem`; private key: `$HOME/.config/gatling-recorder/staging/ca-key.pem`.
 * Package: `recorded`; format: `Java 17`; class name: a descriptive `Recorded...` name, for example `RecordedApplicationListCreate`. Java 17 is Gatling Recorder's newest Java source template; generated code is compiled and run with this project's Java 21 toolchain.
 * Enable Filters; add `$RECORDING_APP_URL_REGEX` as the only AllowList entry; leave DenyList empty.
 * Keep Follow Redirects, Infer HTML resources, Automatic Referers, and Remove cache headers enabled. Leave Save & check response bodies disabled.
@@ -126,6 +144,7 @@ open -na "Google Chrome" --args \
 
 Open `$RECORDING_APP_URL` and confirm an application request appears in Gatling before completing the journey. Stop and save when finished. The generated Java source is written under `src/gatling/java/recorded/`.
 
+[#zscaler-certificate-issue]
 == Zscaler certificate issue
 
 If the Gradle wrapper fails while downloading Gradle or dependencies with a `PKIX path building failed` or `certificate_unknown` error, Java does not trust the Zscaler TLS-inspection certificate.
