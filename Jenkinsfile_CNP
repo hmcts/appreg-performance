@@ -61,6 +61,8 @@ withNightlyPipeline(type, product, component) {
                           --simulation simulations.AppRegSimulation
                         ./gradlew --no-daemon gatlingRun \
                           --simulation simulations.ApplicationListCreateProofSimulation
+                        ./gradlew --no-daemon gatlingRun \
+                          --simulation simulations.ApplicationListSearchProofSimulation
                     '''
                 }
             }

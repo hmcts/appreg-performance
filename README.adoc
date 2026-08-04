@@ -167,7 +167,7 @@ SSO login is deliberately included in the measured traffic. AppReg currently rat
 
 The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
 
-The CNP push pipeline runs the curated `AppRegSimulation` and the one-user `ApplicationListCreateProofSimulation` explicitly. The latter creates persistent test data, so it must retain its dedicated account and test-data controls.
+The CNP push pipeline runs the curated `AppRegSimulation`, the one-user `ApplicationListCreateProofSimulation`, and the one-user `ApplicationListSearchProofSimulation` explicitly. The create proof creates persistent test data, so it must retain its dedicated account and test-data controls.
 
 After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
 
@@ -194,6 +194,20 @@ TEST_URL="$RECORDING_APP_URL" \
   ./gradlew gatlingRun \
   -DappRegCourtLocationCode=<approved-court-location-code> \
   --simulation simulations.ApplicationListCreateProofSimulation
+----
+
+== Application List search proof
+
+`SearchScenario` is a reusable authenticated chain that loads the Application Lists page and searches lists by description. It is consumed by `ApplicationListSearchProofSimulation`, a read-only, dedicated single-user validation simulation.
+
+The proof defaults to the recorded search description `Bulk`. Override it with an approved stable search value when required:
+
+[source,bash]
+----
+TEST_URL="$RECORDING_APP_URL" \
+  ./gradlew gatlingRun \
+  -DappRegApplicationListSearchDescription=<approved-search-description> \
+  --simulation simulations.ApplicationListSearchProofSimulation
 ----
 
 == Useful options
