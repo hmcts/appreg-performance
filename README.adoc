@@ -31,6 +31,16 @@ TEST_URL='https://appreg.test.apps.hmcts.net' ./gradlew gatlingRun -Ddebug=on
 
 Gatling writes HTML reports to `build/reports/gatling/`; the final command output includes the exact report location.
 
+== Test design and code structure
+
+This project uses a modular, business-action design rather than a browser-test Page Object Model. Gatling tests the application's HTTP traffic directly, so production code is organised by reusable AppReg actions instead of pages or UI selectors.
+
+* A scenario class exposes a focused business action as a Gatling `ChainBuilder`, for example creating an Application List, searching, or updating an Application.
+* A simulation composes those actions with authentication, test data, pacing and a load profile. One-user proof simulations validate an action before it is included in a mixed workload.
+* Recordings are evidence for discovering the HTTP flow; they are not test code. Extract the required requests, replace recorded values with session variables/feeders, and add relevant checks before creating a curated scenario.
+
+This keeps common actions reusable across flows and avoids duplicating authentication, search/setup, headers and data handling. `AGENTS.md` records the same conventions for contributors using AI assistance.
+
 == Recording browser journeys
 
 Recordings are raw browser evidence, not production-ready performance tests. They must not be added to a load profile or deployed directly. After recording, extract useful requests into the curated scenarios, replace dynamic values with session variables/feeders, define safe unique test data, and add appropriate assertions. Delete the raw recording once that assimilation is complete.
