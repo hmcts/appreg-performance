@@ -73,7 +73,7 @@ withNightlyPipeline(type, product, component) {
         }
     }
 
-    afterAlways('test') {
+    afterAlways('DependencyCheckNightly') {
         archiveDependencyCheckReport()
     }
 }
