@@ -31,7 +31,7 @@ TEST_URL='https://appreg.test.apps.hmcts.net' ./gradlew gatlingRun -Ddebug=on
 
 Gatling writes HTML reports to `build/reports/gatling/`; the final command output includes the exact report location.
 
-Jenkins is configured to publish Gatling reports after every CNP and nightly performance-test run, including failed runs. The CNP pipeline explicitly sets `GATLING_REPORTS_PATH=build/reports/gatling` for the shared HMCTS `publishPerformanceReports()` helper; the nightly performance-test builder sets the same path automatically. Confirm access to the shared performance-report destination from the first pipeline run after this change.
+Jenkins is configured to publish Gatling reports after every CNP and nightly performance-test run, including failed runs. The CNP pipeline explicitly sets `GATLING_REPORTS_PATH=build/reports/gatling`, then passes the report location and its product, component, environment and Azure subscription context to the shared HMCTS `publishPerformanceReports()` helper. The shared nightly performance-test stage provides that context automatically. Confirm access to the shared performance-report destination from the first pipeline run after this change.
 
 == Test design and code structure
 

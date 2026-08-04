@@ -67,7 +67,17 @@ withNightlyPipeline(type, product, component) {
                               --simulation simulations.ApplicationListSearchProofSimulation
                         '''
                     } finally {
-                        publishPerformanceReports()
+                        def subscription = env.NONPROD_SUBSCRIPTION_NAME ?: 'nonprod'
+                        def reportEnvironment = env.NONPROD_ENVIRONMENT_NAME ?: 'stg'
+                        withSubscriptionLogin(subscription) {
+                            publishPerformanceReports(
+                                product: product,
+                                component: component,
+                                environment: reportEnvironment,
+                                subscription: subscription,
+                                folder: 'build'
+                            )
+                        }
                     }
                 }
             }
