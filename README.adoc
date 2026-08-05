@@ -133,7 +133,7 @@ Configure the Recorder as follows, then click `Start!` and confirm it switches t
 
 === Record the browser journey
 
-Only after the Recorder is running, launch the same Chrome profile through its proxy:
+After clicking `Start!`, Gatling must show its recording screen with a `Stop` control. Only then launch the same Chrome profile through its proxy:
 
 [source,bash]
 ----
@@ -142,7 +142,7 @@ open -na "Google Chrome" --args \
   --proxy-server=http://127.0.0.1:8000
 ----
 
-Open `$RECORDING_APP_URL` and confirm an application request appears in Gatling before completing the journey. Stop and save when finished. The generated Java source is written under `src/gatling/java/recorded/`.
+Open `$RECORDING_APP_URL` in that proxied Chrome window and confirm an AppReg request appears in Gatling before completing the journey. Do not use the earlier, non-proxied Chrome window. When finished, click `Stop`, review the request list, and save the recording. The generated Java source is written under `src/gatling/java/recorded/`.
 
 [#zscaler-certificate-issue]
 == Zscaler certificate issue
@@ -188,7 +188,7 @@ SSO login is deliberately included in the measured traffic. AppReg currently rat
 
 The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
 
-The CNP push pipeline runs the curated `AppRegSimulation`, the one-user `ApplicationListCreateProofSimulation`, and the one-user `UpdateApplicationProofSimulation` explicitly. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. The create and update proofs change persistent test data, so they must retain their dedicated account and test-data controls.
+The CNP push pipeline runs the curated `AppRegSimulation`, the one-user `ApplicationListCreateProofSimulation`, the one-user `UpdateApplicationProofSimulation`, and the one-user `AddApplicationProofSimulation` explicitly. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. The create, update and add proofs change persistent test data, so they must retain their dedicated account and test-data controls.
 
 After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
 
@@ -252,6 +252,29 @@ The proof reads the application code from the selected entry. It uses the shared
 ----
 -DappRegApplicationListSearchDescription=<approved-list-description> \
 -DappRegUpdateApplicationWordingFieldKey=<wording-field-key>
+----
+
+== Application add proof
+
+`AddApplicationScenario` is a reusable authenticated chain for ARCPOC-1616. It assumes the caller has set `applicationListId`, searches for the selected application code, adds an Application, retrieves the resulting entry data, and completes the Application.
+
+`AddApplicationProofSimulation` first uses the existing create-list action to create isolated setup data, then adds and completes one Application. This proof is destructive and creates persistent data. Run it only against an approved environment with a dedicated account; do not include it in a multi-user workload until test-data allocation and cleanup are agreed.
+
+To run the one-user proof:
+
+[source,bash]
+----
+TEST_URL="$RECORDING_APP_URL" \
+  ./gradlew gatlingRun \
+  --simulation simulations.AddApplicationProofSimulation
+----
+
+The proof defaults to the recorded application code `AD99001` and title `Copy documents`. Override both together when using another approved code:
+
+[source,bash]
+----
+-DappRegAddApplicationCode=<approved-application-code> \
+-DappRegAddApplicationTitle=<approved-application-title>
 ----
 
 == Useful options
