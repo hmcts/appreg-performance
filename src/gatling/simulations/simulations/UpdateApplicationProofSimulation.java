@@ -3,6 +3,9 @@ package simulations;
 import io.gatling.javaapi.core.Simulation;
 import java.util.Iterator;
 import java.util.Map;
+import scenarios.AddApplicationScenario;
+import scenarios.ApplicationListCreateScenario;
+import scenarios.SearchScenario;
 import scenarios.UpdateApplicationScenario;
 import utils.Environment;
 import utils.SsoAuthentication;
@@ -28,6 +31,9 @@ public class UpdateApplicationProofSimulation extends Simulation {
       .exitBlockOnFail().on(
         feed(ssoUserFeeder)
           .exec(SsoAuthentication.login())
+          .exec(SearchScenario.searchApplicationLists())
+          .exec(ApplicationListCreateScenario.createApplicationList())
+          .exec(AddApplicationScenario.addApplication())
           .exec(UpdateApplicationScenario.updateApplication())
       );
 

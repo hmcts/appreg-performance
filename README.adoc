@@ -233,9 +233,9 @@ TEST_URL="$RECORDING_APP_URL" \
 
 == Application update proof
 
-`UpdateApplicationScenario` is a reusable authenticated chain for ARCPOC-1615. It loads an explicitly selected Application List and Application, retrieves the relevant application-code metadata, then submits the update and verifies a successful response. It is consumed by `UpdateApplicationProofSimulation`.
+`UpdateApplicationScenario` is a reusable authenticated chain for ARCPOC-1615. It updates the Application List and Application identifiers held in the Gatling session, retrieving the relevant entry and application-code metadata before submitting the update and verifying a successful response. It is consumed by `UpdateApplicationProofSimulation`.
 
-This proof is destructive. For the single-user POC it searches for `Bulk`, selects the first returned Application List and its first entry, then updates it with new disposable values. It must not be run against production or a record containing real personal data. Before a multi-user workload is introduced, replace this temporary selection with deterministic allocation of one isolated entry per virtual user.
+This proof is destructive. It validates the reusable `Bulk` search action, then creates an isolated Application List and Application before updating that known entry with new disposable values. It must not be run against production or records containing real personal data. Before a multi-user workload is introduced, agree deterministic allocation and cleanup for the created data.
 
 To run the one-user proof, supply the SSO values described above:
 
@@ -246,12 +246,11 @@ TEST_URL="$RECORDING_APP_URL" \
   --simulation simulations.UpdateApplicationProofSimulation
 ----
 
-The proof reads the application code from the selected entry. It uses the shared search action, which defaults to searching for `Bulk`; override the search description or wording-field key when the approved POC data requires it:
+The proof reads the application code from its created entry. It uses the shared search action, which defaults to searching for `Bulk`; override the search description when the approved POC data requires it:
 
 [source,bash]
 ----
--DappRegApplicationListSearchDescription=<approved-list-description> \
--DappRegUpdateApplicationWordingFieldKey=<wording-field-key>
+-DappRegApplicationListSearchDescription=<approved-list-description>
 ----
 
 == Application add proof
