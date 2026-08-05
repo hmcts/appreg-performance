@@ -68,7 +68,7 @@ Gatling Recorder's Java 17 template is correct: this project compiles and runs i
 
 ## 3. Record the journey
 
-After Gatling displays its recording screen, launch the same Chrome profile through the local proxy:
+After clicking **Start!**, first confirm Gatling displays its recording screen with a **Stop** control. Then launch the same Chrome profile through the local proxy:
 
 ```bash
 open -na "Google Chrome" --args \
@@ -76,7 +76,7 @@ open -na "Google Chrome" --args \
   --proxy-server=http://127.0.0.1:8000
 ```
 
-Open `$RECORDING_APP_URL` and verify that application requests appear in Gatling before beginning the journey.
+Open `$RECORDING_APP_URL` in this proxied Chrome window—not the earlier non-proxied authentication window—and verify that application requests appear in Gatling before beginning the journey.
 
 For a search journey, record only the AppReg actions: navigate to the relevant search/list page, provide an agreed stable search criterion, submit it, and open a result only if that is part of the workflow. Do not record Entra sign-in again; the curated SSO implementation already handles it. Do not edit or save records while recording a read-only search flow.
 

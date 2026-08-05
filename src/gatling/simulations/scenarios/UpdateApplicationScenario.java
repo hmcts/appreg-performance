@@ -12,18 +12,13 @@ import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
-import static utils.Headers.COMMON_HEADER;
 
 /**
- * Finds one Application entry in a Bulk list, then updates it using disposable values.
- * This chain assumes the caller has already authenticated using {@code SsoAuthentication}.
+ * Updates the Application List and entry identifiers stored in the Gatling session.
+ * This chain assumes the caller has authenticated, set {@code applicationListId} and
+ * {@code applicationEntryId}, and holds an AppReg anti-forgery cookie.
  */
 public final class UpdateApplicationScenario {
-  private static final String WORDING_FIELD_KEY = System.getProperty(
-    "appRegUpdateApplicationWordingFieldKey",
-    "Describe Seized Food"
-  );
-
   private UpdateApplicationScenario() {}
 
   public static ChainBuilder updateApplication() {
@@ -34,26 +29,13 @@ public final class UpdateApplicationScenario {
           .set("applicationUpdateId", updateId)
           .set("applicationUpdateDate", LocalDate.now().toString());
       })
-        .exec(http("Application lists page")
-          .get("/applications-list")
-          .headers(COMMON_HEADER)
-          .check(status().is(200)))
         .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
-        .exec(SearchScenario.searchApplicationLists())
         .exec(http("Get application list")
           .get("/application-lists/#{applicationListId}")
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "10")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .check(status().is(200)))
-        .exec(http("Get application entries")
-          .get("/application-lists/#{applicationListId}/entries")
-          .queryParam("pageNumber", "0")
-          .queryParam("pageSize", "10")
-          .queryParam("sort", "sequenceNumber,asc")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .check(status().is(200))
-          .check(jsonPath("$.content[0].id").saveAs("applicationEntryId")))
         .exec(http("Get application entry")
           .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
@@ -70,8 +52,8 @@ public final class UpdateApplicationScenario {
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
           .body(StringBody("""
-            {"applicationCode":"#{applicationCode}","applicant":{"person":{"name":{"title":"mr","firstName":"Gatling","middleName":"Proof","lastName":"Taylor #{applicationUpdateId}"},"contactDetails":{"addressLine1":"1 Gatling Way","addressLine2":"Performance Test","addressLine3":"Test City","addressLine5":"Test County","postcode":"SW1A 1AA","phone":"01632960001","mobile":"07700900001","email":"gatling#{applicationUpdateId}@example.com"}}},"respondent":{"person":{"name":{"title":"other","firstName":"Gatling","lastName":"Clark #{applicationUpdateId}"},"dateOfBirth":"2001-08-04","contactDetails":{"addressLine1":"2 Gatling Way","addressLine2":"Performance Test","postcode":"SW1A 1AA","phone":"01632960002","mobile":"07700900002","email":"respondent#{applicationUpdateId}@example.com"}}},"numberOfRespondents":null,"wordingFields":[{"key":"%s","value":"Gatling update #{applicationUpdateId}"}],"feeStatuses":[{"paymentReference":null,"paymentStatus":"DUE","statusDate":"#{applicationUpdateDate}"}],"hasOffsiteFee":false,"caseReference":"CASE-#{applicationUpdateId}","accountNumber":"ACC-FEE-#{applicationUpdateId}","notes":"Gatling update #{applicationUpdateId}","officials":[]}
-            """.formatted(WORDING_FIELD_KEY)))
+            {"applicationCode":"#{applicationCode}","applicant":{"person":{"name":{"firstName":"Gatling","middleName":"Update","lastName":"Applicant #{applicationUpdateId}"},"contactDetails":{"addressLine1":"23 Performance Road","addressLine3":"Liverpool","addressLine4":"England","addressLine5":"Swansea","postcode":"SW1A 2AA","phone":"020 7946 0000","mobile":"07854 555555","email":"updated#{applicationUpdateId}@example.com"}}},"respondent":{"person":{"name":{"firstName":"Gatling","middleName":"Update","lastName":"Respondent #{applicationUpdateId}"},"dateOfBirth":"1970-01-01","contactDetails":{"addressLine1":"The House","addressLine2":"31 Test Close","addressLine3":"Galway","addressLine4":"Shropshire","addressLine5":"Tinmus","postcode":"SW1B 2BB","phone":"020 7946 0000","mobile":"07123 456789","email":"updated-respondent#{applicationUpdateId}@example.com"}}},"numberOfRespondents":null,"wordingFields":[],"feeStatuses":[{"paymentReference":"UPD-#{applicationUpdateId}","paymentStatus":"PAID","statusDate":"#{applicationUpdateDate}"}],"hasOffsiteFee":true,"caseReference":"UPD-#{applicationUpdateId}","accountNumber":"UPD-#{applicationUpdateId}","notes":"Gatling update #{applicationUpdateId}","officials":[]}
+            """))
           .check(status().is(200)))
     );
   }
