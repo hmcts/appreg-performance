@@ -9,12 +9,12 @@ Keep the Gatling performance-test project supportable and able to identify depen
 - Java 21 is the build target. Client Platform now enforces Java 21 for Gradle-based performance tests; Java 17 support was removed on 1 June 2026.
 - The Gradle wrapper is pinned to 8.14.5.
 - Gatling is pinned to 3.15.1 and the matching Gatling Gradle plugin to 3.15.1.2.
-- The OWASP Dependency-Check Gradle plugin is pinned to 12.1.3.
+- The OWASP Dependency-Check Gradle plugin is pinned to 12.2.2.
 - The project source and Gradle configuration are Java-only. Gatling may retain Scala implementation dependencies internally, but the repository has no Scala source or Scala Gradle plugin.
 - The one-user SSO/UI proof completed successfully in Client Platform Jenkins on Temurin Java 21.0.12 on 29 July 2026.
 - The one-user Application List create proof compiled and completed successfully against the approved staging environment on Java 21 on 3 August 2026.
 - ARCPOC-1633 will establish repeatable performance-test data provisioning and reset through Jenkins. Final destructive workload journeys will consume allocated seeded data instead of creating their own persistent setup data.
-- No repository-managed NVD API key or OWASP Dependency-Check scan is required for this POC unless an HMCTS security or platform requirement is identified. The current Dependency-Check plugin is retained but is not part of the required build validation.
+- Jenkins runs the centrally managed OWASP Dependency-Check validation and archives its report. It uses shared platform credentials and cache configuration; no repository-managed NVD API key is required.
 
 ## Java runtime compatibility
 
@@ -35,13 +35,13 @@ Before changing this target from Java 21:
 
 **Priority: high**
 
-**Status: deferred — not required for the current POC.**
+**Status: centrally managed validation active.**
 
-Do not request, store, or configure an NVD API key for this repository at this stage. If a later HMCTS security or platform requirement introduces vulnerability scanning, first establish whether a centrally managed scanner or shared NVD cache is available before enabling a repository-specific Dependency-Check task.
+Do not request, store, or configure an NVD API key for this repository. Jenkins invokes the centrally managed Dependency-Check validation with shared platform credentials and cache configuration. Any repository-level scan configuration or suppression remains subject to agreement with Security and Platform.
 
 If scanning is enabled later, agree the CVSS threshold and exception/suppression process with the service team. Do not merge suppressions without recording the dependency, CVE, rationale, owner, and expiry/review date.
 
-**Re-entry criteria:** a documented HMCTS security/platform requirement for this repository, or a decision to adopt an available centrally managed scanning service.
+**Re-entry criteria:** a documented need to change the centrally managed scanning behaviour, report publication, threshold or suppression process.
 
 ## Phase 2 — Java-only configuration alignment
 
@@ -59,13 +59,13 @@ If scanning is enabled later, agree the CVSS threshold and exception/suppression
 
 **Priority: medium**
 
-**Status: Gatling 3.15.1 upgrade validated; Dependency-Check maintenance deferred pending a scanning requirement.**
+**Status: Gatling 3.15.1 upgrade validated; Dependency-Check 12.2.2 is validated through the shared Jenkins scan.**
 
 Renovate is enabled through `renovate.json`, which extends the shared HMCTS preset at `local>hmcts/.github:renovate-config`. It should raise dependency-update pull requests according to the centrally managed HMCTS rules.
 
 1. Review available Gatling releases and upgrade the Gradle plugin and Gatling runtime together in a dedicated pull request. **Completed: Gatling 3.15.1 / plugin 3.15.1.2 compiled locally and completed the Jenkins one-user SSO/UI proof.**
-2. Upgrade the Dependency-Check plugin to the current compatible release. **Deferred: no scanning requirement for the current POC.**
-3. Run the full vulnerability scan, compile, and one-user smoke and create-list proof tests. **Partially completed: compile and both one-user proofs passed; scan deferred under Phase 1.**
+2. Upgrade the Dependency-Check plugin to the current compatible release. **Current version: 12.2.2.** Validate an upgrade against the shared Jenkins scan and its archived report before merging.
+3. Run the shared vulnerability scan, compile, and one-user smoke and create-list proof tests. **Partially completed: the shared scan and report publication run in Jenkins; compile and the one-user proofs have passed.**
 4. Compare the Gatling report structure and request metrics before and after the upgrade. **Pending: retain the current Jenkins run as the post-upgrade baseline when the next recorded journey is added.**
 
 Renovate pull requests are inputs to this process, not automatic approval to merge: apply the validation steps above before merging any upgrade.
