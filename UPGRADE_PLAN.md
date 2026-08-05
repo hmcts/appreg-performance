@@ -13,6 +13,7 @@ Keep the Gatling performance-test project supportable and able to identify depen
 - The project source and Gradle configuration are Java-only. Gatling may retain Scala implementation dependencies internally, but the repository has no Scala source or Scala Gradle plugin.
 - The one-user SSO/UI proof completed successfully in Client Platform Jenkins on Temurin Java 21.0.12 on 29 July 2026.
 - The one-user Application List create proof compiled and completed successfully against the approved staging environment on Java 21 on 3 August 2026.
+- ARCPOC-1633 will establish repeatable performance-test data provisioning and reset through Jenkins. Final destructive workload journeys will consume allocated seeded data instead of creating their own persistent setup data.
 - No repository-managed NVD API key or OWASP Dependency-Check scan is required for this POC unless an HMCTS security or platform requirement is identified. The current Dependency-Check plugin is retained but is not part of the required build validation.
 
 ## Java runtime compatibility
@@ -94,6 +95,24 @@ The current Gradle release can be checked at the [official Gradle versions endpo
 
 **Success criteria:** a Gatling plugin with demonstrated Gradle 9 compatibility; no unresolved Gradle 9 warnings; successful Java 21 compilation and all one-user proofs; no unexplained change to Gatling report structure or request outcomes; and, if Phase 1 is re-entered, a working dependency scan.
 
+## Phase 5 — performance-test data provisioning and reset
+
+**Priority: high for multi-user and weighted workloads**
+
+**Status: planned — [ARCPOC-1633](https://tools.hmcts.net/jira/browse/ARCPOC-1633).**
+
+Provision the synthetic, workflow-specific data created by the performance-test project through a dedicated Jenkins stage before Gatling execution. The stage must reset or initialise the approved target dataset, apply the reviewed seed SQL, and make a deterministic allocation of safe records available to the Gatling feeders.
+
+The final workload journeys must use their allocated Application Lists and Applications rather than creating setup data while measurements are being taken. One-user proof simulations may retain isolated runtime setup only where it is explicitly documented as proof-only behaviour.
+
+1. Store reviewed, non-sensitive PostgreSQL seed statements in this repository, organised by workflow data ticket and based on one canonical synthetic data shape that can be scaled.
+2. Define the reset boundary, execution identity, target environment and rollback/recovery approach with Platform and the AppReg service team.
+3. Add a Jenkins provisioning/reset stage that runs before Gatling and fails safely if the expected data is not available.
+4. Produce one feeder allocation per virtual user so destructive actions cannot target the same record unintentionally.
+5. Record the dataset version, volume, allocation assumptions and any retention/cleanup expectations in the build output or accompanying run documentation.
+
+**Success criteria:** the approved environment can be reset and seeded repeatedly; each run receives the required deterministic data volume; and destructive performance journeys do not collide or depend on data left by prior runs.
+
 ## Proposed order and ownership
 
 | Order | Work | Suggested owner | Dependency |
@@ -104,6 +123,7 @@ The current Gradle release can be checked at the [official Gradle versions endpo
 | 4 | Upgrade Gatling | Performance-test maintainers | Java runtime compatibility |
 | 5 | Maintain Dependency-Check if scanning becomes required | Performance-test maintainers | Phase 1 re-entry criteria |
 | 6 | Migrate Gradle to version 9 | Performance-test maintainers and CI | Compatible Gatling and Dependency-Check plugins |
+| 7 | Provision and reset deterministic performance-test data (ARCPOC-1633) | Performance-test maintainers, Platform/CI and AppReg service team | Approved reset mechanism, reviewed seed SQL and workflow data tickets |
 
 ## Out of scope
 
