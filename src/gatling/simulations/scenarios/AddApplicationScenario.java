@@ -22,6 +22,14 @@ public final class AddApplicationScenario {
   private AddApplicationScenario() {}
 
   public static ChainBuilder addApplication() {
+    return addApplication("applicationEntryId");
+  }
+
+  /**
+   * Adds and completes an Application, saving its ID under the supplied Gatling session key.
+   * This allows a composed business flow to operate on more than one isolated Application.
+   */
+  public static ChainBuilder addApplication(String entryIdSessionKey) {
     return group("AppReg_050_Application_Add").on(
       exec(session -> session
         .set("applicationAddId", String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000)))
@@ -48,9 +56,9 @@ public final class AddApplicationScenario {
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
           .body(StringBody(applicationBody()))
           .check(status().in(200, 201))
-          .check(jsonPath("$.id").saveAs("applicationEntryId")))
+          .check(jsonPath("$.id").saveAs(entryIdSessionKey)))
         .exec(http("Get added application")
-          .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
+          .get("/application-lists/#{applicationListId}/entries/#{" + entryIdSessionKey + "}")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .check(status().is(200)))
         .exec(http("Get result codes")
@@ -60,13 +68,13 @@ public final class AddApplicationScenario {
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .check(status().is(200)))
         .exec(http("Get application results")
-          .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}/results")
+          .get("/application-lists/#{applicationListId}/entries/#{" + entryIdSessionKey + "}/results")
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "100")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .check(status().is(200)))
         .exec(http("Complete application")
-          .put("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
+          .put("/application-lists/#{applicationListId}/entries/#{" + entryIdSessionKey + "}")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
