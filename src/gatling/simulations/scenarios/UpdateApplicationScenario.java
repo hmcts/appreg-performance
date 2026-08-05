@@ -16,7 +16,7 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 /**
  * Updates the Application List and entry identifiers stored in the Gatling session.
  * This chain assumes the caller has authenticated, set {@code applicationListId} and
- * {@code applicationEntryId}, and uses an AppReg page to obtain the anti-forgery token.
+ * {@code applicationEntryId}, and holds an AppReg anti-forgery cookie.
  */
 public final class UpdateApplicationScenario {
   private UpdateApplicationScenario() {}
@@ -29,9 +29,6 @@ public final class UpdateApplicationScenario {
           .set("applicationUpdateId", updateId)
           .set("applicationUpdateDate", LocalDate.now().toString());
       })
-        .exec(http("Application lists page")
-          .get("/applications-list")
-          .check(status().is(200)))
         .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
         .exec(http("Get application list")
           .get("/application-lists/#{applicationListId}")
