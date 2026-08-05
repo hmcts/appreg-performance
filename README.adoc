@@ -188,7 +188,7 @@ SSO login is deliberately included in the measured traffic. AppReg currently rat
 
 The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
 
-The CNP push pipeline runs the curated `AppRegSimulation`, the one-user `ApplicationListCreateProofSimulation`, the one-user `UpdateApplicationProofSimulation`, the one-user `AddApplicationProofSimulation`, and the one-user `ResultMultipleApplicationsProofSimulation` explicitly. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. The create, update, add and result proofs change persistent test data, so they must retain their dedicated account and test-data controls.
+The CNP push pipeline runs the curated `AppRegSimulation`, the one-user `ApplicationListCreateProofSimulation`, the one-user `UpdateApplicationProofSimulation`, the one-user `AddApplicationProofSimulation`, the one-user `ResultMultipleApplicationsProofSimulation`, and the one-user `UpdateApplicationResultProofSimulation` explicitly. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. The create, update, add and result proofs change persistent test data, so they must retain their dedicated account and test-data controls.
 
 After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
 
@@ -300,6 +300,29 @@ TEST_URL="$RECORDING_APP_URL" \
   -DappRegBulkResultCode=<approved-result-code> \
   -DappRegBulkResultCourthouse=<approved-courthouse> \
   --simulation simulations.ResultMultipleApplicationsProofSimulation
+----
+
+== Application Result update proof
+
+`UpdateApplicationResultScenario` is the reusable ARCPOC-1618 action. It replays the recorded UI HTTP flow for updating a Result on one Application: preview the selected Application, retrieve the Result Code metadata and details, then submit the amended Result wording.
+
+`UpdateApplicationResultProofSimulation` creates proof-only setup data: one isolated Application List, one completed Application, and an existing `COST` Result with wording `500 Pounds`. It then applies the recorded update with wording `501 Pounds`. This proof is destructive and creates persistent data. Run it only against an approved environment with a dedicated account; final workload simulations will instead consume an allocated seeded Application and existing Result.
+
+To run the one-user proof:
+
+[source,bash]
+----
+TEST_URL="$RECORDING_APP_URL" \
+  ./gradlew gatlingRun \
+  --simulation simulations.UpdateApplicationResultProofSimulation
+----
+
+The replacement Result Code and wording are configurable for an approved target environment:
+
+[source,bash]
+----
+-DappRegUpdateResultCode=<approved-result-code> \
+-DappRegUpdateResultWording=<approved-result-wording>
 ----
 
 == Useful options
