@@ -70,6 +70,8 @@ withNightlyPipeline(type, product, component) {
                               --simulation simulations.ResultMultipleApplicationsProofSimulation
                             ./gradlew --no-daemon gatlingRun \
                               --simulation simulations.UpdateApplicationResultProofSimulation
+                            ./gradlew --no-daemon gatlingRun \
+                              --simulation simulations.ResultApplicationProofSimulation
                         '''
                     } finally {
                         publishGatlingReports()

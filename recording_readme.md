@@ -25,21 +25,7 @@ export RECORDING_APP_URL='https://<approved-appreg-host>'
 export RECORDING_APP_URL_REGEX='https://<approved-appreg-host-regex>/.*'
 ```
 
-## 1. Authenticate without the Recorder proxy
-
-Fully quit Chrome (`⌘Q`) first. Then launch an isolated recording profile without a proxy:
-
-```bash
-open -na "Google Chrome" --args \
-  --user-data-dir=/private/tmp/gatling-recording-chrome \
-  --no-proxy-server
-```
-
-Open `$RECORDING_APP_URL`, sign in using the approved test account, and confirm the intended AppReg page is available. Fully quit this Chrome instance (`⌘Q`) when complete. The isolated profile retains the authenticated session for recording.
-
-For an HMCTS recording session, follow the approved procedure: temporarily disconnect the relevant Zscaler Private Access/security connection, reconnect through F5, then start the Recorder and proxied Chrome profile. Restore normal Zscaler/F5 connectivity immediately after recording; this is not a permanent security bypass.
-
-## 2. Configure and start Gatling Recorder
+## 1. Configure and start Gatling Recorder
 
 From the repository root run:
 
@@ -66,7 +52,9 @@ Keep **Follow Redirects**, **Infer HTML resources**, **Automatic Referers**, and
 
 Gatling Recorder's Java 17 template is correct: this project compiles and runs it with Java 21.
 
-## 3. Record the journey
+For an HMCTS recording session, follow the approved procedure: temporarily disconnect the relevant Zscaler Private Access/security connection, reconnect through F5, then start the Recorder and proxied Chrome profile. Restore normal Zscaler/F5 connectivity immediately after recording; this is not a permanent security bypass.
+
+## 2. Sign in through the Recorder proxy, then record the journey
 
 After clicking **Start!**, first confirm Gatling displays its recording screen with a **Stop** control. Then launch the same Chrome profile through the local proxy:
 
@@ -76,13 +64,13 @@ open -na "Google Chrome" --args \
   --proxy-server=http://127.0.0.1:8000
 ```
 
-Open `$RECORDING_APP_URL` in this proxied Chrome window—not the earlier non-proxied authentication window—and verify that application requests appear in Gatling before beginning the journey.
+Open `$RECORDING_APP_URL` in this proxied Chrome window and sign in using the approved test account. Complete any setup that does not need recording because it is already covered by the repository, such as login or creating a list. Once the intended start page is ready, click **Clear** in Gatling Recorder to remove that setup traffic. Confirm the Recorder remains on its recording screen, then begin only the minimum target journey.
 
-For a search journey, record only the AppReg actions: navigate to the relevant search/list page, provide an agreed stable search criterion, submit it, and open a result only if that is part of the workflow. Do not record Entra sign-in again; the curated SSO implementation already handles it. Do not edit or save records while recording a read-only search flow.
+For a search journey, record only the AppReg actions after clearing: navigate to the relevant search/list page, provide an agreed stable search criterion, submit it, and open a result only if that is part of the workflow. Do not edit or save records while recording a read-only search flow.
 
 Click **Stop**, review the request list, and save the recording. Gatling writes the generated source under `src/gatling/java/recorded/`.
 
-## 4. Assimilate the recording
+## 3. Assimilate the recording
 
 The `recorded/` directory is intentionally ignored by Git. Do not commit the generated recording.
 
