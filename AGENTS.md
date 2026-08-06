@@ -8,22 +8,23 @@ This is a Java-only Gatling performance-test project for the HMCTS Applications 
 
 Use the Jira ticket as the boundary for a business action. Keep each action reusable even where a later workflow composes it with others.
 
-| Ticket | Business action | Weight | Data effect |
-| --- | --- | ---: | --- |
-| ARCPOC-1596 | Search applications/lists | To be confirmed | Read-only; intended as reusable setup for other flows |
-| ARCPOC-1597 | Create Application List | 7.19% | Destructive |
-| ARCPOC-1598 | Bulk Application Upload | 0.67% | Destructive |
-| ARCPOC-1599 | Other low-frequency UI operations | 2.57% | Mixed; split into named actions before adding to a workload |
-| ARCPOC-1615 | Update Application | 39.32% | Destructive |
-| ARCPOC-1616 | Add Application | 18.47% | Destructive |
-| ARCPOC-1617 | Result multiple Applications | 7.75% | Destructive and data-heavy |
-| ARCPOC-1618 | Update Result on an Application | 7.28% | Destructive and data-heavy |
-| ARCPOC-1620 | Update or close Application List | 6.71% | Destructive |
-| ARCPOC-1621 | Result one Application | 4.45% | Destructive and data-heavy |
-| ARCPOC-1622 | Bulk update Officials | 4.21% | Destructive |
-| ARCPOC-1623 | Bulk update Fees Status | 1.38% | Destructive |
+| Jira Ticket | UI Journey | Gatling Weight | Aligned Workflow | Updates Test Data? | Classification | Data Ticket |
+| --- | --- | ---: | --- | --- | --- |
+| ARCPOC-1615 | Update Application | 39.32% | Open existing application entry and update Applicant, Application Code, Wording, Respondent, Civil Fee, Notes and Officials, then Save Complete Application | Yes | Destructive | ARCPOC-1656 |
+| ARCPOC-1616 | Add Application | 18.47% | Create a new Application within an existing Application List by completing Applicant, Application Code, Wording, Respondent (if required), Civil Fee (if required), Notes, Results and Officials, then Save Complete Application | Yes | Destructive | ARCPOC-1658 |
+| ARCPOC-1617 | Result Multiple Applications | 7.75% | Search/Open Application List → Select multiple Applications → Search Result Code → Apply Result(s) to all selected Applications → Save | Yes | Destructive | ARCPOC-1659 |
+| ARCPOC-1618 | Update Result Application | 7.28% | Open an existing Application → Update Result Code, Result Wording and Result Officer → Save Changes | Yes | Destructive | ARCPOC-1660 |
+| ARCPOC-1597 | Create Application List | 7.19% | Create a new Application List by entering Date, Time, Description, Status and Court/Location, then Save | Yes | Destructive | ARCPOC-1640 |
+| ARCPOC-1620 | Update Application List | 6.71% | Open an existing Application List → Update Date, Time, Description, Status, Court/Location or Duration → Save Changes (or Close List) | Yes | Destructive | ARCPOC-1661 |
+| ARCPOC-1621 | Result Application | 4.45% | Open a single Application → Search Result Code → Apply Result → Enter Result Wording (if required) → Save | Yes | Destructive / Data Heavy | ARCPOC-1662 |
+| ARCPOC-1622 | Bulk Update Officials | 4.21% | Select multiple Applications → Update Magistrates and Court Official details → Save | Yes | Destructive | ARCPOC-1663 |
+| ARCPOC-1623 | Bulk Update Fees Status | 1.38% | Select multiple Applications → Update Fee Status, Status Date, Payment Reference and Off-site Fee → Save | Yes | Destructive | ARCPOC-1667 |
+| ARCPOC-1598 | Bulk Application Upload | 0.67% | Select CSV File → Validate → Upload Application Entries into an existing Application List | Yes | Destructive | ARCPOC-1668 |
+| ARCPOC-1599 / ARCPOC-1597 | Other UI Operations | 2.57% | Search Applications, Open Lists, Move Applications, Standard Applicant Search/View, Reporting, Printing and other low-frequency UI operations | Depends on operation | Mixed (Read & Write) | ARCPOC-1669 |
 
-The listed weights total 100% when ARCPOC-1596 is accounted for within the current ARCPOC-1599 allocation. Before building a mixed workload, assign ARCPOC-1596 its own agreed weight and reduce ARCPOC-1599 accordingly. Do not associate ARCPOC-1597 with the “other UI operations” scope: it is already the Create Application List ticket.
+ARCPOC-1599 / ARCPOC-1597 is intentionally a shared row. Within that scope, performance reporting is a low-level, non-destructive journey: it needs one reusable search and generate-report set rather than destructive test-data provisioning.
+
+ARCPOC-1620 has an agreed design split within its 6.71% allocation: 90% simple Application List update (6.039% of the total workload) and 10% close Application List (0.671% of the total workload). Implement them as separate actions with separate allocated data: ordinary open mutable lists for updates, and fully close-ready lists for closure. This is a documented design weight only; do not add it to an executable mixed workload until the required seed data and feeder allocation are in place.
 
 ## Design approach
 
@@ -49,6 +50,7 @@ Recordings are raw browser evidence only. They reveal the HTTP flow but must not
 - Use Java format in Gatling Recorder; its Java 17 source template is compiled by this project's Java 21 toolchain.
 - Save raw recordings below `src/gatling/java/recorded/` with a `Recorded` class-name prefix. That directory is intentionally ignored by Git.
 - Follow the certificate and disposable Chrome-profile instructions in `README.adoc`.
+- The Gatling Recorder certificate-authority setup is per user and local-only. A new developer or machine must create and trust its own CA and configure its own `certificatePath` and `privateKeyPath`; never reuse or commit another user's private key.
 
 ## Validation
 

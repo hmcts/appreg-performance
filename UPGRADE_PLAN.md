@@ -105,7 +105,7 @@ Provision the synthetic, workflow-specific data created by the performance-test 
 
 The final workload journeys must use their allocated Application Lists and Applications rather than creating setup data while measurements are being taken. One-user proof simulations may retain isolated runtime setup only where it is explicitly documented as proof-only behaviour.
 
-1. Store reviewed, non-sensitive PostgreSQL seed statements in this repository, organised by workflow data ticket and based on one canonical synthetic data shape that can be scaled.
+1. Store reviewed, non-sensitive PostgreSQL seed statements in this repository, organised by workflow data ticket and based on one canonical synthetic data shape that can be scaled. The current workflow-to-data-ticket mapping is maintained in `AGENTS.md`.
 2. Define the reset boundary, execution identity, target environment and rollback/recovery approach with Platform and the AppReg service team.
 3. Add a Jenkins provisioning/reset stage that runs before Gatling and fails safely if the expected data is not available.
 4. Produce one feeder allocation per virtual user so destructive actions cannot target the same record unintentionally.
