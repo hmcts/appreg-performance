@@ -94,19 +94,6 @@ privateKeyPath="/Users/<your-user>/.config/gatling-recorder/staging/ca-key.pem"
 
 This Recorder CA is separate from the Zscaler certificate used by Java/Gradle. See <<zscaler-certificate-issue,Zscaler certificate issue>> if Gradle reports a TLS trust error.
 
-=== Authenticate without the Recorder proxy
-
-Start the disposable Chrome profile without a proxy and authenticate using the approved test account:
-
-[source,bash]
-----
-open -na "Google Chrome" --args \
-  --user-data-dir=/private/tmp/gatling-recording-chrome \
-  --no-proxy-server
-----
-
-Open `$RECORDING_APP_URL` and confirm the intended authenticated page is available. Fully quit this Chrome instance when complete. The profile retains the authenticated session for the next step.
-
 === HMCTS connection during recording
 
 Follow the approved HMCTS procedure for the recording session: temporarily disconnect the relevant Zscaler Private Access/security connection, reconnect to HMCTS through F5, and then start the Recorder and disposable proxied Chrome profile. Restore the normal Zscaler/F5 connection immediately after recording.
@@ -142,7 +129,9 @@ open -na "Google Chrome" --args \
   --proxy-server=http://127.0.0.1:8000
 ----
 
-Open `$RECORDING_APP_URL` in that proxied Chrome window and confirm an AppReg request appears in Gatling before completing the journey. Do not use the earlier, non-proxied Chrome window. When finished, click `Stop`, review the request list, and save the recording. The generated Java source is written under `src/gatling/java/recorded/`.
+Open `$RECORDING_APP_URL` in that proxied Chrome window and sign in using the approved test account. Complete any setup that does not need recording because it is already covered by the repository, such as login or creating a list. Once the intended start page is ready, use Gatling's `Clear` button to remove that setup traffic. Confirm the Recorder remains on its recording screen, then complete only the minimum target journey.
+
+When finished, click `Stop`, review the request list, and save the recording. The generated Java source is written under `src/gatling/java/recorded/`.
 
 [#zscaler-certificate-issue]
 == Zscaler certificate issue
