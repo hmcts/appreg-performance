@@ -1,6 +1,7 @@
 package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
+import java.time.LocalDate;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -12,13 +13,18 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 /** Replays the recorded UI flow for a simple update to an open Application List. */
 public final class UpdateApplicationListScenario {
   private static final int DURATION_HOURS = Integer.getInteger("appRegApplicationListDurationHours", 10);
+  private static final int DURATION_MINUTES = Integer.getInteger("appRegApplicationListDurationMinutes", 11);
+  private static final String UPDATE_TIME = System.getProperty("appRegApplicationListUpdateTime", "11:01");
+  private static final String UPDATE_DESCRIPTION = System.getProperty(
+    "appRegApplicationListUpdateDescription", "Gatling application list update proof");
+  private static final String UPDATE_COURT_LOCATION_CODE = System.getProperty("appRegUpdatedCourtLocationCode");
 
   private UpdateApplicationListScenario() {}
 
   public static ChainBuilder updateApplicationList() {
     return group("AppReg_080_Application_List_Update").on(
       loadApplicationList()
-        .exec(session -> session.set("applicationListDurationHours", DURATION_HOURS))
+        .exec(updateValues())
         .exec(http("Update application list")
           .put("/application-lists/#{applicationListId}")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
@@ -27,6 +33,18 @@ public final class UpdateApplicationListScenario {
           .body(StringBody(listBody("OPEN")))
           .check(status().is(200)))
     );
+  }
+
+  static ChainBuilder updateValues() {
+    return exec(session -> session
+      .set("applicationListUpdateDate", LocalDate.now().plusDays(1).toString())
+      .set("applicationListUpdateTime", UPDATE_TIME)
+      .set("applicationListUpdateDescription", UPDATE_DESCRIPTION)
+      .set("applicationListUpdatedCourtLocationCode", UPDATE_COURT_LOCATION_CODE == null
+        ? session.getString("applicationListCourtLocationCode")
+        : UPDATE_COURT_LOCATION_CODE)
+      .set("applicationListDurationHours", DURATION_HOURS)
+      .set("applicationListDurationMinutes", DURATION_MINUTES));
   }
 
   static ChainBuilder loadApplicationList() {
@@ -44,7 +62,7 @@ public final class UpdateApplicationListScenario {
 
   static String listBody(String status) {
     return """
-      {"date":"#{applicationListDate}","time":"#{applicationListTime}","description":"#{applicationListDescription}","status":"%s","courtLocationCode":"#{applicationListCourtLocationCode}","durationHours":#{applicationListDurationHours},"durationMinutes":0}
+      {"date":"#{applicationListUpdateDate}","time":"#{applicationListUpdateTime}","description":"#{applicationListUpdateDescription}","status":"%s","courtLocationCode":"#{applicationListUpdatedCourtLocationCode}","durationHours":#{applicationListDurationHours},"durationMinutes":#{applicationListDurationMinutes}}
       """.formatted(status);
   }
 }

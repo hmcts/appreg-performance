@@ -10,14 +10,12 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 
 /** Replays the recorded UI flow for closing a close-ready Application List. */
 public final class CloseApplicationListScenario {
-  private static final int DURATION_HOURS = Integer.getInteger("appRegApplicationListDurationHours", 10);
-
   private CloseApplicationListScenario() {}
 
   public static ChainBuilder closeApplicationList() {
     return group("AppReg_090_Application_List_Close").on(
       UpdateApplicationListScenario.loadApplicationList()
-        .exec(session -> session.set("applicationListDurationHours", DURATION_HOURS))
+        .exec(UpdateApplicationListScenario.updateValues())
         .exec(http("Close application list")
           .put("/application-lists/#{applicationListId}")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")

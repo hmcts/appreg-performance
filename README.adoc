@@ -92,6 +92,8 @@ certificatePath="/Users/<your-user>/.config/gatling-recorder/staging/ca-cert.pem
 privateKeyPath="/Users/<your-user>/.config/gatling-recorder/staging/ca-key.pem"
 ----
 
+These paths are specific to the macOS user who created the CA. Every developer or build machine that runs the Recorder must create and trust its own CA, then update its local Recorder `certificatePath` and `privateKeyPath` to that user's files. Do not copy another user's private key or commit either file to the repository.
+
 This Recorder CA is separate from the Zscaler certificate used by Java/Gradle. See <<zscaler-certificate-issue,Zscaler certificate issue>> if Gradle reports a TLS trust error.
 
 === HMCTS connection during recording
@@ -333,7 +335,7 @@ TEST_URL="$RECORDING_APP_URL" \
 
 ARCPOC-1620 has two separate reusable actions: `UpdateApplicationListScenario` updates an open Application List, and `CloseApplicationListScenario` closes a list that already satisfies AppReg's closure rules. They remain separate because the eventual workload uses a 90% simple-update and 10% close split within the ticket's overall allocation.
 
-`UpdateAndCloseApplicationListProofSimulation` creates proof-only close-ready data: one isolated list, one completed Application, a paid fee, respondent, Magistrate official and `AUTH` result. It applies a positive ten-hour duration through the simple update action, then closes the list. This proof is destructive and permanently closes its created list. Final workload simulations will instead use separate allocated open-list and close-ready-list seed data.
+`UpdateAndCloseApplicationListProofSimulation` creates proof-only close-ready data: one isolated list, one completed Application, a paid fee, respondent, Magistrate official and `AUTH` result. The simple update action changes the list date, time, description and duration before the close action runs; it retains the existing court/location unless an approved replacement code is supplied. This proof is destructive and permanently closes its created list. Final workload simulations will instead use separate allocated open-list and close-ready-list seed data.
 
 To run the one-user proof:
 
