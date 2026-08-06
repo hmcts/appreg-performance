@@ -177,7 +177,7 @@ SSO login is deliberately included in the measured traffic. AppReg currently rat
 
 The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
 
-The CNP push pipeline runs the curated `AppRegSimulation`, the one-user `ApplicationListCreateProofSimulation`, the one-user `UpdateApplicationProofSimulation`, the one-user `AddApplicationProofSimulation`, the one-user `ResultMultipleApplicationsProofSimulation`, the one-user `UpdateApplicationResultProofSimulation`, and the one-user `ResultApplicationProofSimulation` explicitly. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. The create, update, add and result proofs change persistent test data, so they must retain their dedicated account and test-data controls.
+The CNP push pipeline runs the curated `AppRegSimulation`, the one-user `ApplicationListCreateProofSimulation`, the one-user `UpdateApplicationProofSimulation`, the one-user `AddApplicationProofSimulation`, the one-user `ResultMultipleApplicationsProofSimulation`, the one-user `UpdateApplicationResultProofSimulation`, the one-user `ResultApplicationProofSimulation`, and the one-user `UpdateAndCloseApplicationListProofSimulation` explicitly. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. The create, update, add, result and close proofs change persistent test data, so they must retain their dedicated account and test-data controls.
 
 After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
 
@@ -327,6 +327,28 @@ To run the one-user proof:
 TEST_URL="$RECORDING_APP_URL" \
   ./gradlew gatlingRun \
   --simulation simulations.ResultApplicationProofSimulation
+----
+
+== Application List update and close proof
+
+ARCPOC-1620 has two separate reusable actions: `UpdateApplicationListScenario` updates an open Application List, and `CloseApplicationListScenario` closes a list that already satisfies AppReg's closure rules. They remain separate because the eventual workload uses a 90% simple-update and 10% close split within the ticket's overall allocation.
+
+`UpdateAndCloseApplicationListProofSimulation` creates proof-only close-ready data: one isolated list, one completed Application, a paid fee, respondent, Magistrate official and `AUTH` result. It applies a positive ten-hour duration through the simple update action, then closes the list. This proof is destructive and permanently closes its created list. Final workload simulations will instead use separate allocated open-list and close-ready-list seed data.
+
+To run the one-user proof:
+
+[source,bash]
+----
+TEST_URL="$RECORDING_APP_URL" \
+  ./gradlew gatlingRun \
+  --simulation simulations.UpdateAndCloseApplicationListProofSimulation
+----
+
+The duration used by both actions defaults to ten hours and can be overridden for an approved environment:
+
+[source,bash]
+----
+-DappRegApplicationListDurationHours=<positive-hours>
 ----
 
 == Useful options

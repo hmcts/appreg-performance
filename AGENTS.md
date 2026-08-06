@@ -25,6 +25,8 @@ Use the Jira ticket as the boundary for a business action. Keep each action reus
 
 The listed weights total 100% when ARCPOC-1596 is accounted for within the current ARCPOC-1599 allocation. Before building a mixed workload, assign ARCPOC-1596 its own agreed weight and reduce ARCPOC-1599 accordingly. Do not associate ARCPOC-1597 with the “other UI operations” scope: it is already the Create Application List ticket.
 
+ARCPOC-1620 has an agreed design split within its 6.71% allocation: 90% simple Application List update (6.039% of the total workload) and 10% close Application List (0.671% of the total workload). Implement them as separate actions with separate allocated data: ordinary open mutable lists for updates, and fully close-ready lists for closure. This is a documented design weight only; do not add it to an executable mixed workload until the required seed data and feeder allocation are in place.
+
 ## Design approach
 
 Use modular business-action scenarios, not a browser-test Page Object Model.
