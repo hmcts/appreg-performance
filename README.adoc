@@ -179,7 +179,7 @@ SSO login is deliberately included in the measured traffic. AppReg currently rat
 
 The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
 
-The CNP push pipeline runs the curated `AppRegSimulation`, the one-user `ApplicationListCreateProofSimulation`, the one-user `UpdateApplicationProofSimulation`, the one-user `AddApplicationProofSimulation`, the one-user `ResultMultipleApplicationsProofSimulation`, the one-user `BulkUpdateOfficialsProofSimulation`, the one-user `UpdateApplicationResultProofSimulation`, the one-user `ResultApplicationProofSimulation`, and the one-user `UpdateAndCloseApplicationListProofSimulation` explicitly. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. The create, update, add, result, bulk-officials and close proofs change persistent test data, so they must retain their dedicated account and test-data controls.
+The CNP push pipeline runs the curated `AppRegSimulation`, the one-user `ApplicationListCreateProofSimulation`, the one-user `UpdateApplicationProofSimulation`, the one-user `AddApplicationProofSimulation`, the one-user `ResultMultipleApplicationsProofSimulation`, the one-user `BulkUpdateOfficialsProofSimulation`, the one-user `BulkUpdateFeesProofSimulation`, the one-user `UpdateApplicationResultProofSimulation`, the one-user `ResultApplicationProofSimulation`, and the one-user `UpdateAndCloseApplicationListProofSimulation` explicitly. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. The create, update, add, result, bulk-officials, bulk-fee and close proofs change persistent test data, so they must retain their dedicated account and test-data controls.
 
 After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
 
@@ -306,6 +306,19 @@ To run the one-user proof:
 TEST_URL="$RECORDING_APP_URL" \
   ./gradlew gatlingRun \
   --simulation simulations.BulkUpdateOfficialsProofSimulation
+----
+
+== Bulk Update Fees Status proof
+
+`BulkUpdateFeesScenario` is the reusable ARCPOC-1623 action. It opens the selected list, previews `UPDATE_FEE_DETAILS`, then updates the selected entries' Fee Status, Status Date and Payment Reference. The current recording does not contain an off-site-fee field.
+
+`BulkUpdateFeesProofSimulation` creates one isolated list and three completed Applications before applying the bulk fee update. It is destructive and creates persistent data. Final workloads will use independently allocated seeded data.
+
+[source,bash]
+----
+TEST_URL="$RECORDING_APP_URL" \
+  ./gradlew gatlingRun \
+  --simulation simulations.BulkUpdateFeesProofSimulation
 ----
 
 == Application Result update proof

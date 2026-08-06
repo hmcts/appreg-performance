@@ -1,0 +1,52 @@
+package scenarios;
+
+import io.gatling.javaapi.core.ChainBuilder;
+import java.time.LocalDate;
+import java.util.concurrent.ThreadLocalRandom;
+
+import static io.gatling.javaapi.core.CoreDsl.StringBody;
+import static io.gatling.javaapi.core.CoreDsl.exec;
+import static io.gatling.javaapi.core.CoreDsl.group;
+import static io.gatling.javaapi.http.HttpDsl.http;
+import static io.gatling.javaapi.http.HttpDsl.status;
+
+/** Replays the recorded UI flow for bulk-updating Application fee details. */
+public final class BulkUpdateFeesScenario {
+  private BulkUpdateFeesScenario() {}
+
+  public static ChainBuilder bulkUpdateFees() {
+    return group("AppReg_070_Applications_Bulk_Fees").on(
+      exec(session -> session
+        .set("bulkFeeStatusDate", LocalDate.now().minusDays(1).toString())
+        .set("bulkFeePaymentReference", "PAY-"
+          + String.format("%05d", ThreadLocalRandom.current().nextInt(100_000))))
+        .exec(http("Open application list for bulk fee update")
+          .get("/application-lists/#{applicationListId}")
+          .queryParam("pageNumber", "0").queryParam("pageSize", "10")
+          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .check(status().is(200)))
+        .exec(http("Get application list entries for bulk fee update")
+          .get("/application-lists/#{applicationListId}/entries")
+          .queryParam("pageNumber", "0").queryParam("pageSize", "10")
+          .queryParam("sort", "sequenceNumber,asc")
+          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .check(status().is(200)))
+        .exec(http("Preview bulk fee update")
+          .post("/application-lists/#{applicationListId}/entries/bulk-action-preview")
+          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
+          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .body(StringBody("""
+            {"action":"UPDATE_FEE_DETAILS","selection":{"selectionType":"FILTER","filter":{}}}
+            """))
+          .check(status().is(200)))
+        .exec(http("Bulk update application fee details")
+          .put("/application-lists/#{applicationListId}/entries/fees")
+          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
+          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .body(StringBody("""
+            {"entryIds":["#{entryIdOne}","#{entryIdTwo}","#{entryIdThree}"],"feeDetails":[{"paymentStatus":"REMITTED","statusDate":"#{bulkFeeStatusDate}","paymentReference":"#{bulkFeePaymentReference}"}]}
+            """))
+          .check(status().in(200, 204)))
+    );
+  }
+}
