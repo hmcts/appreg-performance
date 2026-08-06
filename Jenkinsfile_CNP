@@ -151,7 +151,8 @@ def publishGatlingReports() {
 }
 
 def archiveDependencyCheckReport() {
-    def dependencyCheckReport = 'build/reports/dependency-check-report.html'
+    //def dependencyCheckReport = 'build/reports/dependency-check-report.html'
+    def dependencyCheckReport = 'build/reports/dependency-check/dependency-check-report.html'
 
     if (!fileExists(dependencyCheckReport)) {
         echo "No Dependency-Check report found at ${dependencyCheckReport}; nothing to archive."
