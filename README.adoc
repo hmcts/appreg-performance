@@ -327,6 +327,8 @@ TEST_URL="$RECORDING_APP_URL" \
 
 `BulkApplicationUploadProofSimulation` creates an isolated empty list, then uploads the CSV into it. This proof is destructive and creates persistent entries; final workloads will use allocated empty lists and approved CSV fixtures.
 
+The success banner and its “update fee details” link are static UI behaviour. The linked fee action validates the uploaded entries independently, so this upload journey may use any valid approved CSV; it does not require entries that need fees.
+
 [source,bash]
 ----
 TEST_URL="$RECORDING_APP_URL" \
