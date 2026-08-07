@@ -5,7 +5,7 @@ Gatling performance tests for the HMCTS Applications Register. The current smoke
 == Prerequisites
 
 * Java 21 (JDK), available as `java` on your `PATH`
-* Github
+* Git
 * Network access to the AppReg test environment and Maven Central/Gradle services
 
 Gradle does not need to be installed separately: the included Gradle wrapper downloads the required version and Gatling dependencies on its first run.
