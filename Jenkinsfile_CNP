@@ -6,6 +6,7 @@ def component = "performance"
 
 def testVaultUrl = 'https://appreg-kv-test.vault.azure.net/'
 def initialTestUserEmail = 'appreg-001@dev.platform.hmcts.net'
+def testCourtLocationCode = 'B01BE00'
 
 static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
   [
@@ -39,6 +40,7 @@ withNightlyPipeline(type, product, component) {
                     env.TEST_TYPE = 'pipeline'
                     env.TEST_URL = 'https://appreg.test.apps.hmcts.net'
                     env.TEST_USER_EMAIL = initialTestUserEmail
+                    env.APPREG_COURT_LOCATION_CODE = testCourtLocationCode
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
 
