@@ -273,6 +273,8 @@ The proof defaults to the recorded application code `AD99001` and title `Copy do
 
 `ActivityAuditReportProofSimulation` authenticates one approved user and runs that action. It needs no synthetic test data. By default it requests `ADD_APPLICATION` activity from the previous UTC day through today; override the criteria for an approved environment when required:
 
+No report-generation response-time or throughput NFR has been agreed for AppReg. This proof is therefore a functional benchmark and a starting point for controlled limit exploration, not evidence that a performance requirement has been met. Record its timings and report size as findings; add workload profiles and pass/fail thresholds only after the reporting requirements are agreed.
+
 [source,bash]
 ----
 TEST_URL="$RECORDING_APP_URL" \
