@@ -4,11 +4,8 @@ def product = "appreg"
 def type = "java"
 def component = "performance"
 
-def vaultOverrides = [
-  'dev': 'stg',
-  'preview': 'stg',
-]
-def stagingVaultUrl = 'https://appreg-stg.vault.azure.net/'
+def testVaultUrl = 'https://appreg-kv-test.vault.azure.net/'
+def initialTestUserEmail = 'appreg-001@dev.platform.hmcts.net'
 
 static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
   [
@@ -22,7 +19,6 @@ static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
 
 def secrets = [
   'appreg-${env}': [
-    secret('TEST-USER1-EMAIL', 'TEST_USER_EMAIL'),
     secret('TEST-USERS-PASSWORD', 'TEST_USERS_PASSWORD'),
     secret('azure-tenant-id', 'TENANT_ID'),
   ],
@@ -36,12 +32,13 @@ withNightlyPipeline(type, product, component) {
                 checkout scm
                 withAzureKeyvault(
                     azureKeyVaultSecrets: secrets['appreg-${env}'],
-                    keyVaultURLOverride: stagingVaultUrl,
+                    keyVaultURLOverride: testVaultUrl,
                     applicationIDOverride: env.AZURE_CLIENT_ID,
                     applicationSecretOverride: env.AZURE_CLIENT_SECRET
                 ) {
                     env.TEST_TYPE = 'pipeline'
-                    env.TEST_URL = 'https://appreg.staging.apps.hmcts.net'
+                    env.TEST_URL = 'https://appreg.test.apps.hmcts.net'
+                    env.TEST_USER_EMAIL = initialTestUserEmail
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
 
@@ -62,26 +59,6 @@ withNightlyPipeline(type, product, component) {
                               --simulation simulations.AppRegSimulation
                             ./gradlew --no-daemon gatlingRun \
                               --simulation simulations.ActivityAuditReportProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.ApplicationListCreateProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.UpdateApplicationProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.AddApplicationProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.ResultMultipleApplicationsProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.BulkUpdateOfficialsProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.BulkUpdateFeesProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.BulkApplicationUploadProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.UpdateApplicationResultProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.ResultApplicationProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.UpdateAndCloseApplicationListProofSimulation
                         '''
                     } finally {
                         publishGatlingReports()

@@ -44,6 +44,7 @@ Recordings are raw browser evidence only. They reveal the HTTP flow but must not
 - Generate unique disposable data for created entities and capture identifiers for follow-up calls or cleanup.
 - Keep passwords, access tokens, cookies, client secrets, captured personal data and response bodies out of Git, logs, reports and issue trackers.
 - Do not remove data or change an environment without explicit approval and a known target scope.
+- Retain every `*ProofSimulation`. Re-enable a Test proof in Jenkins only after its matching Data ticket provides one valid canonical data shape and the one-user proof passes. ARCPOC-1633 will scale approved canonical SQL into deterministic, allocated synthetic data for the final workload.
 
 ## Recording conventions
 
