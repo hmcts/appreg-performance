@@ -19,8 +19,7 @@ import static utils.Headers.COMMON_HEADER;
  * This chain assumes the caller has already authenticated using {@code SsoAuthentication}.
  */
 public final class ApplicationListCreateScenario {
-  private static final String COURT_LOCATION_CODE = System.getProperty(
-    "appRegCourtLocationCode", System.getenv().getOrDefault("APPREG_COURT_LOCATION_CODE", "BCC026"));
+  private static final String COURT_LOCATION_CODE = System.getProperty("appRegCourtLocationCode", "BCC026");
 
   private ApplicationListCreateScenario() {}
 

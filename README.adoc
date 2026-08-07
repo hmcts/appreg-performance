@@ -200,7 +200,7 @@ TEST_URL="$RECORDING_APP_URL" \
   --simulation simulations.ApplicationListCreateProofSimulation
 ----
 
-The recorded court-location code is the local fallback. Jenkins uses Test's approved `B01BE00` (`Belmarsh Magistrates' Court`) through `APPREG_COURT_LOCATION_CODE`. Override it with an approved code when required:
+The recorded court-location code is the default. Override it with an approved code when required:
 
 [source,bash]
 ----
