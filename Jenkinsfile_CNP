@@ -18,7 +18,7 @@ static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
 
 def secrets = [
   'appreg-${env}': [
-    secret('TEST-USER1-EMAIL', 'TEST_USER_EMAIL'),
+    secret('TEST-USER2-EMAIL', 'TEST_USER_EMAIL'),
     secret('TEST-USERS-PASSWORD', 'TEST_USERS_PASSWORD'),
     secret('azure-tenant-id', 'TENANT_ID'),
   ],
