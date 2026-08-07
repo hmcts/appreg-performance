@@ -59,26 +59,6 @@ withNightlyPipeline(type, product, component) {
                               --simulation simulations.AppRegSimulation
                             ./gradlew --no-daemon gatlingRun \
                               --simulation simulations.ActivityAuditReportProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.ApplicationListCreateProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.UpdateApplicationProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.AddApplicationProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.ResultMultipleApplicationsProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.BulkUpdateOfficialsProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.BulkUpdateFeesProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.BulkApplicationUploadProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.UpdateApplicationResultProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.ResultApplicationProofSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.UpdateAndCloseApplicationListProofSimulation
                         '''
                     } finally {
                         publishGatlingReports()
