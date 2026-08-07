@@ -9,8 +9,11 @@ import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.core.CoreDsl.pause;
+import static io.gatling.javaapi.http.HttpDsl.CookieKey;
+import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.Headers.COMMON_HEADER;
 
 /** Generates and downloads an Activity Audit report using AppReg's asynchronous report-job flow. */
 public final class ActivityAuditReportScenario {
@@ -28,6 +31,11 @@ public final class ActivityAuditReportScenario {
         .set("activityAuditReportDateFrom", DATE_FROM)
         .set("activityAuditReportDateTo", DATE_TO)
         .set("activityAuditReportActivity", ACTIVITY_TYPE))
+        .exec(http("Reports page")
+          .get("/reports")
+          .headers(COMMON_HEADER)
+          .check(status().is(200)))
+        .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
         .exec(http("Start Activity Audit report")
           .post("/reports/activity-audit/jobs")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
