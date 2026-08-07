@@ -5,6 +5,7 @@ def type = "java"
 def component = "performance"
 
 def testVaultUrl = 'https://appreg-kv-test.vault.azure.net/'
+def initialTestUserEmail = 'appreg-001@dev.platform.hmcts.net'
 
 static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
   [
@@ -18,7 +19,6 @@ static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
 
 def secrets = [
   'appreg-${env}': [
-    secret('TEST-USER1-EMAIL', 'TEST_USER_EMAIL'),
     secret('TEST-USERS-PASSWORD', 'TEST_USERS_PASSWORD'),
     secret('azure-tenant-id', 'TENANT_ID'),
   ],
@@ -38,6 +38,7 @@ withNightlyPipeline(type, product, component) {
                 ) {
                     env.TEST_TYPE = 'pipeline'
                     env.TEST_URL = 'https://appreg.test.apps.hmcts.net'
+                    env.TEST_USER_EMAIL = initialTestUserEmail
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
 

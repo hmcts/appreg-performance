@@ -175,6 +175,8 @@ The run requires these masked runtime variables:
 
 The shared password is never put in a feeder, log, report, or file.
 
+For the initial Test/performance-environment proof, Jenkins uses the approved static account `appreg-001@dev.platform.hmcts.net` and retrieves only its shared password and tenant ID from Test Key Vault. The later multi-user profile will derive its allocated accounts from the agreed `appreg-<three-digit-index>@dev.platform.hmcts.net` pattern rather than store 500 individual email secrets.
+
 SSO login is deliberately included in the measured traffic. AppReg currently rate-limits `/sso/login` to ten requests per minute, so start with one user and retain a login rate below that limit. Do not repeatedly log in inside a journey loop. The first Test/performance-environment run must be a one-user proof because Entra response shapes can change.
 
 The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
