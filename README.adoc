@@ -267,6 +267,26 @@ The proof defaults to the recorded application code `AD99001` and title `Copy do
 -DappRegAddApplicationTitle=<approved-application-title>
 ----
 
+== Activity Audit report proof
+
+`ActivityAuditReportScenario` is the reusable, non-destructive reporting action for ARCPOC-1599. It submits an Activity Audit report job, polls it until AppReg reports `SUCCEEDED` or `COMPLETED`, then downloads the generated CSV. The downloaded response body is not written to the repository or Gatling report.
+
+`ActivityAuditReportProofSimulation` authenticates one approved user and runs that action. It needs no synthetic test data. By default it requests `ADD_APPLICATION` activity from the previous UTC day through today; override the criteria for an approved environment when required:
+
+[source,bash]
+----
+TEST_URL="$RECORDING_APP_URL" \
+  ./gradlew gatlingRun \
+  --simulation simulations.ActivityAuditReportProofSimulation
+----
+
+[source,bash]
+----
+-DappRegActivityAuditReportDateFrom=<YYYY-MM-DD> \
+-DappRegActivityAuditReportDateTo=<YYYY-MM-DD> \
+-DappRegActivityAuditReportActivity=<approved-activity-type>
+----
+
 == Result multiple Applications proof
 
 `ResultMultipleApplicationsScenario` is the reusable ARCPOC-1617 action. It replays the recorded UI HTTP flow to select multiple Applications, preview the selection, retrieve the chosen Result Code metadata, and apply the same Result to every selected entry.
