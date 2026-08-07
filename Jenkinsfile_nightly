@@ -8,7 +8,7 @@ properties([
         ])
 ])
 
-@Library("Infrastructure@fix-owasp") _
+@Library("Infrastructure") _
 
 def product = "appreg"
 def component = "performance"

@@ -1,4 +1,4 @@
-@Library("Infrastructure@fix-owasp") _
+@Library("Infrastructure") _
 
 def product = "appreg"
 def type = "java"
