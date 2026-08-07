@@ -4,11 +4,7 @@ def product = "appreg"
 def type = "java"
 def component = "performance"
 
-def vaultOverrides = [
-  'dev': 'stg',
-  'preview': 'stg',
-]
-def stagingVaultUrl = 'https://appreg-stg.vault.azure.net/'
+def testVaultUrl = 'https://appreg-kv-test.vault.azure.net/'
 
 static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
   [
@@ -36,12 +32,12 @@ withNightlyPipeline(type, product, component) {
                 checkout scm
                 withAzureKeyvault(
                     azureKeyVaultSecrets: secrets['appreg-${env}'],
-                    keyVaultURLOverride: stagingVaultUrl,
+                    keyVaultURLOverride: testVaultUrl,
                     applicationIDOverride: env.AZURE_CLIENT_ID,
                     applicationSecretOverride: env.AZURE_CLIENT_SECRET
                 ) {
                     env.TEST_TYPE = 'pipeline'
-                    env.TEST_URL = 'https://appreg.staging.apps.hmcts.net'
+                    env.TEST_URL = 'https://appreg.test.apps.hmcts.net'
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
 
