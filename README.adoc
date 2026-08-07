@@ -43,6 +43,19 @@ This project uses a modular, business-action design rather than a browser-test P
 
 This keeps common actions reusable across flows and avoids duplicating authentication, search/setup, headers and data handling. `AGENTS.md` records the same conventions for contributors using AI assistance.
 
+== Test data progression and proof re-enablement
+
+Every `*ProofSimulation` is retained as focused coverage for its reusable business action. A future weighted workload complements those proofs; it does not replace them.
+
+Test-dependent proofs are enabled progressively:
+
+. The matching Data ticket supplies one valid canonical Test data shape and its reviewed SQL.
+. The scenario/proof consumes that shape using one dedicated user and allocated records.
+. The one-user proof must pass against Test.
+. Its proof is then re-enabled in the Jenkins Direct Gatling proof stage.
+
+ARCPOC-1633 will subsequently scale each approved canonical SQL shape into deterministic synthetic data for the final workload. Each virtual user must receive its own allocated record set; do not use shared mutable records. This data-provisioning work is separate from the Test environment migration and from the eventual workload-profile configuration.
+
 == Recording browser journeys
 
 Recordings are raw browser evidence, not production-ready performance tests. They must not be added to a load profile or deployed directly. After recording, extract useful requests into the curated scenarios, replace dynamic values with session variables/feeders, define safe unique test data, and add appropriate assertions. Delete the raw recording once that assimilation is complete.
