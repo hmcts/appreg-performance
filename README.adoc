@@ -54,6 +54,12 @@ Test-dependent proofs are enabled progressively:
 . The one-user proof must pass against Test.
 . Its proof is then re-enabled in the Jenkins Direct Gatling proof stage.
 
+=== Wording-template reference data
+
+Application Code and Result Code wording templates in an approved environment are reference data used by the curated journeys. Every active placeholder must use the backend-supported form `\{TYPE|REFERENCE|MAX_LENGTH}`, for example `\{TEXT|Amount of costs|10}`.
+
+Do not use legacy `p`-delimited placeholders such as `\{TEXTpAmount of costsp10}`. They are not parsed by AppReg and cause otherwise valid Application or Result submissions to fail with HTTP 400. Verify the active `application_codes` and `resolution_codes` data before validating a wording-based proof against a new environment.
+
 ARCPOC-1633 will subsequently scale each approved canonical SQL shape into deterministic synthetic data for the final workload. Each virtual user must receive its own allocated record set; do not use shared mutable records. This data-provisioning work is separate from the Test environment migration and from the eventual workload-profile configuration.
 
 == Recording browser journeys
