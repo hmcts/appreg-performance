@@ -40,7 +40,7 @@ def secrets = [
 ]
 
 def dbSeedCommand = params.RUN_DB_SCRIPT
-  ? 'export PGPASSWORD="$DB_PASSWORD"; psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" -v ON_ERROR_STOP=1 -f db/postgres/reload_data.sql'
+  ? 'echo "Running Postgres reload"; export PGPASSWORD="$DB_PASSWORD"; psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" -v ON_ERROR_STOP=1 -f db/postgres/reload_data.sql'
   : ''                                                                                                                                                               
                                                                                                                                                                          
   withNightlyPipeline(type, product, component) {                                                                                                                        
