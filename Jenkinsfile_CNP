@@ -7,6 +7,16 @@ def component = "performance"
 def testVaultUrl = 'https://appreg-kv-test.vault.azure.net/'
 def initialTestUserEmail = 'appreg-001@dev.platform.hmcts.net'
 
+properties([
+  parameters([
+    booleanParam(
+      name: 'RUN_DB_SCRIPT',
+      defaultValue: false,
+      description: 'Reload approved Test database data before Gatling'
+    )
+  ])
+])
+
 static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
   [
     $class: 'AzureKeyVaultSecret',
@@ -21,8 +31,24 @@ def secrets = [
   'appreg-${env}': [
     secret('TEST-USERS-PASSWORD', 'TEST_USERS_PASSWORD'),
     secret('azure-tenant-id', 'TENANT_ID'),
+    secret('POSTGRES-USER', 'DB_USER'),
+    secret('POSTGRES-PASS', 'DB_PASSWORD'),
+    secret('POSTGRES-HOST', 'DB_HOST'),
+    secret('POSTGRES-PORT', 'DB_PORT'),
+    secret('POSTGRES-DATABASE', 'DB_NAME'),
   ],
 ]
+
+def dbSeedCommand = params.RUN_DB_SCRIPT ? '''
+  echo "Running approved Postgres reload"
+  command -v psql
+  export PGPASSWORD="$DB_PASSWORD"
+  psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
+    -v ON_ERROR_STOP=1 -f db/postgres/reload_data.sql
+  echo "Creating canonical Gatling seed shapes"
+  psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
+    -v ON_ERROR_STOP=1 -f data/seed/canonical-application-list-shapes.psql
+''' : ''
 
 
 withNightlyPipeline(type, product, component) {
@@ -41,6 +67,10 @@ withNightlyPipeline(type, product, component) {
                     env.TEST_USER_EMAIL = initialTestUserEmail
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
+
+                    if (params.RUN_DB_SCRIPT) {
+                        sh dbSeedCommand
+                    }
 
                     try {
                         sh '''
