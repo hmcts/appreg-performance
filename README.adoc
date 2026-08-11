@@ -188,7 +188,7 @@ The default `-DauthMode=none` runs the unauthenticated application-load journey.
 
 The run requires these masked runtime variables:
 
-* `TEST_USER_EMAIL` — one dedicated account for the one-user proof, or an account-name template containing `{index}` for multi-user runs. `APPREG_TEST_ACCOUNT_TEMPLATE` is an optional alias.
+* `TEST_USER_EMAIL` — one dedicated account for the one-user proof, or an account-name template containing `{index}` for multi-user runs. `{index}` is always zero-padded to three digits: `appreg-{index}@dev.platform.hmcts.net` produces `appreg-001@dev.platform.hmcts.net`, `appreg-010@dev.platform.hmcts.net` and so on. `APPREG_TEST_ACCOUNT_TEMPLATE` is an optional alias.
 * `TEST_USERS_PASSWORD` — the shared password for dedicated test accounts. `APPREG_TEST_USER_PASSWORD` is an optional alias.
 * `TENANT_ID` — the Entra tenant. `APPREG_TENANT_ID` is an optional alias.
 
@@ -199,6 +199,18 @@ For the initial Test/performance-environment proof, Jenkins uses the approved st
 SSO login is deliberately included in the measured traffic. AppReg currently rate-limits `/sso/login` to ten requests per minute, so start with one user and retain a login rate below that limit. Do not repeatedly log in inside a journey loop. The first Test/performance-environment run must be a one-user proof because Entra response shapes can change.
 
 The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE`, confirming enough dedicated accounts, and agreeing the Entra/AppReg login rate. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
+
+=== Run profiles and configuration
+
+The current modes are intentionally conservative:
+
+* `-Ddebug=on` is a local smoke mode: one virtual user with pauses disabled.
+* `TEST_TYPE=pipeline` is the Jenkins proof mode: the configured `PERFORMANCE_TEST_USERS` count, currently one, with SSO enabled by Jenkins.
+* `TEST_TYPE=perftest` is reserved for an agreed workload run. Do not use it for a final workload until ARCPOC-1633 has provisioned allocated data and the NFR owner has approved the load profile.
+
+The shared simulation defaults are preserved but can be explicitly configured with Java system properties: `appRegRampUpMinutes=5`, `appRegDurationMinutes=60`, `appRegRampDownMinutes=5`, `appRegHourlyTarget=10`, `appRegPipelineRampMinutes=2`, and `appRegSuccessfulRequestsThreshold=95`.
+
+Do not override workload rates, durations or success thresholds without an agreed NFR and enough independently allocated accounts and records. Invalid values fail fast when Gatling starts.
 
 The CNP push pipeline currently runs the curated `AppRegSimulation` and the non-destructive one-user `ActivityAuditReportProofSimulation` against Test. All other `*ProofSimulation` classes remain available for local validation. They will be re-enabled in CNP individually once their matching Data ticket has supplied the required Test reference/seed data and the one-user proof passes. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. The create, update, add, result, bulk-officials, bulk-fee, upload and close proofs change persistent test data, so they must retain their dedicated account and test-data controls.
 

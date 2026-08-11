@@ -42,7 +42,7 @@ public final class SsoAuthentication {
   }
 
   private static String accountName(String template, int index, int accountCount) {
-    if (template.contains("{index}")) return template.replace("{index}", Integer.toString(index));
+    if (template.contains("{index}")) return template.replace("{index}", "%03d".formatted(index));
     if (accountCount == 1) return template;
     throw new IllegalArgumentException("TEST_USER_EMAIL or APPREG_TEST_ACCOUNT_TEMPLATE must contain {index} for an SSO run with multiple users");
   }
