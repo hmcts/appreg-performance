@@ -3,49 +3,41 @@ package utils;
 /**
  * Runtime configuration for the shared AppReg simulation.
  *
- * <p>Defaults preserve the existing profile behaviour. Final workload values must be agreed with
- * the NFR owner and supported by allocated test data before being overridden.
+ * <p>The target user count is the sole load-size input. The SSO arrival rate is derived from the
+ * current AppReg login limit so each virtual user can be allocated a distinct account.
  */
 public record PerformanceProfile(
-    int rampUpMinutes,
-    int durationMinutes,
-    int rampDownMinutes,
-    double hourlyTarget,
-    int pipelineRampMinutes,
+    int concurrentUsers,
+    int ssoRampUpMinutes,
     double successfulRequestsThreshold) {
 
-  private static final int MAX_TOTAL_DURATION_MINUTES = 75;
+  private static final int MAX_TEST_ACCOUNTS = 500;
+  private static final int SSO_LOGINS_PER_MINUTE = 10;
 
   public PerformanceProfile {
-    if (rampUpMinutes + durationMinutes + rampDownMinutes > MAX_TOTAL_DURATION_MINUTES) {
+    if (concurrentUsers > MAX_TEST_ACCOUNTS) {
       throw new IllegalArgumentException(
-          "The combined ramp-up, duration and ramp-down must not exceed "
-              + MAX_TOTAL_DURATION_MINUTES
-              + " minutes");
+          "appRegConcurrentUsers must not exceed the " + MAX_TEST_ACCOUNTS + " dedicated Test accounts");
     }
   }
 
   public static PerformanceProfile fromRuntime() {
+    int concurrentUsers = positiveInteger(
+        "appRegConcurrentUsers",
+        Integer.parseInt(System.getenv().getOrDefault("PERFORMANCE_TEST_USERS", "1")));
     return new PerformanceProfile(
-        positiveInteger("appRegRampUpMinutes", 5),
-        positiveInteger("appRegDurationMinutes", 60),
-        positiveInteger("appRegRampDownMinutes", 5),
-        positiveDouble("appRegHourlyTarget", 10.0),
-        positiveInteger("appRegPipelineRampMinutes", 2),
+        concurrentUsers,
+        ssoRampUpMinutes(concurrentUsers),
         percentage("appRegSuccessfulRequestsThreshold", 95.0)
     );
   }
 
-  private static int positiveInteger(String propertyName, int defaultValue) {
-    int value = Integer.getInteger(propertyName, defaultValue);
-    if (value <= 0) {
-      throw new IllegalArgumentException(propertyName + " must be greater than zero");
-    }
-    return value;
+  private static int ssoRampUpMinutes(int concurrentUsers) {
+    return (int) Math.ceil((double) concurrentUsers / SSO_LOGINS_PER_MINUTE);
   }
 
-  private static double positiveDouble(String propertyName, double defaultValue) {
-    double value = Double.parseDouble(System.getProperty(propertyName, Double.toString(defaultValue)));
+  private static int positiveInteger(String propertyName, int defaultValue) {
+    int value = Integer.getInteger(propertyName, defaultValue);
     if (value <= 0) {
       throw new IllegalArgumentException(propertyName + " must be greater than zero");
     }
