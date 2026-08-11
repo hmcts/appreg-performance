@@ -39,7 +39,22 @@ INSERT INTO appreg.application_lists (
 ) RETURNING al_id AS bulk_upload_al_id, id AS bulk_upload_list_id
 \gset
 
--- 2. Complete editable entry: one list and one independently editable entry.
+-- 2. Empty OPEN list: Add Application creates and completes its entry through the UI.
+INSERT INTO appreg.application_lists (
+  al_id, application_list_status, application_list_date, application_list_time,
+  courthouse_code, other_courthouse, list_description, version, changed_by,
+  changed_date, user_name, courthouse_name, duration_hour, duration_minute,
+  cja_cja_id, id, delete_by, delete_date, is_deleted, child_deleted
+) VALUES (
+  nextval('appreg.al_seq'), 'OPEN', CURRENT_DATE, '10:00:00',
+  'B03DE00', NULL, 'PERF-SEED-ADD-APPLICATION', 0,
+  'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test',
+  'Carlisle Magistrates'' Court', 1, 0, NULL, gen_random_uuid(),
+  NULL, NULL, 'N', false
+) RETURNING al_id AS add_application_al_id, id AS add_application_list_id
+\gset
+
+-- 3. Complete editable entry: one list and one independently editable entry.
 INSERT INTO appreg.application_lists (
   al_id, application_list_status, application_list_date, application_list_time,
   courthouse_code, other_courthouse, list_description, version, changed_by,
@@ -110,7 +125,7 @@ INSERT INTO appreg.app_list_entry_official (
   (nextval('appreg.aleo_seq'), :editable_entry_ale_id, 'MR', 'MAGISTRATE', 'TWO', 'M', 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test'),
   (nextval('appreg.aleo_seq'), :editable_entry_ale_id, 'MR', 'CLERK', 'ONE', 'C', 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test');
 
--- 3. Close-ready list: do not reuse it for ordinary update traffic.
+-- 4. Close-ready list: do not reuse it for ordinary update traffic.
 INSERT INTO appreg.application_lists (
   al_id, application_list_status, application_list_date, application_list_time,
   courthouse_code, other_courthouse, list_description, version, changed_by,
@@ -198,7 +213,7 @@ INSERT INTO appreg.app_list_entry_resolutions (
   1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', gen_random_uuid()
 );
 
--- 4. Three-entry bulk target. It deliberately has no resolution rows: it is valid for the
+-- 5. Three-entry bulk target. It deliberately has no resolution rows: it is valid for the
 -- Result Multiple Applications journey. Provision distinct copies for result, officials and fees.
 INSERT INTO appreg.application_lists (
   al_id, application_list_status, application_list_date, application_list_time,
@@ -355,4 +370,5 @@ SELECT
   :'bulk_target_list_id'::uuid AS bulk_target_list_id,
   :'bulk_entry_id_1'::uuid AS bulk_entry_id_1,
   :'bulk_entry_id_2'::uuid AS bulk_entry_id_2,
-  :'bulk_entry_id_3'::uuid AS bulk_entry_id_3;
+  :'bulk_entry_id_3'::uuid AS bulk_entry_id_3,
+  :'add_application_list_id'::uuid AS add_application_list_id;

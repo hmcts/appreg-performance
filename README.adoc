@@ -289,12 +289,13 @@ The proof reads the application code from its allocated entry before submitting 
 
 `AddApplicationScenario` is a reusable authenticated chain for ARCPOC-1616. It assumes the caller has set `applicationListId`, searches for the selected application code, adds an Application, retrieves the resulting entry data, and completes the Application.
 
-`AddApplicationProofSimulation` first uses the existing create-list action to create isolated setup data, then adds and completes one Application. This proof is destructive and creates persistent data. Run it only against an approved environment with a dedicated account; do not include it in a multi-user workload until test-data allocation and cleanup are agreed.
+`AddApplicationProofSimulation` consumes a canonical seeded empty Application List, then adds and completes one Application. This proof is destructive and creates persistent data. It requires `APPREG_SEED_ADD_APPLICATION_LIST_ID`, emitted by `data/seed/canonical-application-list-shapes.psql` or the Jenkins seed stage. Run it only against an approved environment with a dedicated account; do not include it in a multi-user workload until test-data allocation and cleanup are agreed.
 
 To run the one-user proof:
 
 [source,bash]
 ----
+APPREG_SEED_ADD_APPLICATION_LIST_ID=<seeded-list-uuid> \
 TEST_URL="$RECORDING_APP_URL" \
   ./gradlew gatlingRun \
   --simulation simulations.AddApplicationProofSimulation
