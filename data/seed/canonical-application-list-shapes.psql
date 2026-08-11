@@ -4,14 +4,22 @@
 -- by PostgreSQL safely to later statements. It is deliberately one transaction: psql stops on
 -- the first error and PostgreSQL rolls the whole seed run back.
 --
--- The numeric reference IDs below are currently Test-environment-specific. Before every database
--- refresh, validate that 8, 236 and 7 still identify the agreed active application code, fee and
--- result code respectively. ARCPOC-1633 will parameterise the workflow/allocation labels and
--- scale these canonical shapes into independently allocated data sets.
+-- The numeric fee ID below is currently Test-environment-specific. Application and result codes
+-- use stable business codes rather than database IDs so seed-only runs do not depend on reference
+-- data sequences. Before every database refresh, validate that fee ID 236 is still appropriate.
+-- ARCPOC-1633 will parameterise workflow/allocation labels and scale these canonical shapes into
+-- independently allocated data sets.
 
 \set ON_ERROR_STOP on
 
 BEGIN;
+
+-- AD99001 is the agreed no-wording-field code used by the curated Add and Update Application proofs.
+SELECT ac_id AS canonical_application_code_id
+FROM appreg.application_codes
+WHERE application_code = 'AD99001'
+LIMIT 1
+\gset
 
 -- Stable audit values for synthetic Test data only.
 -- CURRENT_TIMESTAMP is constant throughout this transaction.
@@ -79,9 +87,9 @@ INSERT INTO appreg.application_list_entries (
   notes, version, changed_by, changed_date, bulk_upload, user_name, sequence_number,
   tcep_status, message_uuid, retry_count, lodgement_date, id, delete_by, delete_date
 ) VALUES (
-  nextval('appreg.ale_seq'), :editable_list_al_id, NULL, 8, :editable_applicant_id,
+  nextval('appreg.ale_seq'), :editable_list_al_id, NULL, :canonical_application_code_id, :editable_applicant_id,
   :editable_respondent_id, NULL,
-  'Notice of appeal to the High Court by way of case stated in respect of case heard on {TEXT|10/08/2026|10}',
+  '',
   NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL,
   'Performance.Test', 1, NULL, NULL, NULL, CURRENT_DATE::timestamp,
   gen_random_uuid(), NULL, NULL
@@ -150,9 +158,9 @@ INSERT INTO appreg.application_list_entries (
   notes, version, changed_by, changed_date, bulk_upload, user_name, sequence_number,
   tcep_status, message_uuid, retry_count, lodgement_date, id, delete_by, delete_date
 ) VALUES (
-  nextval('appreg.ale_seq'), :close_ready_list_al_id, NULL, 8, :close_ready_applicant_id,
+  nextval('appreg.ale_seq'), :close_ready_list_al_id, NULL, :canonical_application_code_id, :close_ready_applicant_id,
   :close_ready_respondent_id, NULL,
-  'Notice of appeal to the High Court by way of case stated in respect of case heard on {TEXT|10/08/2026|10}',
+  '',
   NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL,
   'Performance.Test', 1, NULL, NULL, NULL, CURRENT_DATE::timestamp,
   gen_random_uuid(), NULL, NULL
@@ -184,7 +192,9 @@ INSERT INTO appreg.app_list_entry_resolutions (
   aler_id, rc_rc_id, ale_ale_id, al_entry_resolution_wording, al_entry_resolution_officer,
   version, changed_by, changed_date, user_name, id
 ) VALUES (
-  nextval('appreg.aler_seq'), 7, :close_ready_entry_ale_id, 'Granted.', 'PERFORMANCE OFFICER',
+  nextval('appreg.aler_seq'),
+  (SELECT rc_id FROM appreg.resolution_codes WHERE resolution_code = 'AUTH'),
+  :close_ready_entry_ale_id, 'Granted.', 'PERFORMANCE OFFICER',
   1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', gen_random_uuid()
 );
 
@@ -293,9 +303,9 @@ INSERT INTO appreg.application_list_entries (
   notes, version, changed_by, changed_date, bulk_upload, user_name, sequence_number,
   tcep_status, message_uuid, retry_count, lodgement_date, id, delete_by, delete_date
 ) VALUES
-  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, 8, :bulk_applicant_id_1, :bulk_respondent_id_1, NULL, 'Notice of appeal to the High Court by way of case stated in respect of case heard on {TEXT|10/08/2026|10}', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 1, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL),
-  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, 8, :bulk_applicant_id_2, :bulk_respondent_id_2, NULL, 'Notice of appeal to the High Court by way of case stated in respect of case heard on {TEXT|10/08/2026|10}', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 2, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL),
-  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, 8, :bulk_applicant_id_3, :bulk_respondent_id_3, NULL, 'Notice of appeal to the High Court by way of case stated in respect of case heard on {TEXT|10/08/2026|10}', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 3, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL);
+  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, :canonical_application_code_id, :bulk_applicant_id_1, :bulk_respondent_id_1, NULL, '', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 1, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL),
+  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, :canonical_application_code_id, :bulk_applicant_id_2, :bulk_respondent_id_2, NULL, '', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 2, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL),
+  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, :canonical_application_code_id, :bulk_applicant_id_3, :bulk_respondent_id_3, NULL, '', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 3, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL);
 
 -- Capture the three entries by their unique sequence numbers before adding related rows.
 SELECT ale_id AS bulk_entry_ale_id_1, id AS bulk_entry_id_1

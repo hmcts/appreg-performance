@@ -54,6 +54,15 @@ Test-dependent proofs are enabled progressively:
 . The one-user proof must pass against Test.
 . Its proof is then re-enabled in the Jenkins Direct Gatling proof stage.
 
+=== Jenkins Test-data controls
+
+The Direct Gatling proof stage has two independent parameters:
+
+* `RUN_DB_SEED` defaults to `true`. It creates canonical proof data and writes its fresh UUID allocation to `build/seed-allocation.env`; seeded destructive proofs consume this allocation in the same build.
+* `RUN_DB_RESET` defaults to `false`. It restores the approved masked Test database baseline before the seed step. Use it when a clean baseline is required, rather than on every per-ticket validation run.
+
+`RUN_DB_RESET=true` and `RUN_DB_SEED=true` performs a full reset and seed. `RUN_DB_SEED=false` skips seeded destructive proofs and is suitable only for non-destructive diagnostic runs.
+
 === Wording-template reference data
 
 Application Code and Result Code wording templates in an approved environment are reference data used by the curated journeys. Every active placeholder must use the backend-supported form `\{TYPE|REFERENCE|MAX_LENGTH}`, for example `\{TEXT|Amount of costs|10}`.
@@ -261,23 +270,20 @@ TEST_URL="$RECORDING_APP_URL" \
 
 `UpdateApplicationScenario` is a reusable authenticated chain for ARCPOC-1615. It updates the Application List and Application identifiers held in the Gatling session, retrieving the relevant entry and application-code metadata before submitting the update and verifying a successful response. It is consumed by `UpdateApplicationProofSimulation`.
 
-This proof is destructive. It validates the reusable `Bulk` search action, then creates an isolated Application List and Application before updating that known entry with new disposable values. It must not be run against production or records containing real personal data. Before a multi-user workload is introduced, agree deterministic allocation and cleanup for the created data.
+This proof is destructive. It updates the canonical seeded editable Application List and Application, using new disposable values. It must not be run against production or records containing real personal data. It requires the `APPREG_SEED_EDITABLE_LIST_ID` and `APPREG_SEED_EDITABLE_ENTRY_ID` UUIDs emitted by `data/seed/canonical-application-list-shapes.psql` (or written to `build/seed-allocation.env` by the Jenkins seed stage). Set `RUN_DB_SEED=false` only for a non-destructive diagnostic pipeline run.
 
 To run the one-user proof, supply the SSO values described above:
 
 [source,bash]
 ----
+APPREG_SEED_EDITABLE_LIST_ID=<seeded-list-uuid> \
+APPREG_SEED_EDITABLE_ENTRY_ID=<seeded-entry-uuid> \
 TEST_URL="$RECORDING_APP_URL" \
   ./gradlew gatlingRun \
   --simulation simulations.UpdateApplicationProofSimulation
 ----
 
-The proof reads the application code from its created entry. It uses the shared search action, which defaults to searching for `Bulk`; override the search description when the approved POC data requires it:
-
-[source,bash]
-----
--DappRegApplicationListSearchDescription=<approved-list-description>
-----
+The proof reads the application code from its allocated entry before submitting the update. The data reset/seed process must run again before repeating a destructive proof against the same allocation.
 
 == Application add proof
 
