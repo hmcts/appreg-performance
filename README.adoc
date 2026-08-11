@@ -416,13 +416,15 @@ TEST_URL="$RECORDING_APP_URL" \
 
 `UpdateApplicationResultScenario` is the reusable ARCPOC-1618 action. It replays the recorded UI HTTP flow for updating a Result on one Application: preview the selected Application, retrieve the Result Code metadata and details, then submit the amended Result wording.
 
-`UpdateApplicationResultProofSimulation` creates proof-only setup data: one isolated Application List, one completed Application, and an existing `COST` Result with wording `500 Pounds`. It then applies the recorded update with wording `501 Pounds`. This proof is destructive and creates persistent data. Run it only against an approved environment with a dedicated account; final workload simulations will instead consume an allocated seeded Application and existing Result.
+`UpdateApplicationResultProofSimulation` consumes one canonical seeded Application with an existing `AUTH` Result, then applies the recorded `COST` update with wording `501 Pounds`. This proof is destructive and changes persistent data. It requires `APPREG_SEED_UPDATE_RESULT_LIST_ID` and `APPREG_SEED_UPDATE_RESULT_ENTRY_ID`, emitted by `data/seed/canonical-application-list-shapes.psql` or the Jenkins seed stage.
 
 To run the one-user proof:
 
 [source,bash]
 ----
-TEST_URL="$RECORDING_APP_URL" \
+APPREG_SEED_UPDATE_RESULT_LIST_ID=<seeded-list-uuid> \
+APPREG_SEED_UPDATE_RESULT_ENTRY_ID=<seeded-entry-uuid> \
+TEST_URL='https://appreg.test.apps.hmcts.net' \
   ./gradlew gatlingRun \
   --simulation simulations.UpdateApplicationResultProofSimulation
 ----
