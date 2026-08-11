@@ -233,7 +233,7 @@ TEST_URL="$RECORDING_APP_URL" \
   --simulation simulations.ApplicationListCreateProofSimulation
 ----
 
-The recorded court-location code is the default. Override it with an approved code when required:
+The Test default court-location code is `B40BC00` (`Bedford Magistrates' Court`). Override it with another approved code when required:
 
 [source,bash]
 ----
@@ -435,13 +435,15 @@ TEST_URL="$RECORDING_APP_URL" \
 
 ARCPOC-1620 has two separate reusable actions: `UpdateApplicationListScenario` updates an open Application List, and `CloseApplicationListScenario` closes a list that already satisfies AppReg's closure rules. They remain separate because the eventual workload uses a 90% simple-update and 10% close split within the ticket's overall allocation.
 
-`UpdateAndCloseApplicationListProofSimulation` creates proof-only close-ready data: one isolated list, one completed Application, a paid fee, respondent, Magistrate official and `AUTH` result. The simple update action changes the list date, time, description and duration before the close action runs; it retains the existing court/location unless an approved replacement code is supplied. This proof is destructive and permanently closes its created list. Final workload simulations will instead use separate allocated open-list and close-ready-list seed data.
+`UpdateAndCloseApplicationListProofSimulation` consumes one allocated close-ready Application List and entry. The seed must contain a completed Application, a paid fee, respondent, official, Result and positive duration. The proof first verifies that the allocated entry can be retrieved, then updates the list date, time, description and duration before closing the list. It is destructive and permanently closes its allocated list; rerun the seed process or allocate a new record before every execution.
 
 To run the one-user proof:
 
 [source,bash]
 ----
-TEST_URL="$RECORDING_APP_URL" \
+APPREG_SEED_CLOSE_READY_LIST_ID=<allocated-list-id> \
+APPREG_SEED_CLOSE_READY_ENTRY_ID=<allocated-entry-id> \
+TEST_URL='https://appreg.test.apps.hmcts.net' \
   ./gradlew gatlingRun \
   --simulation simulations.UpdateAndCloseApplicationListProofSimulation
 ----

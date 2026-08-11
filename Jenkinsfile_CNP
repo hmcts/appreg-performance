@@ -7,6 +7,16 @@ def component = "performance"
 def testVaultUrl = 'https://appreg-kv-test.vault.azure.net/'
 def initialTestUserEmail = 'appreg-001@dev.platform.hmcts.net'
 
+properties([
+  parameters([
+    booleanParam(
+      name: 'RUN_DB_SCRIPT',
+      defaultValue: false,
+      description: 'Reload approved Test database data before Gatling'
+    )
+  ])
+])
+
 static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
   [
     $class: 'AzureKeyVaultSecret',
@@ -21,8 +31,47 @@ def secrets = [
   'appreg-${env}': [
     secret('TEST-USERS-PASSWORD', 'TEST_USERS_PASSWORD'),
     secret('azure-tenant-id', 'TENANT_ID'),
+    secret('POSTGRES-USER', 'DB_USER'),
+    secret('POSTGRES-PASS', 'DB_PASSWORD'),
+    secret('POSTGRES-HOST', 'DB_HOST'),
+    secret('POSTGRES-PORT', 'DB_PORT'),
+    secret('POSTGRES-DATABASE', 'DB_NAME'),
   ],
 ]
+
+def dbSeedCommand = params.RUN_DB_SCRIPT ? '''
+  echo "Running approved Postgres reload"
+  command -v psql
+  export PGPASSWORD="$DB_PASSWORD"
+  psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
+    -v ON_ERROR_STOP=1 -f db/postgres/reload_data.sql
+  echo "Creating canonical Gatling seed shapes"
+  seed_output="$(psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
+    -A -t -F '|' -v ON_ERROR_STOP=1 -f data/seed/canonical-application-list-shapes.psql)"
+  printf '%s\n' "$seed_output"
+  seed_allocation="$(printf '%s\n' "$seed_output" | tail -n 1)"
+  IFS='|' read -r bulk_upload_list_id editable_list_id editable_entry_id \
+    close_ready_list_id close_ready_entry_id bulk_target_list_id \
+    bulk_entry_id_1 bulk_entry_id_2 bulk_entry_id_3 <<EOF
+$seed_allocation
+EOF
+  if [ -z "$close_ready_list_id" ] || [ -z "$close_ready_entry_id" ]; then
+    echo "Seed allocation did not include the close-ready UUIDs" >&2
+    exit 1
+  fi
+  mkdir -p build
+  cat > build/seed-allocation.env <<EOF
+export APPREG_SEED_BULK_UPLOAD_LIST_ID='$bulk_upload_list_id'
+export APPREG_SEED_EDITABLE_LIST_ID='$editable_list_id'
+export APPREG_SEED_EDITABLE_ENTRY_ID='$editable_entry_id'
+export APPREG_SEED_CLOSE_READY_LIST_ID='$close_ready_list_id'
+export APPREG_SEED_CLOSE_READY_ENTRY_ID='$close_ready_entry_id'
+export APPREG_SEED_BULK_TARGET_LIST_ID='$bulk_target_list_id'
+export APPREG_SEED_BULK_ENTRY_ID_1='$bulk_entry_id_1'
+export APPREG_SEED_BULK_ENTRY_ID_2='$bulk_entry_id_2'
+export APPREG_SEED_BULK_ENTRY_ID_3='$bulk_entry_id_3'
+EOF
+''' : ''
 
 
 withNightlyPipeline(type, product, component) {
@@ -41,12 +90,22 @@ withNightlyPipeline(type, product, component) {
                     env.TEST_USER_EMAIL = initialTestUserEmail
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
+                    env.RUN_DB_SCRIPT = params.RUN_DB_SCRIPT.toString()
+
+                    if (params.RUN_DB_SCRIPT) {
+                        sh dbSeedCommand
+                    }
 
                     try {
                         sh '''
                             export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
                             export PATH="$JAVA_HOME/bin:$PATH"
                             java -version
+
+                            if [ "$RUN_DB_SCRIPT" = "true" ]; then
+                              . build/seed-allocation.env
+                              echo "Seed allocation is available to Gatling"
+                            fi
 
                             for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID; do
                               if printenv "$variable" > /dev/null 2>&1; then
@@ -59,6 +118,8 @@ withNightlyPipeline(type, product, component) {
                               --simulation simulations.AppRegSimulation
                             ./gradlew --no-daemon gatlingRun \
                               --simulation simulations.ActivityAuditReportProofSimulation
+                            # Enable only after the reset/provision stage sets APPREG_SEED_CLOSE_READY_LIST_ID and APPREG_SEED_CLOSE_READY_ENTRY_ID.
+                            # ./gradlew --no-daemon gatlingRun --simulation simulations.UpdateAndCloseApplicationListProofSimulation
                         '''
                     } finally {
                         publishGatlingReports()
