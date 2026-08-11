@@ -42,10 +42,6 @@ public class UpdateApplicationProofSimulation extends Simulation {
           .exec(session -> session
             .set("applicationListId", SEEDED_LIST_ID)
             .set("applicationEntryId", SEEDED_ENTRY_ID))
-          .exec(http("Get seeded editable application")
-            .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
-            .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-            .check(status().is(200)))
           .exec(UpdateApplicationScenario.updateApplication())
       );
 
