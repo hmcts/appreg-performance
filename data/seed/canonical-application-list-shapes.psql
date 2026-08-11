@@ -4,10 +4,12 @@
 -- by PostgreSQL safely to later statements. It is deliberately one transaction: psql stops on
 -- the first error and PostgreSQL rolls the whole seed run back.
 --
--- The numeric reference IDs below are currently Test-environment-specific. Before every database
--- refresh, validate that 8, 236 and 7 still identify the agreed active application code, fee and
--- result code respectively. ARCPOC-1633 will parameterise the workflow/allocation labels and
--- scale these canonical shapes into independently allocated data sets.
+-- The numeric application-code and fee IDs below are currently Test-environment-specific. The
+-- close-ready result uses its stable business code instead of a database ID so seed-only runs do
+-- not depend on a particular resolution-code sequence. Before every database refresh, validate
+-- that 8 and 236 still identify the agreed active application code and fee respectively.
+-- ARCPOC-1633 will parameterise workflow/allocation labels and scale these canonical shapes into
+-- independently allocated data sets.
 
 \set ON_ERROR_STOP on
 
@@ -184,7 +186,9 @@ INSERT INTO appreg.app_list_entry_resolutions (
   aler_id, rc_rc_id, ale_ale_id, al_entry_resolution_wording, al_entry_resolution_officer,
   version, changed_by, changed_date, user_name, id
 ) VALUES (
-  nextval('appreg.aler_seq'), 7, :close_ready_entry_ale_id, 'Granted.', 'PERFORMANCE OFFICER',
+  nextval('appreg.aler_seq'),
+  (SELECT rc_id FROM appreg.resolution_codes WHERE resolution_code = 'AUTH'),
+  :close_ready_entry_ale_id, 'Granted.', 'PERFORMANCE OFFICER',
   1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', gen_random_uuid()
 );
 
