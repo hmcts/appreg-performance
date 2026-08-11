@@ -40,65 +40,65 @@ def secrets = [
 ]
 
 def dbSeedCommand = params.RUN_DB_SCRIPT ? '''                                                                                                                         
-  export PGPASSWORD="$DB_PASSWORD"                                                                                                                              
-  psql \                                                                                                                                                               
-    -h "$DB_HOST" \                                                                                                                                                 
-    -p "$DB_PORT" \                                                                                                                                                 
-    -d "$DB_NAME" \
-    -U "$DB_USER" \                                                                                                                                         
-    -v ON_ERROR_STOP=1 \                                                                                                                                               
-    -f db/postgres/reload_data.sql                                                                                                                                     
-''' : '' 
-
-withNightlyPipeline(type, product, component) {
-    node {
-        stage('Direct Gatling proof') {
-            timeout(time: 90, unit: 'MINUTES') {
-                checkout scm
-                withAzureKeyvault(
-                    azureKeyVaultSecrets: secrets['appreg-${env}'],
-                    keyVaultURLOverride: testVaultUrl,
-                    applicationIDOverride: env.AZURE_CLIENT_ID,
-                    applicationSecretOverride: env.AZURE_CLIENT_SECRET
-                ) {
-                    env.TEST_TYPE = 'pipeline'
-                    env.TEST_URL = 'https://appreg.test.apps.hmcts.net'
-                    env.TEST_USER_EMAIL = initialTestUserEmail
-                    env.AUTH_MODE = 'sso-login'
-                    env.PERFORMANCE_TEST_USERS = '1'
-
-                    try {
-                        sh """
-                            export JAVA_HOME="\$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
-                            export PATH="\$JAVA_HOME/bin:$PATH"
-                            java -version
-
-                            for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID; do
-                              if printenv "\$variable" > /dev/null 2>&1; then
-                                echo "\$variable is set"
-                              else
-                                echo "$variable is missing"
-                              fi
-                            done
-                            ${dbSeedCommand}
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.AppRegSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.ActivityAuditReportProofSimulation
-                        """
-                    } finally {
-                        publishGatlingReports()
-                    }
-                }
-            }
-        }
-    }
-
-    afterAlways('DependencyCheckNightly') {
-        archiveDependencyCheckReport()
-    }
-}
-
+  export PGPASSWORD="$DB_PASSWORD"                                                                                                                                       
+  psql \                                                                                                                                                                 
+    -h "$DB_HOST" \                                                                                                                                                      
+    -p "$DB_PORT" \                                                                                                                                                      
+    -d "$DB_NAME" \                                                                                                                                                      
+    -U "$DB_USER" \                                                                                                                                                      
+    -v ON_ERROR_STOP=1 \                                                                                                                                                 
+    -f db/postgres/reload_data.sql                                                                                                                                       
+  ''' : ''                                                                                                                                                               
+                                                                                                                                                                         
+  withNightlyPipeline(type, product, component) {                                                                                                                        
+      node {                                                                                                                                                             
+          stage('Direct Gatling proof') {                                                                                                                                
+              timeout(time: 90, unit: 'MINUTES') {                                                                                                                       
+                  checkout scm                                                                                                                                           
+                  withAzureKeyvault(                                                                                                                                     
+                      azureKeyVaultSecrets: secrets['appreg-${env}'],                                                                                                    
+                      keyVaultURLOverride: testVaultUrl,                                                                                                                 
+                      applicationIDOverride: env.AZURE_CLIENT_ID,                                                                                                        
+                      applicationSecretOverride: env.AZURE_CLIENT_SECRET                                                                                                 
+                  ) {                                                                                                                                                    
+                      env.TEST_TYPE = 'pipeline'                                                                                                                         
+                      env.TEST_URL = 'https://appreg.test.apps.hmcts.net'                                                                                                
+                      env.TEST_USER_EMAIL = initialTestUserEmail                                                                                                         
+                      env.AUTH_MODE = 'sso-login'                                                                                                                        
+                      env.PERFORMANCE_TEST_USERS = '1'                                                                                                                   
+                                                                                                                                                                         
+                      try {                                                                                                                                              
+                          sh """                                                                                                                                         
+                              export JAVA_HOME="\$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"                                                                                 
+                              export PATH="\$JAVA_HOME/bin:\$PATH"                                                                                                       
+                              java -version                                                                                                                              
+                                                                                                                                                                         
+                              for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID; do                                                                          
+                                if printenv "\$variable" > /dev/null 2>&1; then                                                                                          
+                                  echo "\$variable is set"                                                                                                               
+                                else                                                                                                                                     
+                                  echo "\$variable is missing"                                                                                                           
+                                fi                                                                                                                                       
+                              done                                                                                                                                       
+                              ${dbSeedCommand}                                                                                                                           
+                              ./gradlew --no-daemon gatlingRun \                                                                                                         
+                                --simulation simulations.AppRegSimulation                                                                                                
+                              ./gradlew --no-daemon gatlingRun \                                                                                                         
+                                --simulation simulations.ActivityAuditReportProofSimulation                                                                              
+                          """                                                                                                                                            
+                      } finally {                                                                                                                                        
+                          publishGatlingReports()                                                                                                                        
+                      }                                                                                                                                                  
+                  }                                                                                                                                                      
+              }                                                                                                                                                          
+          }                                                                                                                                                              
+      }                                                                                                                                                                  
+                                                                                                                                                                         
+      afterAlways('DependencyCheckNightly') {                                                                                                                            
+          archiveDependencyCheckReport()                                                                                                                                 
+      }                                                                                                                                                                  
+  }               
+  
 def publishGatlingReports() {
     def reportsDirectory = 'build/reports/gatling'
 
