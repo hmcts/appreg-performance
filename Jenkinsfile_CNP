@@ -61,13 +61,15 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
   seed_allocation="$(printf '%s\n' "$seed_output" | tail -n 1)"
   IFS='|' read -r bulk_upload_list_id editable_list_id editable_entry_id \
     close_ready_list_id close_ready_entry_id bulk_target_list_id \
-    bulk_entry_id_1 bulk_entry_id_2 bulk_entry_id_3 add_application_list_id <<EOF
+    bulk_entry_id_1 bulk_entry_id_2 bulk_entry_id_3 add_application_list_id \
+    single_result_list_id single_result_entry_id <<EOF
 $seed_allocation
 EOF
   if [ -z "$editable_list_id" ] || [ -z "$editable_entry_id" ] \
     || [ -z "$close_ready_list_id" ] || [ -z "$close_ready_entry_id" ] \
-    || [ -z "$add_application_list_id" ]; then
-    echo "Seed allocation did not include the required editable, close-ready and add-application UUIDs" >&2
+    || [ -z "$add_application_list_id" ] || [ -z "$single_result_list_id" ] \
+    || [ -z "$single_result_entry_id" ]; then
+    echo "Seed allocation did not include the required editable, close-ready, add-application and single-result UUIDs" >&2
     exit 1
   fi
   mkdir -p build
@@ -82,6 +84,8 @@ export APPREG_SEED_BULK_ENTRY_ID_1='$bulk_entry_id_1'
 export APPREG_SEED_BULK_ENTRY_ID_2='$bulk_entry_id_2'
 export APPREG_SEED_BULK_ENTRY_ID_3='$bulk_entry_id_3'
 export APPREG_SEED_ADD_APPLICATION_LIST_ID='$add_application_list_id'
+export APPREG_SEED_SINGLE_RESULT_LIST_ID='$single_result_list_id'
+export APPREG_SEED_SINGLE_RESULT_ENTRY_ID='$single_result_entry_id'
 EOF
 ''' : ''
 
@@ -148,6 +152,9 @@ withNightlyPipeline(type, product, component) {
                               # Requires the dedicated three-entry bulk target allocation created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.ResultMultipleApplicationsProofSimulation
+                              # Requires the dedicated single-result list and entry allocation created by RUN_DB_SEED.
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.ResultApplicationProofSimulation
                             fi
                         '''
                     } finally {

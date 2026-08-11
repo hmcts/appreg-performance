@@ -54,7 +54,75 @@ INSERT INTO appreg.application_lists (
 ) RETURNING al_id AS add_application_al_id, id AS add_application_list_id
 \gset
 
--- 3. Complete editable entry: one list and one independently editable entry.
+-- 3. One completed, unresulted Application: single-result proof target.
+INSERT INTO appreg.application_lists (
+  al_id, application_list_status, application_list_date, application_list_time,
+  courthouse_code, other_courthouse, list_description, version, changed_by,
+  changed_date, user_name, courthouse_name, duration_hour, duration_minute,
+  cja_cja_id, id, delete_by, delete_date, is_deleted, child_deleted
+) VALUES (
+  nextval('appreg.al_seq'), 'OPEN', CURRENT_DATE, '10:00:00',
+  'B03DE00', NULL, 'PERF-SEED-SINGLE-RESULT', 0,
+  'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test',
+  'Carlisle Magistrates'' Court', 1, 0, NULL, gen_random_uuid(),
+  NULL, NULL, 'N', false
+) RETURNING al_id AS single_result_list_al_id, id AS single_result_list_id
+\gset
+
+INSERT INTO appreg.name_address (
+  na_id, code, name, title, address_l1, address_l2, address_l3, address_l4,
+  address_l5, postcode, email_address, telephone_number, mobile_number, version,
+  changed_by, changed_date, user_name, date_of_birth, dms_id, first_name,
+  middle_name, last_name
+) VALUES (
+  nextval('appreg.na_seq'), 'NA', 'SINGLE RESULT APPLICANT', NULL,
+  '5 TEST STREET', 'TEST SUBURB', 'TEST TOWN', 'TEST COUNTY', 'TEST ADDRESS',
+  'AB5 5AA', 'single-result-applicant@example.invalid', '01234567890', '07123456789', 1,
+  'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', NULL, NULL, NULL, NULL, NULL
+) RETURNING na_id AS single_result_applicant_id
+\gset
+
+INSERT INTO appreg.name_address (
+  na_id, code, name, title, address_l1, address_l2, address_l3, address_l4,
+  address_l5, postcode, email_address, telephone_number, mobile_number, version,
+  changed_by, changed_date, user_name, date_of_birth, dms_id, first_name,
+  middle_name, last_name
+) VALUES (
+  nextval('appreg.na_seq'), 'RE', NULL, 'MR',
+  '6 TEST STREET', 'TEST SUBURB', 'TEST TOWN', 'TEST COUNTY', 'TEST ADDRESS',
+  'AB6 6AA', 'single-result-respondent@example.invalid', '01234567890', '07123456789', 1,
+  'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', NULL, NULL,
+  'SINGLE', 'RESULT', 'RESPONDENT'
+) RETURNING na_id AS single_result_respondent_id
+\gset
+
+INSERT INTO appreg.application_list_entries (
+  ale_id, al_al_id, sa_sa_id, ac_ac_id, a_na_id, r_na_id, number_of_bulk_respondents,
+  application_list_entry_wording, case_reference, account_number, entry_rescheduled,
+  notes, version, changed_by, changed_date, bulk_upload, user_name, sequence_number,
+  tcep_status, message_uuid, retry_count, lodgement_date, id, delete_by, delete_date
+) VALUES (
+  nextval('appreg.ale_seq'), :single_result_list_al_id, NULL, :canonical_application_code_id,
+  :single_result_applicant_id, :single_result_respondent_id, NULL, '', NULL, NULL, 'N', NULL,
+  1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 1, NULL, NULL, NULL,
+  CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL
+) RETURNING ale_id AS single_result_entry_ale_id, id AS single_result_entry_id
+\gset
+
+INSERT INTO appreg.al_ale_sequence_mapping (al_id, ale_last_sequence)
+VALUES (:single_result_list_al_id, 1);
+
+INSERT INTO appreg.app_list_entry_fee_id (
+  ale_ale_id, fee_fee_id, version, changed_by, changed_date, user_name
+) VALUES (:single_result_entry_ale_id, 236, 1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test');
+
+INSERT INTO appreg.app_list_entry_official (
+  aleo_id, ale_ale_id, title, forename, surname, official_type, changed_by, changed_date, user_name
+) VALUES
+  (nextval('appreg.aleo_seq'), :single_result_entry_ale_id, 'MR', 'SINGLE', 'MAGISTRATE', 'M', 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test'),
+  (nextval('appreg.aleo_seq'), :single_result_entry_ale_id, 'MR', 'SINGLE', 'CLERK', 'C', 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test');
+
+-- 4. Complete editable entry: one list and one independently editable entry.
 INSERT INTO appreg.application_lists (
   al_id, application_list_status, application_list_date, application_list_time,
   courthouse_code, other_courthouse, list_description, version, changed_by,
@@ -125,7 +193,7 @@ INSERT INTO appreg.app_list_entry_official (
   (nextval('appreg.aleo_seq'), :editable_entry_ale_id, 'MR', 'MAGISTRATE', 'TWO', 'M', 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test'),
   (nextval('appreg.aleo_seq'), :editable_entry_ale_id, 'MR', 'CLERK', 'ONE', 'C', 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test');
 
--- 4. Close-ready list: do not reuse it for ordinary update traffic.
+-- 5. Close-ready list: do not reuse it for ordinary update traffic.
 INSERT INTO appreg.application_lists (
   al_id, application_list_status, application_list_date, application_list_time,
   courthouse_code, other_courthouse, list_description, version, changed_by,
@@ -213,7 +281,7 @@ INSERT INTO appreg.app_list_entry_resolutions (
   1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', gen_random_uuid()
 );
 
--- 5. Three-entry bulk target. It deliberately has no resolution rows: it is valid for the
+-- 6. Three-entry bulk target. It deliberately has no resolution rows: it is valid for the
 -- Result Multiple Applications journey. Provision distinct copies for result, officials and fees.
 INSERT INTO appreg.application_lists (
   al_id, application_list_status, application_list_date, application_list_time,
@@ -371,4 +439,6 @@ SELECT
   :'bulk_entry_id_1'::uuid AS bulk_entry_id_1,
   :'bulk_entry_id_2'::uuid AS bulk_entry_id_2,
   :'bulk_entry_id_3'::uuid AS bulk_entry_id_3,
-  :'add_application_list_id'::uuid AS add_application_list_id;
+  :'add_application_list_id'::uuid AS add_application_list_id,
+  :'single_result_list_id'::uuid AS single_result_list_id,
+  :'single_result_entry_id'::uuid AS single_result_entry_id;

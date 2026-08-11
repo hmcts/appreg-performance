@@ -431,7 +431,7 @@ The replacement Result Code and wording are configurable for an approved target 
 
 `ResultApplicationScenario` is the reusable ARCPOC-1621 action. It replays the recorded UI HTTP flow for applying one Result to one previously unresulted Application: preview the selected Application, retrieve Result Code metadata and details, then apply the Result.
 
-`ResultApplicationProofSimulation` creates proof-only setup data: one isolated Application List and one completed, unresulted Application. It then applies result code `GRSW` with `Time issued` wording `08:30`. This proof is destructive and creates persistent data. Run it only against an approved environment with a dedicated account; final workload simulations will instead consume an allocated seeded Application without a Result.
+`ResultApplicationProofSimulation` consumes one canonical seeded, completed, unresulted Application. It then applies result code `GRSW` with `Time issued` wording `08:30`. This proof is destructive and changes persistent data. It requires `APPREG_SEED_SINGLE_RESULT_LIST_ID` and `APPREG_SEED_SINGLE_RESULT_ENTRY_ID` from the canonical seed script or Jenkins seed stage.
 
 To run the one-user proof:
 
