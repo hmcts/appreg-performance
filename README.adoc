@@ -380,11 +380,15 @@ TEST_URL="$RECORDING_APP_URL" \
 
 `BulkUpdateFeesScenario` is the reusable ARCPOC-1623 action. It opens the selected list, previews `UPDATE_FEE_DETAILS`, then updates the selected entries' Fee Status, Status Date and Payment Reference. The current recording does not contain an off-site-fee field.
 
-`BulkUpdateFeesProofSimulation` creates one isolated list and three completed Applications before applying the bulk fee update. It is destructive and creates persistent data. Final workloads will use independently allocated seeded data.
+`BulkUpdateFeesProofSimulation` consumes one canonical seeded list and three independently allocated Applications with associated fees. It then bulk-updates their Fee Status, Status Date and Payment Reference. It is destructive and changes persistent data. It requires `APPREG_SEED_BULK_FEES_LIST_ID` and `APPREG_SEED_BULK_FEES_ENTRY_ID_1` through `APPREG_SEED_BULK_FEES_ENTRY_ID_3`, emitted by `data/seed/canonical-application-list-shapes.psql` or the Jenkins seed stage.
 
 [source,bash]
 ----
-TEST_URL="$RECORDING_APP_URL" \
+APPREG_SEED_BULK_FEES_LIST_ID=<seeded-list-uuid> \
+APPREG_SEED_BULK_FEES_ENTRY_ID_1=<seeded-entry-uuid> \
+APPREG_SEED_BULK_FEES_ENTRY_ID_2=<seeded-entry-uuid> \
+APPREG_SEED_BULK_FEES_ENTRY_ID_3=<seeded-entry-uuid> \
+TEST_URL='https://appreg.test.apps.hmcts.net' \
   ./gradlew gatlingRun \
   --simulation simulations.BulkUpdateFeesProofSimulation
 ----
