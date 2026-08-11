@@ -89,7 +89,7 @@ INSERT INTO appreg.application_list_entries (
 ) VALUES (
   nextval('appreg.ale_seq'), :editable_list_al_id, NULL, :canonical_application_code_id, :editable_applicant_id,
   :editable_respondent_id, NULL,
-  NULL,
+  '',
   NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL,
   'Performance.Test', 1, NULL, NULL, NULL, CURRENT_DATE::timestamp,
   gen_random_uuid(), NULL, NULL
@@ -160,7 +160,7 @@ INSERT INTO appreg.application_list_entries (
 ) VALUES (
   nextval('appreg.ale_seq'), :close_ready_list_al_id, NULL, :canonical_application_code_id, :close_ready_applicant_id,
   :close_ready_respondent_id, NULL,
-  NULL,
+  '',
   NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL,
   'Performance.Test', 1, NULL, NULL, NULL, CURRENT_DATE::timestamp,
   gen_random_uuid(), NULL, NULL
@@ -303,9 +303,9 @@ INSERT INTO appreg.application_list_entries (
   notes, version, changed_by, changed_date, bulk_upload, user_name, sequence_number,
   tcep_status, message_uuid, retry_count, lodgement_date, id, delete_by, delete_date
 ) VALUES
-  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, :canonical_application_code_id, :bulk_applicant_id_1, :bulk_respondent_id_1, NULL, NULL, NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 1, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL),
-  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, :canonical_application_code_id, :bulk_applicant_id_2, :bulk_respondent_id_2, NULL, NULL, NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 2, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL),
-  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, :canonical_application_code_id, :bulk_applicant_id_3, :bulk_respondent_id_3, NULL, NULL, NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 3, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL);
+  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, :canonical_application_code_id, :bulk_applicant_id_1, :bulk_respondent_id_1, NULL, '', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 1, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL),
+  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, :canonical_application_code_id, :bulk_applicant_id_2, :bulk_respondent_id_2, NULL, '', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 2, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL),
+  (nextval('appreg.ale_seq'), :bulk_target_list_al_id, NULL, :canonical_application_code_id, :bulk_applicant_id_3, :bulk_respondent_id_3, NULL, '', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 3, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL);
 
 -- Capture the three entries by their unique sequence numbers before adding related rows.
 SELECT ale_id AS bulk_entry_ale_id_1, id AS bulk_entry_id_1
