@@ -261,7 +261,7 @@ TEST_URL="$RECORDING_APP_URL" \
 
 `UpdateApplicationScenario` is a reusable authenticated chain for ARCPOC-1615. It updates the Application List and Application identifiers held in the Gatling session, retrieving the relevant entry and application-code metadata before submitting the update and verifying a successful response. It is consumed by `UpdateApplicationProofSimulation`.
 
-This proof is destructive. It updates the canonical seeded editable Application List and Application, using new disposable values. It must not be run against production or records containing real personal data. It requires the `APPREG_SEED_EDITABLE_LIST_ID` and `APPREG_SEED_EDITABLE_ENTRY_ID` UUIDs emitted by `data/seed/canonical-application-list-shapes.psql` (or written to `build/seed-allocation.env` by the opt-in Jenkins seed stage).
+This proof is destructive. It updates the canonical seeded editable Application List and Application, using new disposable values. It must not be run against production or records containing real personal data. It requires the `APPREG_SEED_EDITABLE_LIST_ID` and `APPREG_SEED_EDITABLE_ENTRY_ID` UUIDs emitted by `data/seed/canonical-application-list-shapes.psql` (or written to `build/seed-allocation.env` by the default Jenkins reset-and-seed stage). Set `RUN_DB_SCRIPT=false` only for a non-destructive diagnostic pipeline run.
 
 To run the one-user proof, supply the SSO values described above:
 

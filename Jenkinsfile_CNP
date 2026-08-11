@@ -11,8 +11,8 @@ properties([
   parameters([
     booleanParam(
       name: 'RUN_DB_SCRIPT',
-      defaultValue: false,
-      description: 'Reload approved Test database data before Gatling'
+      defaultValue: true,
+      description: 'Reload and seed approved Test database data before Gatling (disable only for a non-destructive diagnostic run)'
     )
   ])
 ])
