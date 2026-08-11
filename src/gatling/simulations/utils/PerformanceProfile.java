@@ -14,6 +14,17 @@ public record PerformanceProfile(
     int pipelineRampMinutes,
     double successfulRequestsThreshold) {
 
+  private static final int MAX_TOTAL_DURATION_MINUTES = 75;
+
+  public PerformanceProfile {
+    if (rampUpMinutes + durationMinutes + rampDownMinutes > MAX_TOTAL_DURATION_MINUTES) {
+      throw new IllegalArgumentException(
+          "The combined ramp-up, duration and ramp-down must not exceed "
+              + MAX_TOTAL_DURATION_MINUTES
+              + " minutes");
+    }
+  }
+
   public static PerformanceProfile fromRuntime() {
     return new PerformanceProfile(
         positiveInteger("appRegRampUpMinutes", 5),

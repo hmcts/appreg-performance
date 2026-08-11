@@ -18,6 +18,7 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 /** Replays AppReg's SSO protocol at HTTP level without writing credentials to disk or logs. */
 public final class SsoAuthentication {
   private static final String MICROSOFT_LOGIN_BASE_URL = "https://login.microsoftonline.com";
+  private static final int MAX_TEST_ACCOUNTS = 500;
   private static final Map<String, String> BROWSER_HEADERS = Map.of(
     "Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language", "en-GB,en;q=0.9",
@@ -50,6 +51,9 @@ public final class SsoAuthentication {
   /** One dedicated account per virtual user. The password is never added to a feeder. */
   public static Iterator<Map<String, Object>> users(int accountCount) {
     if (accountCount <= 0) throw new IllegalArgumentException("The SSO account count must be greater than zero");
+    if (accountCount > MAX_TEST_ACCOUNTS) {
+      throw new IllegalArgumentException("The SSO account count must not exceed " + MAX_TEST_ACCOUNTS);
+    }
     String template = requiredEnvironmentVariable("APPREG_TEST_ACCOUNT_TEMPLATE", "TEST_USER_EMAIL");
     String startIndex = environmentVariable("APPREG_ACCOUNT_START_INDEX");
     int firstIndex = startIndex == null ? 1 : Integer.parseInt(startIndex);
