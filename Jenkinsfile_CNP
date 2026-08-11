@@ -118,6 +118,11 @@ withNightlyPipeline(type, product, component) {
                               --simulation simulations.AppRegSimulation
                             ./gradlew --no-daemon gatlingRun \
                               --simulation simulations.ActivityAuditReportProofSimulation
+                            # Requires the canonical editable list and entry allocation created by RUN_DB_SCRIPT.
+                            if [ "$RUN_DB_SCRIPT" = "true" ]; then
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.UpdateApplicationProofSimulation
+                            fi
                             # Enable only after the reset/provision stage sets APPREG_SEED_CLOSE_READY_LIST_ID and APPREG_SEED_CLOSE_READY_ENTRY_ID.
                             # ./gradlew --no-daemon gatlingRun --simulation simulations.UpdateAndCloseApplicationListProofSimulation
                         '''
