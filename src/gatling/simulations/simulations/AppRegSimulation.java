@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import scenarios.AppRegScenario;
 import utils.Environment;
+import utils.PerformanceProfile;
 import utils.SsoAuthentication;
 
 import static io.gatling.javaapi.core.CoreDsl.*;
@@ -27,14 +28,9 @@ public class AppRegSimulation extends Simulation {
   private final String env = System.getProperty("env", environment);
   private final String authMode = System.getProperty("authMode", System.getenv().getOrDefault("AUTH_MODE", "none"));
 
-  private final int rampUpDurationMins = 5;
-  private final int rampDownDurationMins = 5;
-  private final int testDurationMins = 60;
-  private final double hourlyTarget = 10;
-  private final double ratePerSec = hourlyTarget / 3600;
+  private final PerformanceProfile profile = PerformanceProfile.fromRuntime();
   private final PauseType pauseOption = "off".equals(debugMode) ? constantPauses : disabledPauses;
-  private final double numberOfPipelineUsers = Double.parseDouble(System.getenv().getOrDefault("PERFORMANCE_TEST_USERS", "1"));
-  private final int requiredAccountCount = requiredAccountCount();
+  private final int requiredAccountCount = profile.concurrentUsers();
   private final Iterator<Map<String, Object>> ssoUserFeeder = "sso-login".equals(authMode)
     ? SsoAuthentication.users(requiredAccountCount) : List.<Map<String, Object>>of().iterator();
 
@@ -55,32 +51,18 @@ public class AppRegSimulation extends Simulation {
       .assertions(assertions());
   }
 
-  private int requiredAccountCount() {
-    String override = System.getProperty("accountCount");
-    if (override != null) return Integer.parseInt(override);
-    if ("pipeline".equals(testType)) return (int) numberOfPipelineUsers;
-    if ("perftest".equals(testType) && "on".equals(debugMode)) return 1;
-    if ("perftest".equals(testType)) {
-      return (int) Math.ceil(ratePerSec * ((rampUpDurationMins + testDurationMins + rampDownDurationMins) * 60 - ((rampUpDurationMins + rampDownDurationMins) * 30)));
-    }
-    return 1;
-  }
-
   private List<OpenInjectionStep> simulationProfile() {
     return switch (testType) {
-      case "perftest" -> "off".equals(debugMode) ? List.of(
-        rampUsersPerSec(0).to(ratePerSec).during(Duration.ofMinutes(rampUpDurationMins)),
-        constantUsersPerSec(ratePerSec).during(Duration.ofMinutes(testDurationMins)),
-        rampUsersPerSec(ratePerSec).to(0).during(Duration.ofMinutes(rampDownDurationMins))
+      case "perftest", "pipeline" -> "off".equals(debugMode) ? List.of(
+        rampUsers(profile.concurrentUsers()).during(Duration.ofMinutes(profile.ssoRampUpMinutes()))
       ) : List.of(atOnceUsers(1));
-      case "pipeline" -> List.of(rampUsers((int) numberOfPipelineUsers).during(Duration.ofMinutes(2)));
       default -> List.of(nothingFor(Duration.ZERO));
     };
   }
 
   private List<Assertion> assertions() {
     return switch (testType) {
-      case "perftest", "pipeline" -> List.of(global().successfulRequests().percent().gte(95.0));
+      case "perftest", "pipeline" -> List.of(global().successfulRequests().percent().gte(profile.successfulRequestsThreshold()));
       default -> List.of();
     };
   }
@@ -91,6 +73,8 @@ public class AppRegSimulation extends Simulation {
     System.out.println("Test Environment: " + env);
     System.out.println("Debug Mode: " + debugMode);
     System.out.println("Authentication Mode: " + authMode);
+    System.out.println("Profile: " + profile);
+    System.out.println("SSO ramp-up is calculated from the 10 logins-per-minute AppReg limit.");
     if ("sso-login".equals(authMode)) System.out.println("SSO Login Accounts: " + requiredAccountCount);
   }
 }
