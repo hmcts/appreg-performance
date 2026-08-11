@@ -426,6 +426,76 @@ INSERT INTO appreg.app_list_entry_official (
 
 -- No resolution rows are inserted for the bulk target.
 
+-- 7. Three-entry bulk-fees target. Keep it separate from the multiple-result target: both
+-- workflows change their selected entries and must not share allocated data.
+INSERT INTO appreg.application_lists (
+  al_id, application_list_status, application_list_date, application_list_time,
+  courthouse_code, other_courthouse, list_description, version, changed_by,
+  changed_date, user_name, courthouse_name, duration_hour, duration_minute,
+  cja_cja_id, id, delete_by, delete_date, is_deleted, child_deleted
+) VALUES (
+  nextval('appreg.al_seq'), 'OPEN', CURRENT_DATE, '10:00:00',
+  'B03DE00', NULL, 'PERF-SEED-BULK-FEES', 0,
+  'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test',
+  'Carlisle Magistrates'' Court', 1, 0, NULL, gen_random_uuid(),
+  NULL, NULL, 'N', false
+) RETURNING al_id AS bulk_fees_list_al_id, id AS bulk_fees_list_id
+\gset
+
+-- Each selected entry must have an associated fee before the UI can apply one bulk fee update.
+INSERT INTO appreg.name_address (
+  na_id, code, name, title, address_l1, address_l2, address_l3, address_l4,
+  address_l5, postcode, email_address, telephone_number, mobile_number, version,
+  changed_by, changed_date, user_name, date_of_birth, dms_id, first_name,
+  middle_name, last_name
+) VALUES
+  (nextval('appreg.na_seq'), 'NA', 'BULK FEES APPLICANT ONE', NULL, '41 TEST STREET', 'TEST SUBURB', 'TEST TOWN', 'TEST COUNTY', 'TEST ADDRESS', 'AB4 1AB', 'bulk-fees-applicant-1@example.invalid', '01234567890', '07123456789', 1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', NULL, NULL, NULL, NULL, NULL),
+  (nextval('appreg.na_seq'), 'RE', NULL, 'MR', '42 TEST STREET', 'TEST SUBURB', 'TEST TOWN', 'TEST COUNTY', 'TEST ADDRESS', 'AB4 1AC', 'bulk-fees-respondent-1@example.invalid', '01234567890', '07123456789', 1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', NULL, NULL, 'BULK', 'FEES', 'ONE'),
+  (nextval('appreg.na_seq'), 'NA', 'BULK FEES APPLICANT TWO', NULL, '51 TEST STREET', 'TEST SUBURB', 'TEST TOWN', 'TEST COUNTY', 'TEST ADDRESS', 'AB5 1AB', 'bulk-fees-applicant-2@example.invalid', '01234567890', '07123456789', 1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', NULL, NULL, NULL, NULL, NULL),
+  (nextval('appreg.na_seq'), 'RE', NULL, 'MR', '52 TEST STREET', 'TEST SUBURB', 'TEST TOWN', 'TEST COUNTY', 'TEST ADDRESS', 'AB5 1AC', 'bulk-fees-respondent-2@example.invalid', '01234567890', '07123456789', 1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', NULL, NULL, 'BULK', 'FEES', 'TWO'),
+  (nextval('appreg.na_seq'), 'NA', 'BULK FEES APPLICANT THREE', NULL, '61 TEST STREET', 'TEST SUBURB', 'TEST TOWN', 'TEST COUNTY', 'TEST ADDRESS', 'AB6 1AB', 'bulk-fees-applicant-3@example.invalid', '01234567890', '07123456789', 1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', NULL, NULL, NULL, NULL, NULL),
+  (nextval('appreg.na_seq'), 'RE', NULL, 'MR', '62 TEST STREET', 'TEST SUBURB', 'TEST TOWN', 'TEST COUNTY', 'TEST ADDRESS', 'AB6 1AC', 'bulk-fees-respondent-3@example.invalid', '01234567890', '07123456789', 1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', NULL, NULL, 'BULK', 'FEES', 'THREE');
+
+SELECT na_id AS bulk_fees_applicant_id_1 FROM appreg.name_address WHERE email_address = 'bulk-fees-applicant-1@example.invalid' ORDER BY na_id DESC LIMIT 1
+\gset
+SELECT na_id AS bulk_fees_respondent_id_1 FROM appreg.name_address WHERE email_address = 'bulk-fees-respondent-1@example.invalid' ORDER BY na_id DESC LIMIT 1
+\gset
+SELECT na_id AS bulk_fees_applicant_id_2 FROM appreg.name_address WHERE email_address = 'bulk-fees-applicant-2@example.invalid' ORDER BY na_id DESC LIMIT 1
+\gset
+SELECT na_id AS bulk_fees_respondent_id_2 FROM appreg.name_address WHERE email_address = 'bulk-fees-respondent-2@example.invalid' ORDER BY na_id DESC LIMIT 1
+\gset
+SELECT na_id AS bulk_fees_applicant_id_3 FROM appreg.name_address WHERE email_address = 'bulk-fees-applicant-3@example.invalid' ORDER BY na_id DESC LIMIT 1
+\gset
+SELECT na_id AS bulk_fees_respondent_id_3 FROM appreg.name_address WHERE email_address = 'bulk-fees-respondent-3@example.invalid' ORDER BY na_id DESC LIMIT 1
+\gset
+
+INSERT INTO appreg.application_list_entries (
+  ale_id, al_al_id, sa_sa_id, ac_ac_id, a_na_id, r_na_id, number_of_bulk_respondents,
+  application_list_entry_wording, case_reference, account_number, entry_rescheduled,
+  notes, version, changed_by, changed_date, bulk_upload, user_name, sequence_number,
+  tcep_status, message_uuid, retry_count, lodgement_date, id, delete_by, delete_date
+) VALUES
+  (nextval('appreg.ale_seq'), :bulk_fees_list_al_id, NULL, :canonical_application_code_id, :bulk_fees_applicant_id_1, :bulk_fees_respondent_id_1, NULL, '', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 1, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL),
+  (nextval('appreg.ale_seq'), :bulk_fees_list_al_id, NULL, :canonical_application_code_id, :bulk_fees_applicant_id_2, :bulk_fees_respondent_id_2, NULL, '', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 2, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL),
+  (nextval('appreg.ale_seq'), :bulk_fees_list_al_id, NULL, :canonical_application_code_id, :bulk_fees_applicant_id_3, :bulk_fees_respondent_id_3, NULL, '', NULL, NULL, 'N', NULL, 1, 'Performance.Test', CURRENT_TIMESTAMP, NULL, 'Performance.Test', 3, NULL, NULL, NULL, CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL);
+
+SELECT ale_id AS bulk_fees_entry_ale_id_1, id AS bulk_fees_entry_id_1 FROM appreg.application_list_entries WHERE al_al_id = :bulk_fees_list_al_id AND sequence_number = 1
+\gset
+SELECT ale_id AS bulk_fees_entry_ale_id_2, id AS bulk_fees_entry_id_2 FROM appreg.application_list_entries WHERE al_al_id = :bulk_fees_list_al_id AND sequence_number = 2
+\gset
+SELECT ale_id AS bulk_fees_entry_ale_id_3, id AS bulk_fees_entry_id_3 FROM appreg.application_list_entries WHERE al_al_id = :bulk_fees_list_al_id AND sequence_number = 3
+\gset
+
+INSERT INTO appreg.al_ale_sequence_mapping (al_id, ale_last_sequence)
+VALUES (:bulk_fees_list_al_id, 3);
+
+INSERT INTO appreg.app_list_entry_fee_id (
+  ale_ale_id, fee_fee_id, version, changed_by, changed_date, user_name
+) VALUES
+  (:bulk_fees_entry_ale_id_1, 236, 1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test'),
+  (:bulk_fees_entry_ale_id_2, 236, 1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test'),
+  (:bulk_fees_entry_ale_id_3, 236, 1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test');
+
 COMMIT;
 
 -- IDs for the provisioning job to persist as allocated feeder data.
@@ -441,4 +511,8 @@ SELECT
   :'bulk_entry_id_3'::uuid AS bulk_entry_id_3,
   :'add_application_list_id'::uuid AS add_application_list_id,
   :'single_result_list_id'::uuid AS single_result_list_id,
-  :'single_result_entry_id'::uuid AS single_result_entry_id;
+  :'single_result_entry_id'::uuid AS single_result_entry_id,
+  :'bulk_fees_list_id'::uuid AS bulk_fees_list_id,
+  :'bulk_fees_entry_id_1'::uuid AS bulk_fees_entry_id_1,
+  :'bulk_fees_entry_id_2'::uuid AS bulk_fees_entry_id_2,
+  :'bulk_fees_entry_id_3'::uuid AS bulk_fees_entry_id_3;
