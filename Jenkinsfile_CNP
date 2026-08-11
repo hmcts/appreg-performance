@@ -145,6 +145,9 @@ withNightlyPipeline(type, product, component) {
                               # Requires the dedicated empty list allocation created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.AddApplicationProofSimulation
+                              # Requires the dedicated three-entry bulk target allocation created by RUN_DB_SEED.
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.ResultMultipleApplicationsProofSimulation
                             fi
                         '''
                     } finally {

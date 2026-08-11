@@ -335,7 +335,7 @@ TEST_URL="$RECORDING_APP_URL" \
 
 `ResultMultipleApplicationsScenario` is the reusable ARCPOC-1617 action. It replays the recorded UI HTTP flow to select multiple Applications, preview the selection, retrieve the chosen Result Code metadata, and apply the same Result to every selected entry.
 
-`ResultMultipleApplicationsProofSimulation` creates one isolated list and three isolated Applications before applying the result. It is destructive and creates persistent data. Run it only against an approved environment with a dedicated account; do not include it in a multi-user workload until seeded test-data allocation and cleanup are agreed.
+`ResultMultipleApplicationsProofSimulation` consumes one canonical seeded list and three independently allocated, completed, unresulted Applications before applying the result. It is destructive and changes persistent data. It requires `APPREG_SEED_BULK_TARGET_LIST_ID` and `APPREG_SEED_BULK_ENTRY_ID_1` through `APPREG_SEED_BULK_ENTRY_ID_3`, emitted by the canonical seed script or Jenkins seed stage. Run it only against an approved environment with a dedicated account; do not include it in a multi-user workload until seeded test-data allocation and cleanup are agreed.
 
 For a one-off UI recording, `ResultMultipleApplicationsSetupSimulation` creates the same list and three completed, unresulted Applications without applying a Result:
 
@@ -350,6 +350,10 @@ The default proof uses result code `RTC` with the `Date` and `Courthouse` wordin
 
 [source,bash]
 ----
+APPREG_SEED_BULK_TARGET_LIST_ID=<seeded-list-uuid> \
+APPREG_SEED_BULK_ENTRY_ID_1=<seeded-entry-uuid> \
+APPREG_SEED_BULK_ENTRY_ID_2=<seeded-entry-uuid> \
+APPREG_SEED_BULK_ENTRY_ID_3=<seeded-entry-uuid> \
 TEST_URL="$RECORDING_APP_URL" \
   ./gradlew gatlingRun \
   -DappRegBulkResultCode=<approved-result-code> \
