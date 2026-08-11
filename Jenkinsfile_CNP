@@ -10,9 +10,14 @@ def initialTestUserEmail = 'appreg-001@dev.platform.hmcts.net'
 properties([
   parameters([
     booleanParam(
-      name: 'RUN_DB_SCRIPT',
+      name: 'RUN_DB_RESET',
+      defaultValue: false,
+      description: 'Restore the approved masked Test database baseline before Gatling'
+    ),
+    booleanParam(
+      name: 'RUN_DB_SEED',
       defaultValue: true,
-      description: 'Reload and seed approved Test database data before Gatling (disable only for a non-destructive diagnostic run)'
+      description: 'Create and capture canonical Gatling seed data before Gatling'
     )
   ])
 ])
@@ -39,13 +44,17 @@ def secrets = [
   ],
 ]
 
-def dbSeedCommand = params.RUN_DB_SCRIPT ? '''
+def dbResetCommand = params.RUN_DB_RESET ? '''
   echo "Running approved Postgres reload"
   command -v psql
   export PGPASSWORD="$DB_PASSWORD"
   psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
     -v ON_ERROR_STOP=1 -f db/postgres/reload_data.sql
+''' : ''
+
+def dbSeedCommand = params.RUN_DB_SEED ? '''
   echo "Creating canonical Gatling seed shapes"
+  export PGPASSWORD="$DB_PASSWORD"
   seed_output="$(psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
     -A -t -F '|' -v ON_ERROR_STOP=1 -f data/seed/canonical-application-list-shapes.psql)"
   printf '%s\n' "$seed_output"
@@ -55,8 +64,9 @@ def dbSeedCommand = params.RUN_DB_SCRIPT ? '''
     bulk_entry_id_1 bulk_entry_id_2 bulk_entry_id_3 <<EOF
 $seed_allocation
 EOF
-  if [ -z "$close_ready_list_id" ] || [ -z "$close_ready_entry_id" ]; then
-    echo "Seed allocation did not include the close-ready UUIDs" >&2
+  if [ -z "$editable_list_id" ] || [ -z "$editable_entry_id" ] \
+    || [ -z "$close_ready_list_id" ] || [ -z "$close_ready_entry_id" ]; then
+    echo "Seed allocation did not include the required editable and close-ready UUIDs" >&2
     exit 1
   fi
   mkdir -p build
@@ -90,9 +100,14 @@ withNightlyPipeline(type, product, component) {
                     env.TEST_USER_EMAIL = initialTestUserEmail
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
-                    env.RUN_DB_SCRIPT = params.RUN_DB_SCRIPT.toString()
+                    env.RUN_DB_RESET = params.RUN_DB_RESET.toString()
+                    env.RUN_DB_SEED = params.RUN_DB_SEED.toString()
 
-                    if (params.RUN_DB_SCRIPT) {
+                    if (params.RUN_DB_RESET) {
+                        sh dbResetCommand
+                    }
+
+                    if (params.RUN_DB_SEED) {
                         sh dbSeedCommand
                     }
 
@@ -102,7 +117,7 @@ withNightlyPipeline(type, product, component) {
                             export PATH="$JAVA_HOME/bin:$PATH"
                             java -version
 
-                            if [ "$RUN_DB_SCRIPT" = "true" ]; then
+                            if [ "$RUN_DB_SEED" = "true" ]; then
                               . build/seed-allocation.env
                               echo "Seed allocation is available to Gatling"
                             fi
@@ -118,8 +133,8 @@ withNightlyPipeline(type, product, component) {
                               --simulation simulations.AppRegSimulation
                             ./gradlew --no-daemon gatlingRun \
                               --simulation simulations.ActivityAuditReportProofSimulation
-                            # Requires the canonical editable list and entry allocation created by RUN_DB_SCRIPT.
-                            if [ "$RUN_DB_SCRIPT" = "true" ]; then
+                            # Requires the canonical editable list and entry allocation created by RUN_DB_SEED.
+                            if [ "$RUN_DB_SEED" = "true" ]; then
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.UpdateApplicationProofSimulation
                             fi
