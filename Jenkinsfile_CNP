@@ -137,9 +137,10 @@ withNightlyPipeline(type, product, component) {
                             if [ "$RUN_DB_SEED" = "true" ]; then
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.UpdateApplicationProofSimulation
+                              # Requires the separate close-ready list and entry allocation created by RUN_DB_SEED.
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.UpdateAndCloseApplicationListProofSimulation
                             fi
-                            # Enable only after the reset/provision stage sets APPREG_SEED_CLOSE_READY_LIST_ID and APPREG_SEED_CLOSE_READY_ENTRY_ID.
-                            # ./gradlew --no-daemon gatlingRun --simulation simulations.UpdateAndCloseApplicationListProofSimulation
                         '''
                     } finally {
                         publishGatlingReports()
