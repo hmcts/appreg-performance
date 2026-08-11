@@ -14,6 +14,34 @@
 
 BEGIN;
 
+-- A masked-database reload can leave the legacy numeric sequences behind existing rows.
+-- Advance, never rewind, the sequences used by this script so seed-only pipeline runs remain
+-- repeatable without a full database reset.
+SELECT setval('appreg.al_seq', GREATEST(
+  (SELECT last_value FROM appreg.al_seq),
+  COALESCE((SELECT MAX(al_id) FROM appreg.application_lists), 0)
+), true);
+SELECT setval('appreg.na_seq', GREATEST(
+  (SELECT last_value FROM appreg.na_seq),
+  COALESCE((SELECT MAX(na_id) FROM appreg.name_address), 0)
+), true);
+SELECT setval('appreg.ale_seq', GREATEST(
+  (SELECT last_value FROM appreg.ale_seq),
+  COALESCE((SELECT MAX(ale_id) FROM appreg.application_list_entries), 0)
+), true);
+SELECT setval('appreg.aleo_seq', GREATEST(
+  (SELECT last_value FROM appreg.aleo_seq),
+  COALESCE((SELECT MAX(aleo_id) FROM appreg.app_list_entry_official), 0)
+), true);
+SELECT setval('appreg.alefs_seq', GREATEST(
+  (SELECT last_value FROM appreg.alefs_seq),
+  COALESCE((SELECT MAX(alefs_id) FROM appreg.app_list_entry_fee_status), 0)
+), true);
+SELECT setval('appreg.aler_seq', GREATEST(
+  (SELECT last_value FROM appreg.aler_seq),
+  COALESCE((SELECT MAX(aler_id) FROM appreg.app_list_entry_resolutions), 0)
+), true);
+
 -- AD99001 is the agreed no-wording-field code used by the curated Add and Update Application proofs.
 SELECT ac_id AS canonical_application_code_id
 FROM appreg.application_codes
