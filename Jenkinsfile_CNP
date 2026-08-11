@@ -7,6 +7,16 @@ def component = "performance"
 def testVaultUrl = 'https://appreg-kv-test.vault.azure.net/'
 def initialTestUserEmail = 'appreg-001@dev.platform.hmcts.net'
 
+properties([
+  parameters([
+    booleanParam(
+      name: 'RUN_DB_SCRIPT',
+      defaultValue: false,
+      description: 'Run db/postgres/reload_data.sql before Gatling'
+    )
+  ])
+])
+
 static LinkedHashMap<String, Object> secret(String secretName, String envVar) {
   [
     $class: 'AzureKeyVaultSecret',
@@ -21,9 +31,24 @@ def secrets = [
   'appreg-${env}': [
     secret('TEST-USERS-PASSWORD', 'TEST_USERS_PASSWORD'),
     secret('azure-tenant-id', 'TENANT_ID'),
+    secret('POSTGRES-USER', 'DB_USER'),
+    secret('POSTGRES-PASS', 'DB_PASSWORD'),
+    secret('POSTGRES-HOST', 'DB_HOST'),
+    secret('POSTGRES-PORT', 'DB_PORT'),
+    secret('POSTGRES-DATABASE', 'DB_NAME')
   ],
 ]
 
+def dbSeedCommand = params.RUN_DB_SCRIPT ? '''                                                                                                                         
+  export PGPASSWORD="$DB_PASSWORD"                                                                                                                              
+  psql \                                                                                                                                                               
+    -h "$DB_HOST" \                                                                                                                                                 
+    -p "$DB_PORT" \                                                                                                                                                 
+    -d "$DB_NAME" \
+    -U "$DB_USER" \                                                                                                                                         
+    -v ON_ERROR_STOP=1 \                                                                                                                                               
+    -f db/postgres/reload_data.sql                                                                                                                                     
+''' : '' 
 
 withNightlyPipeline(type, product, component) {
     node {
@@ -43,23 +68,24 @@ withNightlyPipeline(type, product, component) {
                     env.PERFORMANCE_TEST_USERS = '1'
 
                     try {
-                        sh '''
-                            export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
-                            export PATH="$JAVA_HOME/bin:$PATH"
+                        sh """
+                            export JAVA_HOME="\$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
+                            export PATH="\$JAVA_HOME/bin:$PATH"
                             java -version
 
                             for variable in TEST_USER_EMAIL TEST_USERS_PASSWORD TENANT_ID; do
-                              if printenv "$variable" > /dev/null 2>&1; then
-                                echo "$variable is set"
+                              if printenv "\$variable" > /dev/null 2>&1; then
+                                echo "\$variable is set"
                               else
                                 echo "$variable is missing"
                               fi
                             done
+                            ${dbSeedCommand}
                             ./gradlew --no-daemon gatlingRun \
                               --simulation simulations.AppRegSimulation
                             ./gradlew --no-daemon gatlingRun \
                               --simulation simulations.ActivityAuditReportProofSimulation
-                        '''
+                        """
                     } finally {
                         publishGatlingReports()
                     }
