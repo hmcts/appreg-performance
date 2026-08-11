@@ -155,6 +155,9 @@ withNightlyPipeline(type, product, component) {
                               # Requires the dedicated single-result list and entry allocation created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.ResultApplicationProofSimulation
+                              # Requires the dedicated empty bulk-upload list allocation created by RUN_DB_SEED.
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.BulkApplicationUploadProofSimulation
                             fi
                         '''
                     } finally {
