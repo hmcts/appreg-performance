@@ -11,7 +11,6 @@ public record WorkloadProfile(
     int concurrentUsers,
     int durationMinutes,
     int loginRampUpSeconds,
-    int rampDownSeconds,
     int updateApplicationCount,
     int addApplicationCount,
     int resultApplicationCount,
@@ -40,9 +39,6 @@ public record WorkloadProfile(
       throw new IllegalArgumentException(
           "Workload login ramp must allow no more than " + SAFE_LOGINS_PER_SECOND + " logins per second");
     }
-    if (rampDownSeconds < 1) {
-      throw new IllegalArgumentException("Workload ramp-down must be at least one second");
-    }
   }
 
   public static WorkloadProfile fromRuntime() {
@@ -57,7 +53,6 @@ public record WorkloadProfile(
         concurrentUsers,
         positive(properties, name + ".duration_minutes"),
         positive(properties, name + ".login_ramp_up_seconds"),
-        positive(properties, name + ".ramp_down_seconds"),
         positive(properties, name + ".update_application"),
         positive(properties, name + ".add_application"),
         positive(properties, name + ".result_application"),

@@ -27,10 +27,9 @@ import static io.gatling.javaapi.core.CoreDsl.feed;
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.pace;
 import static io.gatling.javaapi.core.CoreDsl.percent;
-import static io.gatling.javaapi.core.CoreDsl.rampConcurrentUsers;
+import static io.gatling.javaapi.core.CoreDsl.rampUsers;
 import static io.gatling.javaapi.core.CoreDsl.randomSwitch;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
-import static io.gatling.javaapi.core.CoreDsl.constantConcurrentUsers;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
@@ -98,10 +97,11 @@ public class AppRegWorkloadSimulation extends Simulation {
           )
       );
 
-    setUp(workload.injectClosed(
-        rampConcurrentUsers(0).to(profile.concurrentUsers()).during(profile.loginRampUpSeconds()),
-        constantConcurrentUsers(profile.concurrentUsers()).during(profile.durationMinutes() * 60L),
-        rampConcurrentUsers(profile.concurrentUsers()).to(0).during(profile.rampDownSeconds())
+    // This is a finite, feeder-backed run: start each allocated account once and allow its
+    // bounded journey to finish. A closed injection would replace a completed user to preserve
+    // concurrency, requiring additional accounts and risking account reuse.
+    setUp(workload.injectOpen(
+        rampUsers(profile.concurrentUsers()).during(profile.loginRampUpSeconds())
       ))
       .protocols(httpProtocol)
       // This is a benchmark, so it has no response-time NFR. Functional HTTP failures remain
