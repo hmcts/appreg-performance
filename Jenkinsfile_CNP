@@ -18,6 +18,21 @@ properties([
       name: 'RUN_DB_SEED',
       defaultValue: true,
       description: 'Create and capture canonical Gatling seed data before Gatling'
+    ),
+    choice(
+      name: 'WORKLOAD_PROFILE',
+      choices: ['smoke', 'validation', 'initial'],
+      description: 'Data and workload profile. smoke creates proof rows only; validation is 10 users for 5 minutes; initial is the 500-user 75-minute benchmark.'
+    ),
+    booleanParam(
+      name: 'RUN_PROOF_SMOKES',
+      defaultValue: true,
+      description: 'Run every one-user proof against fresh seed allocations'
+    ),
+    booleanParam(
+      name: 'RUN_PERFTEST',
+      defaultValue: false,
+      description: 'Run the weighted multi-user workload after seed and optional proof smokes'
     )
   ])
 ])
@@ -53,23 +68,131 @@ def dbResetCommand = params.RUN_DB_RESET ? '''
 ''' : ''
 
 def dbSeedCommand = params.RUN_DB_SEED ? '''
-  echo "Creating canonical Gatling seed shapes"
+  workload_profile="${WORKLOAD_PROFILE:-smoke}"
+  profile_file=data/seed/workload/allocation-profile.properties
+  if [ ! -f "$profile_file" ]; then
+    echo "Workload allocation profile was not found: $profile_file" >&2
+    exit 1
+  fi
+  profile_value() {
+    key="$workload_profile.$1"
+    value="$(awk -F= -v key="$key" '$1 == key { print $2; exit }' "$profile_file")"
+    if [ -z "$value" ]; then
+      echo "Allocation profile $workload_profile is missing $1" >&2
+      exit 1
+    fi
+    printf '%s' "$value"
+  }
+  if [ "$RUN_PERFTEST" != "true" ] && [ "$workload_profile" != "smoke" ]; then
+    echo "WORKLOAD_PROFILE=$workload_profile requires RUN_PERFTEST=true; use smoke for proof-only runs" >&2
+    exit 1
+  fi
+  proof_reserve=0
+  if [ "$RUN_PERFTEST" = "true" ] && [ "$RUN_PROOF_SMOKES" = "true" ]; then
+    proof_reserve=1
+  fi
+  update_application_count=$(($(profile_value update_application) + proof_reserve))
+  update_list_count=$(($(profile_value update_list) + proof_reserve))
+  add_application_count=$(($(profile_value add_application) + proof_reserve))
+  result_application_count=$(($(profile_value result_application) + proof_reserve))
+  result_multiple_count=$(($(profile_value result_multiple) + proof_reserve))
+  update_result_count=$(($(profile_value update_result) + proof_reserve))
+  close_list_count=$(($(profile_value close_list) + proof_reserve))
+  bulk_officials_count=$(($(profile_value bulk_officials) + proof_reserve))
+  bulk_fees_count=$(($(profile_value bulk_fees) + proof_reserve))
+  bulk_upload_count=$(($(profile_value bulk_upload) + proof_reserve))
+
+  for allocation_count in "$update_application_count" "$update_list_count" "$add_application_count" \
+    "$result_application_count" "$result_multiple_count" "$update_result_count" "$close_list_count" \
+    "$bulk_officials_count" "$bulk_fees_count" "$bulk_upload_count"; do
+    case "$allocation_count" in
+      ''|*[!0-9]*) echo "Allocation counts must be positive integers" >&2; exit 1 ;;
+    esac
+    if [ "$allocation_count" -lt 1 ]; then
+      echo "Allocation counts must be positive integers" >&2
+      exit 1
+    fi
+  done
+
+  echo "Creating selective $workload_profile seed shapes for per-action allocations"
   export PGPASSWORD="$DB_PASSWORD"
-  seed_output="$(psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
-    -A -t -F '|' -v ON_ERROR_STOP=1 -f data/seed/canonical-application-list-shapes.psql)"
-  printf '%s\n' "$seed_output"
-  seed_allocation="$(printf '%s\n' "$seed_output" | tail -n 1)"
-  IFS='|' read -r bulk_upload_list_id editable_list_id editable_entry_id \
-    close_ready_list_id close_ready_entry_id bulk_target_list_id \
-    bulk_entry_id_1 bulk_entry_id_2 bulk_entry_id_3 add_application_list_id \
-    single_result_list_id single_result_entry_id bulk_fees_list_id \
-    bulk_fees_entry_id_1 bulk_fees_entry_id_2 bulk_fees_entry_id_3 \
-    bulk_officials_list_id bulk_officials_entry_id_1 \
-    bulk_officials_entry_id_2 bulk_officials_entry_id_3 \
-    update_result_list_id update_result_entry_id <<EOF
-$seed_allocation
+  mkdir -p build/performance-data
+
+  create_feeder() {
+    feeder_file="$1"
+    seed_shape="$2"
+    allocation_count="$3"
+    printf '%s\n' 'application_list_id,application_entry_id,entry_id_one,entry_id_two,entry_id_three' > "build/performance-data/$feeder_file.csv"
+    seed_output="$(psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
+      -A -t -F ',' -v ON_ERROR_STOP=1 -v "seed_shape=$seed_shape" \
+      -v "seed_count=$allocation_count" -f data/seed/selective-application-list-shapes.psql)"
+    # Sequence-repair SELECTs have one field. Every allocation record has the five feeder fields.
+    printf '%s\n' "$seed_output" | awk -F ',' 'NF == 5' >> "build/performance-data/$feeder_file.csv"
+  }
+
+  create_feeder update-application update_application "$update_application_count"
+  create_feeder update-list update_list "$update_list_count"
+  create_feeder add-application add_application "$add_application_count"
+  create_feeder result-application result_application "$result_application_count"
+  create_feeder result-multiple result_multiple "$result_multiple_count"
+  create_feeder update-result update_result "$update_result_count"
+  create_feeder close-list close_list "$close_list_count"
+  create_feeder bulk-officials bulk_officials "$bulk_officials_count"
+  create_feeder bulk-fees bulk_fees "$bulk_fees_count"
+  create_feeder bulk-upload bulk_upload "$bulk_upload_count"
+
+  validate_feeder_rows() {
+    feeder_file="$1"
+    expected_rows="$2"
+    feeder_rows=$(($(wc -l < "build/performance-data/$feeder_file.csv") - 1))
+    if [ "$feeder_rows" -ne "$expected_rows" ]; then
+      echo "Generated feeder $feeder_file.csv has $feeder_rows rows; expected $expected_rows" >&2
+      exit 1
+    fi
+  }
+  validate_feeder_rows update-application "$update_application_count"
+  validate_feeder_rows update-list "$update_list_count"
+  validate_feeder_rows add-application "$add_application_count"
+  validate_feeder_rows result-application "$result_application_count"
+  validate_feeder_rows result-multiple "$result_multiple_count"
+  validate_feeder_rows update-result "$update_result_count"
+  validate_feeder_rows close-list "$close_list_count"
+  validate_feeder_rows bulk-officials "$bulk_officials_count"
+  validate_feeder_rows bulk-fees "$bulk_fees_count"
+  validate_feeder_rows bulk-upload "$bulk_upload_count"
+  echo "Created workspace-only per-action feeder allocations"
+  IFS=, read -r bulk_upload_list_id ignored ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/bulk-upload.csv)
+EOF
+  IFS=, read -r editable_list_id editable_entry_id ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/update-application.csv)
+EOF
+  IFS=, read -r update_list_id ignored ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/update-list.csv)
+EOF
+  IFS=, read -r add_application_list_id ignored ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/add-application.csv)
+EOF
+  IFS=, read -r single_result_list_id single_result_entry_id ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/result-application.csv)
+EOF
+  IFS=, read -r bulk_target_list_id ignored bulk_entry_id_1 bulk_entry_id_2 bulk_entry_id_3 <<EOF
+$(sed -n '2p' build/performance-data/result-multiple.csv)
+EOF
+  IFS=, read -r update_result_list_id update_result_entry_id ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/update-result.csv)
+EOF
+  IFS=, read -r close_ready_list_id close_ready_entry_id ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/close-list.csv)
+EOF
+  IFS=, read -r bulk_officials_list_id ignored bulk_officials_entry_id_1 bulk_officials_entry_id_2 bulk_officials_entry_id_3 <<EOF
+$(sed -n '2p' build/performance-data/bulk-officials.csv)
+EOF
+  IFS=, read -r bulk_fees_list_id ignored bulk_fees_entry_id_1 bulk_fees_entry_id_2 bulk_fees_entry_id_3 <<EOF
+$(sed -n '2p' build/performance-data/bulk-fees.csv)
 EOF
   if [ -z "$editable_list_id" ] || [ -z "$editable_entry_id" ] \
+    || [ -z "$update_list_id" ] \
     || [ -z "$close_ready_list_id" ] || [ -z "$close_ready_entry_id" ] \
     || [ -z "$add_application_list_id" ] || [ -z "$single_result_list_id" ] \
     || [ -z "$single_result_entry_id" ] || [ -z "$bulk_fees_list_id" ] \
@@ -86,6 +209,7 @@ EOF
 export APPREG_SEED_BULK_UPLOAD_LIST_ID='$bulk_upload_list_id'
 export APPREG_SEED_EDITABLE_LIST_ID='$editable_list_id'
 export APPREG_SEED_EDITABLE_ENTRY_ID='$editable_entry_id'
+export APPREG_SEED_UPDATE_LIST_ID='$update_list_id'
 export APPREG_SEED_CLOSE_READY_LIST_ID='$close_ready_list_id'
 export APPREG_SEED_CLOSE_READY_ENTRY_ID='$close_ready_entry_id'
 export APPREG_SEED_BULK_TARGET_LIST_ID='$bulk_target_list_id'
@@ -123,10 +247,14 @@ withNightlyPipeline(type, product, component) {
                     env.TEST_TYPE = 'pipeline'
                     env.TEST_URL = 'https://appreg.test.apps.hmcts.net'
                     env.TEST_USER_EMAIL = initialTestUserEmail
+                    env.APPREG_TEST_ACCOUNT_TEMPLATE = 'appreg-{index}@dev.platform.hmcts.net'
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
                     env.RUN_DB_RESET = params.RUN_DB_RESET.toString()
                     env.RUN_DB_SEED = params.RUN_DB_SEED.toString()
+                    env.WORKLOAD_PROFILE = params.WORKLOAD_PROFILE
+                    env.RUN_PROOF_SMOKES = params.RUN_PROOF_SMOKES.toString()
+                    env.RUN_PERFTEST = params.RUN_PERFTEST.toString()
 
                     if (params.RUN_DB_RESET) {
                         sh dbResetCommand
@@ -154,14 +282,23 @@ withNightlyPipeline(type, product, component) {
                                 echo "$variable is missing"
                               fi
                             done
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.AppRegSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.ActivityAuditReportProofSimulation
-                            # Requires the canonical editable list and entry allocation created by RUN_DB_SEED.
-                            if [ "$RUN_DB_SEED" = "true" ]; then
+                            if [ "$RUN_PROOF_SMOKES" = "true" ]; then
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.AppRegSimulation
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.ActivityAuditReportProofSimulation
+
+                              if [ "$RUN_DB_SEED" != "true" ]; then
+                                echo "RUN_PROOF_SMOKES=true requires RUN_DB_SEED=true" >&2
+                                exit 1
+                              fi
+
+                              # Requires the canonical editable list and entry allocation created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.UpdateApplicationProofSimulation
+                              # Requires the separate ordinary open list allocation created by RUN_DB_SEED.
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.UpdateApplicationListProofSimulation
                               # Requires the separate close-ready list and entry allocation created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.UpdateAndCloseApplicationListProofSimulation
@@ -186,6 +323,33 @@ withNightlyPipeline(type, product, component) {
                               # Requires the dedicated Application with an existing result created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.UpdateApplicationResultProofSimulation
+                            fi
+
+                            if [ "$RUN_PERFTEST" = "true" ]; then
+                              if [ "$RUN_DB_SEED" != "true" ]; then
+                                echo "RUN_PERFTEST=true requires RUN_DB_SEED=true" >&2
+                                exit 1
+                              fi
+                              if [ "$WORKLOAD_PROFILE" = "smoke" ]; then
+                                echo "RUN_PERFTEST=true requires WORKLOAD_PROFILE=validation or initial" >&2
+                                exit 1
+                              fi
+
+                              mkdir -p build/workload-data
+                              for feeder in update-application update-list add-application result-application \
+                                result-multiple update-result close-list bulk-officials bulk-fees bulk-upload; do
+                                if [ "$RUN_PROOF_SMOKES" = "true" ]; then
+                                  { sed -n '1p' "build/performance-data/$feeder.csv"; sed -n '3,$p' "build/performance-data/$feeder.csv"; } \
+                                    > "build/workload-data/$feeder.csv"
+                                else
+                                  cp "build/performance-data/$feeder.csv" "build/workload-data/$feeder.csv"
+                                fi
+                              done
+
+                              ./gradlew --no-daemon gatlingRun \
+                                -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
+                                -DappRegPerformanceDataDirectory="$PWD/build/workload-data" \
+                                --simulation simulations.AppRegWorkloadSimulation
                             fi
                         '''
                     } finally {

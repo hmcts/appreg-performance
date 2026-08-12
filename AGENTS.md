@@ -57,6 +57,8 @@ Recordings are raw browser evidence only. They reveal the HTTP flow but must not
 
 - Run `./gradlew gatlingClasses` after source changes.
 - Run the smallest relevant one-user proof before adding a flow to a mixed workload or pipeline profile.
+- Keep the feeder-backed `AppRegWorkloadSimulation` separate from `*ProofSimulation` classes. It must consume queue feeders from `build/workload-data/` only after the seed stage has reserved any proof rows.
+- Run the `validation` workload profile before the `initial` 500-user benchmark. The workload has no response-time NFR threshold; it must still fail on any functional HTTP error.
 - Use approved environments only. `TEST_URL` is an origin, not a path.
 - Do not modify pipeline behaviour, workload weights or success thresholds without documenting the reason and validating the outcome.
 

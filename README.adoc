@@ -60,6 +60,10 @@ The Direct Gatling proof stage has two independent parameters:
 
 * `RUN_DB_SEED` defaults to `true`. It creates canonical proof data and writes its fresh UUID allocation to `build/seed-allocation.env`; seeded destructive proofs consume this allocation in the same build.
 * `RUN_DB_RESET` defaults to `false`. It restores the approved masked Test database baseline before the seed step. Use it when a clean baseline is required, rather than on every per-ticket validation run.
+* `WORKLOAD_PROFILE` selects a reviewed allocation profile from `data/seed/workload/allocation-profile.properties`. `smoke` is the default proof-only profile; `validation` is the ten-user, five-minute end-to-end workload check; `initial` is the 500-user, 75-minute benchmark profile.
+* Jenkins invokes the batch selective seed generator once per requested action shape and writes workspace-only CSV feeders to `build/performance-data/`. If a workload and proof smokes run together, the generator reserves the first row of each destructive feeder for the proof and passes only the remaining rows to the workload.
+* `RUN_PROOF_SMOKES` defaults to `true`. It runs the complete one-user proof suite against fresh seed allocations and requires `RUN_DB_SEED=true`.
+* `RUN_PERFTEST` defaults to `false`. When enabled it requires `RUN_DB_SEED=true` and `WORKLOAD_PROFILE=validation` or `initial`, then runs the feeder-backed weighted workload after any selected proof smokes.
 
 `RUN_DB_RESET=true` and `RUN_DB_SEED=true` performs a full reset and seed. `RUN_DB_SEED=false` skips seeded destructive proofs and is suitable only for non-destructive diagnostic runs.
 
@@ -69,7 +73,41 @@ Application Code and Result Code wording templates in an approved environment ar
 
 Do not use legacy `p`-delimited placeholders such as `\{TEXTpAmount of costsp10}`. They are not parsed by AppReg and cause otherwise valid Application or Result submissions to fail with HTTP 400. Verify the active `application_codes` and `resolution_codes` data before validating a wording-based proof against a new environment.
 
-ARCPOC-1633 will subsequently scale each approved canonical SQL shape into deterministic synthetic data for the final workload. Each virtual user must receive its own allocated record set; do not use shared mutable records. This data-provisioning work is separate from the Test environment migration and from the eventual workload-profile configuration.
+=== ARCPOC-1633 baseline and scalable allocation plan
+
+The first ARCPOC-1633 validation is the existing seeded Jenkins batch: it runs every enabled proof after one canonical seed execution. This establishes that all canonical shapes coexist and that each proof changes only its own allocation. It uses `RUN_DB_SEED=true` and normally `RUN_DB_RESET=false`; use a reset only when a clean masked-database baseline is required.
+
+The next phase scales the approved shapes into deterministic synthetic data for the agreed workload. It must:
+
+* retain the canonical SQL as the readable source shape for each business action;
+* generate sufficient non-overlapping list and entry allocations for the requested users and journey mix;
+* persist the allocation map as feeder input, without committing generated identifiers or personal data;
+* assign one mutable record set to one virtual user for the duration of its destructive journey; and
+* run reset, seed/allocation and Gatling in the documented pipeline order.
+
+The allocation controls are per action, not one shared count. `data/seed/selective-application-list-shapes.psql` creates the requested action shape in one database session and returns its feeder rows. This avoids producing unrelated destructive records merely because one action has a larger allocation, and avoids a database connection per allocated row.
+
+`data/seed/workload/allocation-profile.properties` is the version-controlled source of the agreed smoke and initial benchmark data volumes. The initial profile provides 44,700 action slots after 20% headroom. It includes 40,343 preallocated destructive action slots, 3,214 runtime Create Application List actions, and 1,149 stable non-destructive operation slots. Do not enable the initial profile until the weighted workload consumer is complete and reviewed.
+
+=== Feeder-backed weighted workload
+
+`AppRegWorkloadSimulation` is the bounded multi-user benchmark simulation. Each virtual user logs in once using a distinct `appreg-{index}@dev.platform.hmcts.net` account, then repeatedly selects one business action according to the agreed Jira weights. Destructive actions use Gatling queue feeders, so each allocated list/entry set is consumed once and is never shared between virtual users.
+
+The workload currently represents the 2.57% Other UI Operations allocation with the non-destructive Application List search action. Activity Audit reporting remains a separate functional benchmark until a reporting workload expectation is agreed.
+
+The workload paces actions to one completed action per virtual user per minute. It has no response-time pass/fail threshold: its report establishes and compares benchmarks. It does fail for any functional HTTP error; this keeps platform and application failures visible rather than masking them behind an arbitrary error allowance.
+
+Use Jenkins **Build with Parameters** for the first end-to-end run:
+
+* `RUN_DB_RESET=false` unless a clean masked baseline is specifically required;
+* `RUN_DB_SEED=true`;
+* `WORKLOAD_PROFILE=validation`;
+* `RUN_PROOF_SMOKES=true` to verify all one-user actions first; and
+* `RUN_PERFTEST=true`.
+
+The validation profile starts ten users across one second (the confirmed safe limit is ten logins per second). Each allocated account then runs its own five-minute bounded journey and is not replaced when it completes. This preserves the one-account-per-user model for a finite destructive run. Because its branches are selected randomly, its destructive feeder allocation intentionally covers every user/action combination for up to six actions, rather than relying on small weighted expected counts. This prevents a valid short-run distribution from exhausting a feeder and prevents record reuse. It is the required gateway before a controlled `initial` profile benchmark of 500 users for 75 minutes. The initial profile starts its 500 accounts across 50 seconds.
+
+This data-provisioning work is separate from Test-environment migration and from workload-profile configuration. A weighted workload must not be enabled until the data allocation and final profile have both been reviewed.
 
 == Recording browser journeys
 
@@ -205,7 +243,7 @@ The shared password is never put in a feeder, log, report, or file.
 
 For the initial Test/performance-environment proof, Jenkins uses the approved static account `appreg-001@dev.platform.hmcts.net` and retrieves only its shared password and tenant ID from Test Key Vault. The later multi-user profile will derive its allocated accounts from the agreed `appreg-<three-digit-index>@dev.platform.hmcts.net` pattern rather than store 500 individual email secrets.
 
-SSO login is deliberately included in the measured traffic. AppReg currently rate-limits `/sso/login` to ten requests per minute. Do not repeatedly log in inside a journey loop. The first Test/performance-environment run must be a one-user proof because Entra response shapes can change.
+SSO login is deliberately included in the measured traffic. The confirmed safe AppReg/Entra rate is ten login requests per second. Do not repeatedly log in inside a journey loop. The first Test/performance-environment run must be a one-user proof because Entra response shapes can change.
 
 The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE` and confirming enough dedicated accounts. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
 
@@ -215,15 +253,15 @@ The current modes are intentionally conservative:
 
 * `-Ddebug=on` is a local smoke mode: one virtual user with pauses disabled.
 * `TEST_TYPE=pipeline` is the Jenkins proof mode: the configured `PERFORMANCE_TEST_USERS` count, currently one, with SSO enabled by Jenkins.
-* `TEST_TYPE=perftest` is reserved for an agreed workload run. Do not use it for a final workload until ARCPOC-1633 has provisioned allocated data and the NFR owner has approved the load profile.
+* `TEST_TYPE=perftest` is reserved for an agreed workload run. Do not use it for a final workload until ARCPOC-1633 has provisioned allocated data and the selected workload profile has been reviewed.
 
-Set the target once with `-DappRegConcurrentUsers=<count>`; it defaults to `PERFORMANCE_TEST_USERS` (one in Jenkins). Gatling derives the one-pass SSO arrival ramp as `ceil(count / 10)` minutes, respecting AppReg's ten-logins-per-minute limit. For example, a target of 500 accounts has a 50-minute SSO ramp. `appRegSuccessfulRequestsThreshold=95` remains separately configurable.
+Set the target once with `-DappRegConcurrentUsers=<count>`; it defaults to `PERFORMANCE_TEST_USERS` (one in Jenkins). The legacy one-pass framework derives the SSO arrival ramp from the confirmed safe maximum of ten login requests per second. `appRegSuccessfulRequestsThreshold=95` remains separately configurable for that legacy warm-up simulation only. `AppRegWorkloadSimulation` instead reads its user count, duration, login ramp and allocations from `WORKLOAD_PROFILE`.
 
 The target is limited to the 500 dedicated Test accounts. This shared simulation is currently a one-pass framework/warm-up journey: each virtual user logs in, performs the journey, then exits. It therefore warms and validates the requested number of distinct accounts but does *not* yet sustain that number concurrently or implement a meaningful ramp-down. The final 500-concurrent-user workload will use looping, composed business actions and independently allocated data after ARCPOC-1633; only then can Gatling use a closed concurrent-user profile with a real ramp-down.
 
 Do not override workload rates, durations or success thresholds without an agreed NFR and enough independently allocated accounts and records. Invalid values fail fast when Gatling starts.
 
-The CNP push pipeline currently runs the curated `AppRegSimulation` and the non-destructive one-user `ActivityAuditReportProofSimulation` against Test. All other `*ProofSimulation` classes remain available for local validation. They will be re-enabled in CNP individually once their matching Data ticket has supplied the required Test reference/seed data and the one-user proof passes. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. The create, update, add, result, bulk-officials, bulk-fee, upload and close proofs change persistent test data, so they must retain their dedicated account and test-data controls.
+The CNP push pipeline runs `AppRegSimulation`, the non-destructive one-user `ActivityAuditReportProofSimulation`, and every proof with an approved canonical seed allocation against Test. The update proof composes the reusable search action, so the search proof remains available for local validation but is not run separately in CNP. Destructive create, update, add, result, bulk, upload and close proofs retain their dedicated account and data-allocation controls.
 
 After the landing page HTML and main JavaScript load, the UI performs `GET /application-lists?pageNumber=0&pageSize=1`. The request is same-origin and authenticated by the AppReg session cookie; it verifies that the signed-in user can retrieve the protected applications-list data.
 
@@ -455,6 +493,16 @@ TEST_URL="$RECORDING_APP_URL" \
 == Application List update and close proof
 
 ARCPOC-1620 has two separate reusable actions: `UpdateApplicationListScenario` updates an open Application List, and `CloseApplicationListScenario` closes a list that already satisfies AppReg's closure rules. They remain separate because the eventual workload uses a 90% simple-update and 10% close split within the ticket's overall allocation.
+
+`UpdateApplicationListProofSimulation` validates the simple-update action against an allocated ordinary open list. It requires `APPREG_SEED_UPDATE_LIST_ID` and must not use close-ready data; a simple update and a close action must never share a mutable list allocation.
+
+[source,bash]
+----
+APPREG_SEED_UPDATE_LIST_ID=<allocated-open-list-id> \
+TEST_URL='https://appreg.test.apps.hmcts.net' \
+  ./gradlew gatlingRun \
+  --simulation simulations.UpdateApplicationListProofSimulation
+----
 
 `UpdateAndCloseApplicationListProofSimulation` consumes one allocated close-ready Application List and entry. The seed must contain a completed Application, a paid fee, respondent, official, Result and positive duration. The proof first verifies that the allocated entry can be retrieved, then updates the list date, time, description and duration before closing the list. It is destructive and permanently closes its allocated list; rerun the seed process or allocate a new record before every execution.
 

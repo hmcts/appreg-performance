@@ -1,0 +1,256 @@
+-- Selective AppReg Test data generator for ARCPOC-1633.
+--
+-- It creates one requested business-action shape repeatedly in a single database session and
+-- returns a generic feeder row for every allocation. Values are synthetic; only database IDs are
+-- generated at run time. Run through psql with -v seed_shape=<shape> -v seed_count=<positive-int>.
+
+\set ON_ERROR_STOP on
+
+\if :{?seed_shape}
+\else
+  \echo 'Set seed_shape to a supported action name' >&2
+  \quit 3
+\endif
+\if :{?seed_count}
+\else
+  \echo 'Set seed_count to a positive integer' >&2
+  \quit 3
+\endif
+
+BEGIN;
+
+-- A masked-database reload can leave legacy numeric sequences behind existing rows. Advance,
+-- never rewind, the sequences used by the synthetic seed data.
+SELECT setval('appreg.al_seq'::regclass, GREATEST((SELECT last_value FROM appreg.al_seq), COALESCE((SELECT MAX(al_id) FROM appreg.application_lists), 0))::bigint, true);
+SELECT setval('appreg.na_seq'::regclass, GREATEST((SELECT last_value FROM appreg.na_seq), COALESCE((SELECT MAX(na_id) FROM appreg.name_address), 0))::bigint, true);
+SELECT setval('appreg.ale_seq'::regclass, GREATEST((SELECT last_value FROM appreg.ale_seq), COALESCE((SELECT MAX(ale_id) FROM appreg.application_list_entries), 0))::bigint, true);
+SELECT setval('appreg.aleo_seq'::regclass, GREATEST((SELECT last_value FROM appreg.aleo_seq), COALESCE((SELECT MAX(aleo_id) FROM appreg.app_list_entry_official), 0))::bigint, true);
+SELECT setval('appreg.alefs_seq'::regclass, GREATEST((SELECT last_value FROM appreg.alefs_seq), COALESCE((SELECT MAX(alefs_id) FROM appreg.app_list_entry_fee_status), 0))::bigint, true);
+SELECT setval('appreg.aler_seq'::regclass, GREATEST((SELECT last_value FROM appreg.aler_seq), COALESCE((SELECT MAX(aler_id) FROM appreg.app_list_entry_resolutions), 0))::bigint, true);
+
+CREATE OR REPLACE FUNCTION pg_temp.create_list(p_description text)
+RETURNS TABLE (list_al_id numeric, list_id uuid)
+LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN QUERY
+  INSERT INTO appreg.application_lists (
+    al_id, application_list_status, application_list_date, application_list_time,
+    courthouse_code, other_courthouse, list_description, version, changed_by,
+    changed_date, user_name, courthouse_name, duration_hour, duration_minute,
+    cja_cja_id, id, delete_by, delete_date, is_deleted, child_deleted
+  ) VALUES (
+    nextval('appreg.al_seq'), 'OPEN', CURRENT_DATE, '10:00:00',
+    'B03DE00', NULL, p_description, 0, 'Performance.Test', CURRENT_TIMESTAMP,
+    'Performance.Test', 'Carlisle Magistrates'' Court', 1, 0, NULL, gen_random_uuid(),
+    NULL, NULL, 'N', false
+  ) RETURNING application_lists.al_id, application_lists.id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.create_name(p_code text, p_label text, p_respondent boolean)
+RETURNS numeric
+LANGUAGE plpgsql AS $$
+DECLARE created_name_id numeric;
+BEGIN
+  INSERT INTO appreg.name_address (
+    na_id, code, name, title, address_l1, address_l2, address_l3, address_l4,
+    address_l5, postcode, email_address, telephone_number, mobile_number, version,
+    changed_by, changed_date, user_name, date_of_birth, dms_id, first_name,
+    middle_name, last_name
+  ) VALUES (
+    nextval('appreg.na_seq'), p_code,
+    CASE WHEN p_respondent THEN NULL ELSE p_label END,
+    CASE WHEN p_respondent THEN 'MR' ELSE NULL END,
+    '1 PERFORMANCE ROAD', 'TEST SUBURB', 'TEST TOWN', 'TEST COUNTY', 'TEST ADDRESS',
+    'AB1 1AA', lower(regexp_replace(p_label, '[^a-zA-Z0-9]+', '', 'g')) || '@example.invalid',
+    '01234567890', '07123456789', 1, 'Performance.Test', CURRENT_TIMESTAMP,
+    'Performance.Test', NULL, NULL,
+    CASE WHEN p_respondent THEN 'PERFORMANCE' ELSE NULL END,
+    CASE WHEN p_respondent THEN 'TEST' ELSE NULL END,
+    CASE WHEN p_respondent THEN 'RESPONDENT' ELSE NULL END
+  ) RETURNING na_id INTO created_name_id;
+  RETURN created_name_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.create_entry(
+  p_list_al_id numeric, p_application_code_id numeric, p_applicant_id numeric,
+  p_respondent_id numeric, p_sequence_number integer
+)
+RETURNS TABLE (entry_ale_id numeric, entry_id uuid)
+LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN QUERY
+  INSERT INTO appreg.application_list_entries (
+    ale_id, al_al_id, sa_sa_id, ac_ac_id, a_na_id, r_na_id, number_of_bulk_respondents,
+    application_list_entry_wording, case_reference, account_number, entry_rescheduled,
+    notes, version, changed_by, changed_date, bulk_upload, user_name, sequence_number,
+    tcep_status, message_uuid, retry_count, lodgement_date, id, delete_by, delete_date
+  ) VALUES (
+    nextval('appreg.ale_seq'), p_list_al_id, NULL, p_application_code_id, p_applicant_id,
+    p_respondent_id, NULL, '', NULL, NULL, 'N', NULL, 1, 'Performance.Test',
+    CURRENT_TIMESTAMP, NULL, 'Performance.Test', p_sequence_number, NULL, NULL, NULL,
+    CURRENT_DATE::timestamp, gen_random_uuid(), NULL, NULL
+  ) RETURNING application_list_entries.ale_id, application_list_entries.id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.add_fee(p_entry_ale_id numeric)
+RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO appreg.app_list_entry_fee_id (
+    ale_ale_id, fee_fee_id, version, changed_by, changed_date, user_name
+  ) VALUES (p_entry_ale_id, 236, 1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test');
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.add_officials(p_entry_ale_id numeric)
+RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO appreg.app_list_entry_official (
+    aleo_id, ale_ale_id, title, forename, surname, official_type, changed_by, changed_date, user_name
+  ) VALUES
+    (nextval('appreg.aleo_seq'), p_entry_ale_id, 'MR', 'PERFORMANCE', 'MAGISTRATE', 'M', 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test'),
+    (nextval('appreg.aleo_seq'), p_entry_ale_id, 'MR', 'PERFORMANCE', 'CLERK', 'C', 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test');
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.add_auth_result(p_entry_ale_id numeric)
+RETURNS void
+LANGUAGE plpgsql AS $$
+DECLARE resolution_code_id numeric;
+BEGIN
+  SELECT rc_id INTO resolution_code_id
+  FROM appreg.resolution_codes
+  WHERE resolution_code = 'AUTH'
+  LIMIT 1;
+  IF resolution_code_id IS NULL THEN
+    RAISE EXCEPTION 'Required AUTH result code was not found';
+  END IF;
+  INSERT INTO appreg.app_list_entry_resolutions (
+    aler_id, rc_rc_id, ale_ale_id, al_entry_resolution_wording, al_entry_resolution_officer,
+    version, changed_by, changed_date, user_name, id
+  ) VALUES (
+    nextval('appreg.aler_seq'), resolution_code_id, p_entry_ale_id,
+    'Granted.', 'PERFORMANCE OFFICER', 1, 'Performance.Test', CURRENT_TIMESTAMP,
+    'Performance.Test', gen_random_uuid()
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.add_paid_fee_status(p_entry_ale_id numeric)
+RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  INSERT INTO appreg.app_list_entry_fee_status (
+    alefs_id, alefs_ale_id, alefs_payment_reference, alefs_fee_status, alefs_fee_status_date,
+    alefs_version, alefs_changed_by, alefs_changed_date, alefs_user_name, alefs_status_creation_date
+  ) VALUES (
+    nextval('appreg.alefs_seq'), p_entry_ale_id, 'PERF-SEED-PAID', 'P', CURRENT_TIMESTAMP,
+    1, 'Performance.Test', CURRENT_TIMESTAMP, 'Performance.Test', CURRENT_TIMESTAMP
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.seed_shape(p_shape text, p_count integer)
+RETURNS TABLE (
+  application_list_id uuid,
+  application_entry_id uuid,
+  entry_id_one uuid,
+  entry_id_two uuid,
+  entry_id_three uuid
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+  application_code_id numeric;
+  list_al_id numeric;
+  entry_ale_id numeric;
+  entry_ale_id_two numeric;
+  entry_ale_id_three numeric;
+  loop_index integer;
+BEGIN
+  IF p_count < 1 THEN
+    RAISE EXCEPTION 'seed_count must be a positive integer';
+  END IF;
+  SELECT ac_id INTO application_code_id
+  FROM appreg.application_codes
+  WHERE application_code = 'AD99001'
+  LIMIT 1;
+  IF application_code_id IS NULL THEN
+    RAISE EXCEPTION 'Required AD99001 application code was not found';
+  END IF;
+
+  FOR loop_index IN 1..p_count LOOP
+    application_list_id := NULL;
+    application_entry_id := NULL;
+    entry_id_one := NULL;
+    entry_id_two := NULL;
+    entry_id_three := NULL;
+
+    SELECT created.list_al_id, created.list_id INTO list_al_id, application_list_id
+    FROM pg_temp.create_list(format('PERF-SEED-%s-%s', upper(replace(p_shape, '_', '-')), loop_index)) AS created;
+
+    IF p_shape IN ('bulk_upload', 'add_application', 'update_list') THEN
+      RETURN NEXT;
+      CONTINUE;
+    END IF;
+
+    SELECT created.entry_ale_id, created.entry_id INTO entry_ale_id, application_entry_id
+    FROM pg_temp.create_entry(
+      list_al_id,
+      application_code_id,
+      pg_temp.create_name('NA', format('%s APPLICANT %s', upper(p_shape), loop_index), false),
+      pg_temp.create_name('RE', format('%s RESPONDENT %s', upper(p_shape), loop_index), true),
+      1
+    ) AS created;
+    PERFORM pg_temp.add_fee(entry_ale_id);
+    PERFORM pg_temp.add_officials(entry_ale_id);
+    INSERT INTO appreg.al_ale_sequence_mapping (al_id, ale_last_sequence) VALUES (list_al_id, 1);
+
+    IF p_shape IN ('result_multiple', 'bulk_fees', 'bulk_officials') THEN
+      entry_id_one := application_entry_id;
+      SELECT created.entry_ale_id, created.entry_id INTO entry_ale_id_two, entry_id_two
+      FROM pg_temp.create_entry(
+        list_al_id,
+        application_code_id,
+        pg_temp.create_name('NA', format('%s APPLICANT TWO %s', upper(p_shape), loop_index), false),
+        pg_temp.create_name('RE', format('%s RESPONDENT TWO %s', upper(p_shape), loop_index), true),
+        2
+      ) AS created;
+      SELECT created.entry_ale_id, created.entry_id INTO entry_ale_id_three, entry_id_three
+      FROM pg_temp.create_entry(
+        list_al_id,
+        application_code_id,
+        pg_temp.create_name('NA', format('%s APPLICANT THREE %s', upper(p_shape), loop_index), false),
+        pg_temp.create_name('RE', format('%s RESPONDENT THREE %s', upper(p_shape), loop_index), true),
+        3
+      ) AS created;
+      PERFORM pg_temp.add_fee(entry_ale_id_two);
+      PERFORM pg_temp.add_fee(entry_ale_id_three);
+      PERFORM pg_temp.add_officials(entry_ale_id_two);
+      PERFORM pg_temp.add_officials(entry_ale_id_three);
+      UPDATE appreg.al_ale_sequence_mapping SET ale_last_sequence = 3 WHERE al_id = list_al_id;
+      application_entry_id := NULL;
+      RETURN NEXT;
+      CONTINUE;
+    END IF;
+
+    IF p_shape = 'close_list' THEN
+      PERFORM pg_temp.add_paid_fee_status(entry_ale_id);
+      PERFORM pg_temp.add_auth_result(entry_ale_id);
+    ELSIF p_shape = 'update_result' THEN
+      PERFORM pg_temp.add_auth_result(entry_ale_id);
+    ELSIF p_shape NOT IN ('update_application', 'result_application') THEN
+      RAISE EXCEPTION 'Unsupported seed shape: %', p_shape;
+    END IF;
+    RETURN NEXT;
+  END LOOP;
+END;
+$$;
+
+SELECT *
+FROM pg_temp.seed_shape(:'seed_shape', :'seed_count'::integer);
+
+COMMIT;

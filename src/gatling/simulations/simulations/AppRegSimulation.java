@@ -54,7 +54,7 @@ public class AppRegSimulation extends Simulation {
   private List<OpenInjectionStep> simulationProfile() {
     return switch (testType) {
       case "perftest", "pipeline" -> "off".equals(debugMode) ? List.of(
-        rampUsers(profile.concurrentUsers()).during(Duration.ofMinutes(profile.ssoRampUpMinutes()))
+        rampUsers(profile.concurrentUsers()).during(Duration.ofSeconds(profile.ssoRampUpSeconds()))
       ) : List.of(atOnceUsers(1));
       default -> List.of(nothingFor(Duration.ZERO));
     };
@@ -74,7 +74,7 @@ public class AppRegSimulation extends Simulation {
     System.out.println("Debug Mode: " + debugMode);
     System.out.println("Authentication Mode: " + authMode);
     System.out.println("Profile: " + profile);
-    System.out.println("SSO ramp-up is calculated from the 10 logins-per-minute AppReg limit.");
+    System.out.println("SSO ramp-up is calculated from the confirmed safe 10 logins-per-second rate.");
     if ("sso-login".equals(authMode)) System.out.println("SSO Login Accounts: " + requiredAccountCount);
   }
 }
