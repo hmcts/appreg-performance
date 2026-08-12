@@ -29,7 +29,7 @@ SELECT setval('appreg.alefs_seq'::regclass, GREATEST((SELECT last_value FROM app
 SELECT setval('appreg.aler_seq'::regclass, GREATEST((SELECT last_value FROM appreg.aler_seq), COALESCE((SELECT MAX(aler_id) FROM appreg.app_list_entry_resolutions), 0))::bigint, true);
 
 CREATE OR REPLACE FUNCTION pg_temp.create_list(p_description text)
-RETURNS TABLE (list_al_id bigint, list_id uuid)
+RETURNS TABLE (list_al_id numeric, list_id uuid)
 LANGUAGE plpgsql AS $$
 BEGIN
   RETURN QUERY
@@ -48,9 +48,9 @@ END;
 $$;
 
 CREATE OR REPLACE FUNCTION pg_temp.create_name(p_code text, p_label text, p_respondent boolean)
-RETURNS bigint
+RETURNS numeric
 LANGUAGE plpgsql AS $$
-DECLARE created_name_id bigint;
+DECLARE created_name_id numeric;
 BEGIN
   INSERT INTO appreg.name_address (
     na_id, code, name, title, address_l1, address_l2, address_l3, address_l4,
@@ -74,10 +74,10 @@ END;
 $$;
 
 CREATE OR REPLACE FUNCTION pg_temp.create_entry(
-  p_list_al_id bigint, p_application_code_id bigint, p_applicant_id bigint,
-  p_respondent_id bigint, p_sequence_number integer
+  p_list_al_id numeric, p_application_code_id numeric, p_applicant_id numeric,
+  p_respondent_id numeric, p_sequence_number integer
 )
-RETURNS TABLE (entry_ale_id bigint, entry_id uuid)
+RETURNS TABLE (entry_ale_id numeric, entry_id uuid)
 LANGUAGE plpgsql AS $$
 BEGIN
   RETURN QUERY
@@ -95,7 +95,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION pg_temp.add_fee(p_entry_ale_id bigint)
+CREATE OR REPLACE FUNCTION pg_temp.add_fee(p_entry_ale_id numeric)
 RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -105,7 +105,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION pg_temp.add_officials(p_entry_ale_id bigint)
+CREATE OR REPLACE FUNCTION pg_temp.add_officials(p_entry_ale_id numeric)
 RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -117,10 +117,10 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION pg_temp.add_auth_result(p_entry_ale_id bigint)
+CREATE OR REPLACE FUNCTION pg_temp.add_auth_result(p_entry_ale_id numeric)
 RETURNS void
 LANGUAGE plpgsql AS $$
-DECLARE resolution_code_id bigint;
+DECLARE resolution_code_id numeric;
 BEGIN
   SELECT rc_id INTO resolution_code_id
   FROM appreg.resolution_codes
@@ -140,7 +140,7 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION pg_temp.add_paid_fee_status(p_entry_ale_id bigint)
+CREATE OR REPLACE FUNCTION pg_temp.add_paid_fee_status(p_entry_ale_id numeric)
 RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -164,11 +164,11 @@ RETURNS TABLE (
 )
 LANGUAGE plpgsql AS $$
 DECLARE
-  application_code_id bigint;
-  list_al_id bigint;
-  entry_ale_id bigint;
-  entry_ale_id_two bigint;
-  entry_ale_id_three bigint;
+  application_code_id numeric;
+  list_al_id numeric;
+  entry_ale_id numeric;
+  entry_ale_id_two numeric;
+  entry_ale_id_three numeric;
   loop_index integer;
 BEGIN
   IF p_count < 1 THEN
