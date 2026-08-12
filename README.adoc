@@ -60,7 +60,7 @@ The Direct Gatling proof stage has two independent parameters:
 
 * `RUN_DB_SEED` defaults to `true`. It creates canonical proof data and writes its fresh UUID allocation to `build/seed-allocation.env`; seeded destructive proofs consume this allocation in the same build.
 * `RUN_DB_RESET` defaults to `false`. It restores the approved masked Test database baseline before the seed step. Use it when a clean baseline is required, rather than on every per-ticket validation run.
-* `WORKLOAD_PROFILE` selects a reviewed allocation profile from `data/seed/workload/allocation-profile.properties`. `smoke` is the default proof-only profile; `validation` is the ten-user, five-minute end-to-end workload check; `initial` is the 500-user, 75-minute benchmark profile.
+* `WORKLOAD_PROFILE` selects a reviewed allocation profile from `data/seed/workload/allocation-profile.properties`. `smoke` is the default proof-only profile; `validation` is the ten-user, five-minute end-to-end workload check; `initial` is the controlled 500-user, 60-minute diagnostic workload.
 * Jenkins invokes the batch selective seed generator once per requested action shape and writes workspace-only CSV feeders to `build/performance-data/`. If a workload and proof smokes run together, the generator reserves the first row of each destructive feeder for the proof. It passes only the exact deterministic schedule rows to Gatling; any allocation reserve remains outside the workload feeder.
 * `RUN_PROOF_SMOKES` defaults to `true`. It runs the complete one-user proof suite against fresh seed allocations and requires `RUN_DB_SEED=true`.
 * `RUN_PERFTEST` defaults to `false`. When enabled it requires `RUN_DB_SEED=true` and `WORKLOAD_PROFILE=validation` or `initial`, then runs the feeder-backed weighted workload after any selected proof smokes.
@@ -89,7 +89,7 @@ ARCPOC-1706 scales the approved shapes into deterministic synthetic data for the
 
 The allocation controls are per action, not one shared count. `data/seed/selective-application-list-shapes.psql` creates the requested action shape in one database session and returns its feeder rows. This avoids producing unrelated destructive records merely because one action has a larger allocation, and avoids a database connection per allocated row.
 
-`data/seed/workload/allocation-profile.properties` is the version-controlled source of the agreed smoke, validation and initial benchmark volumes. The initial plan has exactly 37,500 actions: 500 users × 75 actions each. It contains 33,840 destructive feeder-backed actions, 2,696 runtime Create Application List actions and 964 stable non-destructive Other UI Operations. The seed capacity contains 40,612 destructive rows—a 20% reserve per destructive action, rounded up—but the workload feeder receives only the exact scheduled rows. This preserves a deterministic execution mix without record reuse.
+`data/seed/workload/allocation-profile.properties` is the version-controlled source of the agreed smoke, validation and initial diagnostic volumes. The initial plan has exactly 30,000 actions: 500 users × 60 actions each. It contains 27,072 destructive feeder-backed actions, 2,157 runtime Create Application List actions and 771 stable non-destructive Other UI Operations. The seed capacity contains 32,491 destructive rows—a 20% reserve per destructive action, rounded up—but the workload feeder receives only the exact scheduled rows. This preserves a deterministic execution mix without record reuse.
 
 === Deterministic feeder-backed workload
 
@@ -107,9 +107,9 @@ Use Jenkins **Build with Parameters** for the first end-to-end run:
 * `RUN_PROOF_SMOKES=true` to verify all one-user actions first; and
 * `RUN_PERFTEST=true`.
 
-The validation profile starts ten users across one second (the confirmed safe limit is ten logins per second). Each account runs a fixed five-action, five-minute journey and is not replaced when it completes. This preserves the one-account-per-user model for a finite destructive run. Proof smokes cover actions whose rounded five-minute validation allocation is zero. It is the required gateway before a controlled `initial` profile benchmark of 500 users for 75 minutes. The initial profile starts its 500 accounts across 50 seconds.
+The validation profile starts ten users across one second (the confirmed safe limit is ten logins per second). Each account runs a fixed five-action, five-minute journey and is not replaced when it completes. This preserves the one-account-per-user model for a finite destructive run. Proof smokes cover actions whose rounded five-minute validation allocation is zero. The `initial` profile is a controlled 500-user, 60-minute diagnostic workload. It starts its 500 accounts across 500 seconds (one login per second), based on the read-only preflight evidence.
 
-Before the initial profile, run the separate read-only `RUN_LOGIN_PREFLIGHT=true` gate. It starts all 500 accounts at one login per second, validates the full SSO/session path and performs one read-only Application List search per successful session. It must pass with zero functional errors before raising the initial profile's login rate or retrying the destructive benchmark.
+Before the initial profile, run the separate read-only `RUN_LOGIN_PREFLIGHT=true` gate. It starts all 500 accounts at one login per second, validates the full SSO/session path and performs one read-only Application List search per successful session. Retain and investigate any functional errors; do not increase the initial profile's login rate solely to make a destructive run complete. The initial profile remains a diagnostic workload until the preflight and application/platform behaviour are stable.
 
 This data-provisioning work is separate from Test-environment migration and from workload-profile configuration. A weighted workload must not be enabled until the data allocation and final profile have both been reviewed.
 
