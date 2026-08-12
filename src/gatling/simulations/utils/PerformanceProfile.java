@@ -4,15 +4,15 @@ package utils;
  * Runtime configuration for the shared AppReg simulation.
  *
  * <p>The target user count is the sole load-size input. The SSO arrival rate is derived from the
- * current AppReg login limit so each virtual user can be allocated a distinct account.
+ * confirmed safe AppReg/Entra login rate so each virtual user can be allocated a distinct account.
  */
 public record PerformanceProfile(
     int concurrentUsers,
-    int ssoRampUpMinutes,
+    int ssoRampUpSeconds,
     double successfulRequestsThreshold) {
 
   private static final int MAX_TEST_ACCOUNTS = 500;
-  private static final int SSO_LOGINS_PER_MINUTE = 10;
+  private static final int SSO_LOGINS_PER_SECOND = 10;
 
   public PerformanceProfile {
     if (concurrentUsers > MAX_TEST_ACCOUNTS) {
@@ -27,13 +27,13 @@ public record PerformanceProfile(
         Integer.parseInt(System.getenv().getOrDefault("PERFORMANCE_TEST_USERS", "1")));
     return new PerformanceProfile(
         concurrentUsers,
-        ssoRampUpMinutes(concurrentUsers),
+        ssoRampUpSeconds(concurrentUsers),
         percentage("appRegSuccessfulRequestsThreshold", 95.0)
     );
   }
 
-  private static int ssoRampUpMinutes(int concurrentUsers) {
-    return (int) Math.ceil((double) concurrentUsers / SSO_LOGINS_PER_MINUTE);
+  private static int ssoRampUpSeconds(int concurrentUsers) {
+    return (int) Math.ceil((double) concurrentUsers / SSO_LOGINS_PER_SECOND);
   }
 
   private static int positiveInteger(String propertyName, int defaultValue) {

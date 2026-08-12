@@ -19,55 +19,10 @@ properties([
       defaultValue: true,
       description: 'Create and capture canonical Gatling seed data before Gatling'
     ),
-    string(
-      name: 'UPDATE_APPLICATION_ALLOCATION_COUNT',
-      defaultValue: '1',
-      description: 'Allocated rows for Update Application; one is sufficient for proof smoke'
-    ),
-    string(
-      name: 'UPDATE_LIST_ALLOCATION_COUNT',
-      defaultValue: '1',
-      description: 'Allocated rows for a simple Application List update; one is sufficient for proof smoke'
-    ),
-    string(
-      name: 'ADD_APPLICATION_ALLOCATION_COUNT',
-      defaultValue: '1',
-      description: 'Allocated rows for Add Application; one is sufficient for proof smoke'
-    ),
-    string(
-      name: 'RESULT_APPLICATION_ALLOCATION_COUNT',
-      defaultValue: '1',
-      description: 'Allocated rows for Result Application; one is sufficient for proof smoke'
-    ),
-    string(
-      name: 'RESULT_MULTIPLE_ALLOCATION_COUNT',
-      defaultValue: '1',
-      description: 'Allocated three-entry rows for Result Multiple Applications; one is sufficient for proof smoke'
-    ),
-    string(
-      name: 'UPDATE_RESULT_ALLOCATION_COUNT',
-      defaultValue: '1',
-      description: 'Allocated rows for Update Result Application; one is sufficient for proof smoke'
-    ),
-    string(
-      name: 'CLOSE_LIST_ALLOCATION_COUNT',
-      defaultValue: '1',
-      description: 'Allocated close-ready rows for Close Application List; one is sufficient for proof smoke'
-    ),
-    string(
-      name: 'BULK_OFFICIALS_ALLOCATION_COUNT',
-      defaultValue: '1',
-      description: 'Allocated three-entry rows for Bulk Update Officials; one is sufficient for proof smoke'
-    ),
-    string(
-      name: 'BULK_FEES_ALLOCATION_COUNT',
-      defaultValue: '1',
-      description: 'Allocated three-entry rows for Bulk Update Fees; one is sufficient for proof smoke'
-    ),
-    string(
-      name: 'BULK_UPLOAD_ALLOCATION_COUNT',
-      defaultValue: '1',
-      description: 'Allocated rows for Bulk Application Upload; one is sufficient for proof smoke'
+    choice(
+      name: 'WORKLOAD_PROFILE',
+      choices: ['smoke', 'validation', 'initial'],
+      description: 'Data and workload profile. smoke creates proof rows only; validation is 10 users for 5 minutes; initial is the 500-user 75-minute benchmark.'
     ),
     booleanParam(
       name: 'RUN_PROOF_SMOKES',
@@ -77,7 +32,7 @@ properties([
     booleanParam(
       name: 'RUN_PERFTEST',
       defaultValue: false,
-      description: 'Reserved for the weighted multi-user workload; do not enable until scaled feeders are implemented'
+      description: 'Run the weighted multi-user workload after seed and optional proof smokes'
     )
   ])
 ])
@@ -113,16 +68,39 @@ def dbResetCommand = params.RUN_DB_RESET ? '''
 ''' : ''
 
 def dbSeedCommand = params.RUN_DB_SEED ? '''
-  update_application_count="${UPDATE_APPLICATION_ALLOCATION_COUNT:-1}"
-  update_list_count="${UPDATE_LIST_ALLOCATION_COUNT:-1}"
-  add_application_count="${ADD_APPLICATION_ALLOCATION_COUNT:-1}"
-  result_application_count="${RESULT_APPLICATION_ALLOCATION_COUNT:-1}"
-  result_multiple_count="${RESULT_MULTIPLE_ALLOCATION_COUNT:-1}"
-  update_result_count="${UPDATE_RESULT_ALLOCATION_COUNT:-1}"
-  close_list_count="${CLOSE_LIST_ALLOCATION_COUNT:-1}"
-  bulk_officials_count="${BULK_OFFICIALS_ALLOCATION_COUNT:-1}"
-  bulk_fees_count="${BULK_FEES_ALLOCATION_COUNT:-1}"
-  bulk_upload_count="${BULK_UPLOAD_ALLOCATION_COUNT:-1}"
+  workload_profile="${WORKLOAD_PROFILE:-smoke}"
+  profile_file=data/seed/workload/allocation-profile.properties
+  if [ ! -f "$profile_file" ]; then
+    echo "Workload allocation profile was not found: $profile_file" >&2
+    exit 1
+  fi
+  profile_value() {
+    key="$workload_profile.$1"
+    value="$(awk -F= -v key="$key" '$1 == key { print $2; exit }' "$profile_file")"
+    if [ -z "$value" ]; then
+      echo "Allocation profile $workload_profile is missing $1" >&2
+      exit 1
+    fi
+    printf '%s' "$value"
+  }
+  if [ "$RUN_PERFTEST" != "true" ] && [ "$workload_profile" != "smoke" ]; then
+    echo "WORKLOAD_PROFILE=$workload_profile requires RUN_PERFTEST=true; use smoke for proof-only runs" >&2
+    exit 1
+  fi
+  proof_reserve=0
+  if [ "$RUN_PERFTEST" = "true" ] && [ "$RUN_PROOF_SMOKES" = "true" ]; then
+    proof_reserve=1
+  fi
+  update_application_count=$(($(profile_value update_application) + proof_reserve))
+  update_list_count=$(($(profile_value update_list) + proof_reserve))
+  add_application_count=$(($(profile_value add_application) + proof_reserve))
+  result_application_count=$(($(profile_value result_application) + proof_reserve))
+  result_multiple_count=$(($(profile_value result_multiple) + proof_reserve))
+  update_result_count=$(($(profile_value update_result) + proof_reserve))
+  close_list_count=$(($(profile_value close_list) + proof_reserve))
+  bulk_officials_count=$(($(profile_value bulk_officials) + proof_reserve))
+  bulk_fees_count=$(($(profile_value bulk_fees) + proof_reserve))
+  bulk_upload_count=$(($(profile_value bulk_upload) + proof_reserve))
 
   for allocation_count in "$update_application_count" "$update_list_count" "$add_application_count" \
     "$result_application_count" "$result_multiple_count" "$update_result_count" "$close_list_count" \
@@ -136,7 +114,7 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
     fi
   done
 
-  echo "Creating selective seed shapes for per-action allocations"
+  echo "Creating selective $workload_profile seed shapes for per-action allocations"
   export PGPASSWORD="$DB_PASSWORD"
   mkdir -p build/performance-data
 
@@ -269,20 +247,12 @@ withNightlyPipeline(type, product, component) {
                     env.TEST_TYPE = 'pipeline'
                     env.TEST_URL = 'https://appreg.test.apps.hmcts.net'
                     env.TEST_USER_EMAIL = initialTestUserEmail
+                    env.APPREG_TEST_ACCOUNT_TEMPLATE = 'appreg-{index}@dev.platform.hmcts.net'
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
                     env.RUN_DB_RESET = params.RUN_DB_RESET.toString()
                     env.RUN_DB_SEED = params.RUN_DB_SEED.toString()
-                    env.UPDATE_APPLICATION_ALLOCATION_COUNT = params.UPDATE_APPLICATION_ALLOCATION_COUNT
-                    env.UPDATE_LIST_ALLOCATION_COUNT = params.UPDATE_LIST_ALLOCATION_COUNT
-                    env.ADD_APPLICATION_ALLOCATION_COUNT = params.ADD_APPLICATION_ALLOCATION_COUNT
-                    env.RESULT_APPLICATION_ALLOCATION_COUNT = params.RESULT_APPLICATION_ALLOCATION_COUNT
-                    env.RESULT_MULTIPLE_ALLOCATION_COUNT = params.RESULT_MULTIPLE_ALLOCATION_COUNT
-                    env.UPDATE_RESULT_ALLOCATION_COUNT = params.UPDATE_RESULT_ALLOCATION_COUNT
-                    env.CLOSE_LIST_ALLOCATION_COUNT = params.CLOSE_LIST_ALLOCATION_COUNT
-                    env.BULK_OFFICIALS_ALLOCATION_COUNT = params.BULK_OFFICIALS_ALLOCATION_COUNT
-                    env.BULK_FEES_ALLOCATION_COUNT = params.BULK_FEES_ALLOCATION_COUNT
-                    env.BULK_UPLOAD_ALLOCATION_COUNT = params.BULK_UPLOAD_ALLOCATION_COUNT
+                    env.WORKLOAD_PROFILE = params.WORKLOAD_PROFILE
                     env.RUN_PROOF_SMOKES = params.RUN_PROOF_SMOKES.toString()
                     env.RUN_PERFTEST = params.RUN_PERFTEST.toString()
 
@@ -356,8 +326,30 @@ withNightlyPipeline(type, product, component) {
                             fi
 
                             if [ "$RUN_PERFTEST" = "true" ]; then
-                              echo "RUN_PERFTEST is not available until ARCPOC-1633 has generated scaled feeder allocations" >&2
-                              exit 1
+                              if [ "$RUN_DB_SEED" != "true" ]; then
+                                echo "RUN_PERFTEST=true requires RUN_DB_SEED=true" >&2
+                                exit 1
+                              fi
+                              if [ "$WORKLOAD_PROFILE" = "smoke" ]; then
+                                echo "RUN_PERFTEST=true requires WORKLOAD_PROFILE=validation or initial" >&2
+                                exit 1
+                              fi
+
+                              mkdir -p build/workload-data
+                              for feeder in update-application update-list add-application result-application \
+                                result-multiple update-result close-list bulk-officials bulk-fees bulk-upload; do
+                                if [ "$RUN_PROOF_SMOKES" = "true" ]; then
+                                  { sed -n '1p' "build/performance-data/$feeder.csv"; sed -n '3,$p' "build/performance-data/$feeder.csv"; } \
+                                    > "build/workload-data/$feeder.csv"
+                                else
+                                  cp "build/performance-data/$feeder.csv" "build/workload-data/$feeder.csv"
+                                fi
+                              done
+
+                              ./gradlew --no-daemon gatlingRun \
+                                -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
+                                -DappRegPerformanceDataDirectory="$PWD/build/workload-data" \
+                                --simulation simulations.AppRegWorkloadSimulation
                             fi
                         '''
                     } finally {

@@ -60,9 +60,10 @@ The Direct Gatling proof stage has two independent parameters:
 
 * `RUN_DB_SEED` defaults to `true`. It creates canonical proof data and writes its fresh UUID allocation to `build/seed-allocation.env`; seeded destructive proofs consume this allocation in the same build.
 * `RUN_DB_RESET` defaults to `false`. It restores the approved masked Test database baseline before the seed step. Use it when a clean baseline is required, rather than on every per-ticket validation run.
-* Each action-specific `*_ALLOCATION_COUNT` (including `UPDATE_LIST_ALLOCATION_COUNT`) defaults to `1`, which is the smoke allocation: one row for every implemented destructive action. Jenkins invokes the batch selective seed generator once per requested action shape, writes separate workspace-only CSV feeders to `build/performance-data/`, and exposes the first row of each feeder through `build/seed-allocation.env` for the one-user proof smoke suite.
+* `WORKLOAD_PROFILE` selects a reviewed allocation profile from `data/seed/workload/allocation-profile.properties`. `smoke` is the default proof-only profile; `validation` is the ten-user, five-minute end-to-end workload check; `initial` is the 500-user, 75-minute benchmark profile.
+* Jenkins invokes the batch selective seed generator once per requested action shape and writes workspace-only CSV feeders to `build/performance-data/`. If a workload and proof smokes run together, the generator reserves the first row of each destructive feeder for the proof and passes only the remaining rows to the workload.
 * `RUN_PROOF_SMOKES` defaults to `true`. It runs the complete one-user proof suite against fresh seed allocations and requires `RUN_DB_SEED=true`.
-* `RUN_PERFTEST` defaults to `false`. It is reserved for the weighted multi-user workload and fails clearly if enabled before scaled feeder allocations are implemented.
+* `RUN_PERFTEST` defaults to `false`. When enabled it requires `RUN_DB_SEED=true` and `WORKLOAD_PROFILE=validation` or `initial`, then runs the feeder-backed weighted workload after any selected proof smokes.
 
 `RUN_DB_RESET=true` and `RUN_DB_SEED=true` performs a full reset and seed. `RUN_DB_SEED=false` skips seeded destructive proofs and is suitable only for non-destructive diagnostic runs.
 
@@ -84,9 +85,27 @@ The next phase scales the approved shapes into deterministic synthetic data for 
 * assign one mutable record set to one virtual user for the duration of its destructive journey; and
 * run reset, seed/allocation and Gatling in the documented pipeline order.
 
-The allocation controls are per action, not one shared count. In smoke mode every action count is `1`; workload mode will set each count to its calculated volume. `data/seed/selective-application-list-shapes.psql` creates the requested action shape in one database session and returns its feeder rows. This avoids producing unrelated destructive records merely because one action has a larger allocation, and avoids a database connection per allocated row.
+The allocation controls are per action, not one shared count. `data/seed/selective-application-list-shapes.psql` creates the requested action shape in one database session and returns its feeder rows. This avoids producing unrelated destructive records merely because one action has a larger allocation, and avoids a database connection per allocated row.
 
 `data/seed/workload/allocation-profile.properties` is the version-controlled source of the agreed smoke and initial benchmark data volumes. The initial profile provides 44,700 action slots after 20% headroom. It includes 40,343 preallocated destructive action slots, 3,214 runtime Create Application List actions, and 1,149 stable non-destructive operation slots. Do not enable the initial profile until the weighted workload consumer is complete and reviewed.
+
+=== Feeder-backed weighted workload
+
+`AppRegWorkloadSimulation` is the bounded multi-user benchmark simulation. Each virtual user logs in once using a distinct `appreg-{index}@dev.platform.hmcts.net` account, then repeatedly selects one business action according to the agreed Jira weights. Destructive actions use Gatling queue feeders, so each allocated list/entry set is consumed once and is never shared between virtual users.
+
+The workload currently represents the 2.57% Other UI Operations allocation with the non-destructive Application List search action. Activity Audit reporting remains a separate functional benchmark until a reporting workload expectation is agreed.
+
+The workload paces actions to one completed action per virtual user per minute. It has no response-time pass/fail threshold: its report establishes and compares benchmarks. It does fail for any functional HTTP error; this keeps platform and application failures visible rather than masking them behind an arbitrary error allowance.
+
+Use Jenkins **Build with Parameters** for the first end-to-end run:
+
+* `RUN_DB_RESET=false` unless a clean masked baseline is specifically required;
+* `RUN_DB_SEED=true`;
+* `WORKLOAD_PROFILE=validation`;
+* `RUN_PROOF_SMOKES=true` to verify all one-user actions first; and
+* `RUN_PERFTEST=true`.
+
+The validation profile starts ten users across one second (the confirmed safe limit is ten logins per second), holds the workload for five minutes, then ramps down over thirty seconds. It is the required gateway before a controlled `initial` profile benchmark of 500 users for 75 minutes. The initial profile ramps logins over 50 seconds and ramps down over five minutes.
 
 This data-provisioning work is separate from Test-environment migration and from workload-profile configuration. A weighted workload must not be enabled until the data allocation and final profile have both been reviewed.
 
@@ -234,9 +253,9 @@ The current modes are intentionally conservative:
 
 * `-Ddebug=on` is a local smoke mode: one virtual user with pauses disabled.
 * `TEST_TYPE=pipeline` is the Jenkins proof mode: the configured `PERFORMANCE_TEST_USERS` count, currently one, with SSO enabled by Jenkins.
-* `TEST_TYPE=perftest` is reserved for an agreed workload run. Do not use it for a final workload until ARCPOC-1633 has provisioned allocated data and the NFR owner has approved the load profile.
+* `TEST_TYPE=perftest` is reserved for an agreed workload run. Do not use it for a final workload until ARCPOC-1633 has provisioned allocated data and the selected workload profile has been reviewed.
 
-Set the target once with `-DappRegConcurrentUsers=<count>`; it defaults to `PERFORMANCE_TEST_USERS` (one in Jenkins). The current one-pass framework derives the SSO arrival ramp from its configured rate. The multi-user workload will use the confirmed safe maximum of ten login requests per second, so 500 accounts can be admitted over at least 50 seconds. `appRegSuccessfulRequestsThreshold=95` remains separately configurable.
+Set the target once with `-DappRegConcurrentUsers=<count>`; it defaults to `PERFORMANCE_TEST_USERS` (one in Jenkins). The legacy one-pass framework derives the SSO arrival ramp from the confirmed safe maximum of ten login requests per second. `appRegSuccessfulRequestsThreshold=95` remains separately configurable for that legacy warm-up simulation only. `AppRegWorkloadSimulation` instead reads its user count, duration, login ramp and allocations from `WORKLOAD_PROFILE`.
 
 The target is limited to the 500 dedicated Test accounts. This shared simulation is currently a one-pass framework/warm-up journey: each virtual user logs in, performs the journey, then exits. It therefore warms and validates the requested number of distinct accounts but does *not* yet sustain that number concurrently or implement a meaningful ramp-down. The final 500-concurrent-user workload will use looping, composed business actions and independently allocated data after ARCPOC-1633; only then can Gatling use a closed concurrent-user profile with a real ramp-down.
 
