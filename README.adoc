@@ -60,7 +60,7 @@ The Direct Gatling proof stage has two independent parameters:
 
 * `RUN_DB_SEED` defaults to `true`. It creates canonical proof data and writes its fresh UUID allocation to `build/seed-allocation.env`; seeded destructive proofs consume this allocation in the same build.
 * `RUN_DB_RESET` defaults to `false`. It restores the approved masked Test database baseline before the seed step. Use it when a clean baseline is required, rather than on every per-ticket validation run.
-* Each action-specific `*_ALLOCATION_COUNT` defaults to `1`, which is the smoke allocation: one row for every implemented destructive action. Jenkins writes separate workspace-only CSV feeders to `build/performance-data/`; the first allocated shape remains available through `build/seed-allocation.env` for the one-user proof smoke suite.
+* Each action-specific `*_ALLOCATION_COUNT` (including `UPDATE_LIST_ALLOCATION_COUNT`) defaults to `1`, which is the smoke allocation: one row for every implemented destructive action. Jenkins invokes the batch selective seed generator once per requested action shape, writes separate workspace-only CSV feeders to `build/performance-data/`, and exposes the first row of each feeder through `build/seed-allocation.env` for the one-user proof smoke suite.
 * `RUN_PROOF_SMOKES` defaults to `true`. It runs the complete one-user proof suite against fresh seed allocations and requires `RUN_DB_SEED=true`.
 * `RUN_PERFTEST` defaults to `false`. It is reserved for the weighted multi-user workload and fails clearly if enabled before scaled feeder allocations are implemented.
 
@@ -84,9 +84,9 @@ The next phase scales the approved shapes into deterministic synthetic data for 
 * assign one mutable record set to one virtual user for the duration of its destructive journey; and
 * run reset, seed/allocation and Gatling in the documented pipeline order.
 
-The allocation controls are per action, not one shared count. In smoke mode every action count is `1`. For workload mode each count will be set to its calculated volume. The current generator creates complete canonical shapes up to the highest requested count, then writes only the required fields to each action's feeder. This preserves allocation isolation while the final per-action SQL optimisation is implemented.
+The allocation controls are per action, not one shared count. In smoke mode every action count is `1`; workload mode will set each count to its calculated volume. `data/seed/selective-application-list-shapes.psql` creates the requested action shape in one database session and returns its feeder rows. This avoids producing unrelated destructive records merely because one action has a larger allocation, and avoids a database connection per allocated row.
 
-`data/seed/workload/allocation-profile.properties` is the version-controlled source of the agreed smoke and initial benchmark data volumes. The initial profile provides 44,700 action slots after 20% headroom. It includes 40,343 preallocated destructive action slots, 3,214 runtime Create Application List actions, and 1,149 stable non-destructive operation slots. Do not apply the initial profile until the selective per-action seed generator and weighted workload consumer are complete.
+`data/seed/workload/allocation-profile.properties` is the version-controlled source of the agreed smoke and initial benchmark data volumes. The initial profile provides 44,700 action slots after 20% headroom. It includes 40,343 preallocated destructive action slots, 3,214 runtime Create Application List actions, and 1,149 stable non-destructive operation slots. Do not enable the initial profile until the weighted workload consumer is complete and reviewed.
 
 This data-provisioning work is separate from Test-environment migration and from workload-profile configuration. A weighted workload must not be enabled until the data allocation and final profile have both been reviewed.
 
@@ -474,6 +474,16 @@ TEST_URL="$RECORDING_APP_URL" \
 == Application List update and close proof
 
 ARCPOC-1620 has two separate reusable actions: `UpdateApplicationListScenario` updates an open Application List, and `CloseApplicationListScenario` closes a list that already satisfies AppReg's closure rules. They remain separate because the eventual workload uses a 90% simple-update and 10% close split within the ticket's overall allocation.
+
+`UpdateApplicationListProofSimulation` validates the simple-update action against an allocated ordinary open list. It requires `APPREG_SEED_UPDATE_LIST_ID` and must not use close-ready data; a simple update and a close action must never share a mutable list allocation.
+
+[source,bash]
+----
+APPREG_SEED_UPDATE_LIST_ID=<allocated-open-list-id> \
+TEST_URL='https://appreg.test.apps.hmcts.net' \
+  ./gradlew gatlingRun \
+  --simulation simulations.UpdateApplicationListProofSimulation
+----
 
 `UpdateAndCloseApplicationListProofSimulation` consumes one allocated close-ready Application List and entry. The seed must contain a completed Application, a paid fee, respondent, official, Result and positive duration. The proof first verifies that the allocated entry can be retrieved, then updates the list date, time, description and duration before closing the list. It is destructive and permanently closes its allocated list; rerun the seed process or allocate a new record before every execution.
 

@@ -25,6 +25,11 @@ properties([
       description: 'Allocated rows for Update Application; one is sufficient for proof smoke'
     ),
     string(
+      name: 'UPDATE_LIST_ALLOCATION_COUNT',
+      defaultValue: '1',
+      description: 'Allocated rows for a simple Application List update; one is sufficient for proof smoke'
+    ),
+    string(
       name: 'ADD_APPLICATION_ALLOCATION_COUNT',
       defaultValue: '1',
       description: 'Allocated rows for Add Application; one is sufficient for proof smoke'
@@ -109,6 +114,7 @@ def dbResetCommand = params.RUN_DB_RESET ? '''
 
 def dbSeedCommand = params.RUN_DB_SEED ? '''
   update_application_count="${UPDATE_APPLICATION_ALLOCATION_COUNT:-1}"
+  update_list_count="${UPDATE_LIST_ALLOCATION_COUNT:-1}"
   add_application_count="${ADD_APPLICATION_ALLOCATION_COUNT:-1}"
   result_application_count="${RESULT_APPLICATION_ALLOCATION_COUNT:-1}"
   result_multiple_count="${RESULT_MULTIPLE_ALLOCATION_COUNT:-1}"
@@ -118,9 +124,9 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
   bulk_fees_count="${BULK_FEES_ALLOCATION_COUNT:-1}"
   bulk_upload_count="${BULK_UPLOAD_ALLOCATION_COUNT:-1}"
 
-  for allocation_count in "$update_application_count" "$add_application_count" "$result_application_count" \
-    "$result_multiple_count" "$update_result_count" "$close_list_count" "$bulk_officials_count" \
-    "$bulk_fees_count" "$bulk_upload_count"; do
+  for allocation_count in "$update_application_count" "$update_list_count" "$add_application_count" \
+    "$result_application_count" "$result_multiple_count" "$update_result_count" "$close_list_count" \
+    "$bulk_officials_count" "$bulk_fees_count" "$bulk_upload_count"; do
     case "$allocation_count" in
       ''|*[!0-9]*) echo "Allocation counts must be positive integers" >&2; exit 1 ;;
     esac
@@ -130,70 +136,32 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
     fi
   done
 
-  canonical_seed_count=1
-  for allocation_count in "$update_application_count" "$add_application_count" "$result_application_count" \
-    "$result_multiple_count" "$update_result_count" "$close_list_count" "$bulk_officials_count" \
-    "$bulk_fees_count" "$bulk_upload_count"; do
-    if [ "$allocation_count" -gt "$canonical_seed_count" ]; then
-      canonical_seed_count="$allocation_count"
-    fi
-  done
-
-  echo "Creating $canonical_seed_count canonical seed row(s) for per-action allocations"
+  echo "Creating selective seed shapes for per-action allocations"
   export PGPASSWORD="$DB_PASSWORD"
   mkdir -p build/performance-data
-  printf '%s\n' 'application_list_id,application_entry_id' > build/performance-data/update-application.csv
-  printf '%s\n' 'application_list_id' > build/performance-data/add-application.csv
-  printf '%s\n' 'application_list_id,application_entry_id' > build/performance-data/result-application.csv
-  printf '%s\n' 'application_list_id,entry_id_one,entry_id_two,entry_id_three' > build/performance-data/result-multiple.csv
-  printf '%s\n' 'application_list_id,application_entry_id' > build/performance-data/update-result.csv
-  printf '%s\n' 'application_list_id,application_entry_id' > build/performance-data/close-list.csv
-  printf '%s\n' 'application_list_id,entry_id_one,entry_id_two,entry_id_three' > build/performance-data/bulk-officials.csv
-  printf '%s\n' 'application_list_id,entry_id_one,entry_id_two,entry_id_three' > build/performance-data/bulk-fees.csv
-  printf '%s\n' 'application_list_id' > build/performance-data/bulk-upload.csv
 
-  seed_allocation=''
-  allocation_index=1
-  while [ "$allocation_index" -le "$canonical_seed_count" ]; do
+  create_feeder() {
+    feeder_file="$1"
+    seed_shape="$2"
+    allocation_count="$3"
+    printf '%s\n' 'application_list_id,application_entry_id,entry_id_one,entry_id_two,entry_id_three' > "build/performance-data/$feeder_file.csv"
     seed_output="$(psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
-      -A -t -F '|' -v ON_ERROR_STOP=1 -f data/seed/canonical-application-list-shapes.psql)"
-    allocation_row="$(printf '%s\n' "$seed_output" | tail -n 1)"
-    if [ -z "$allocation_row" ]; then
-      echo "Seed allocation $allocation_index was empty" >&2
-      exit 1
-    fi
-    if [ "$allocation_index" -le "$update_application_count" ]; then
-      printf '%s\n' "$allocation_row" | cut -d '|' -f 2,3 | tr '|' ',' >> build/performance-data/update-application.csv
-    fi
-    if [ "$allocation_index" -le "$add_application_count" ]; then
-      printf '%s\n' "$allocation_row" | cut -d '|' -f 10 >> build/performance-data/add-application.csv
-    fi
-    if [ "$allocation_index" -le "$result_application_count" ]; then
-      printf '%s\n' "$allocation_row" | cut -d '|' -f 11,12 | tr '|' ',' >> build/performance-data/result-application.csv
-    fi
-    if [ "$allocation_index" -le "$result_multiple_count" ]; then
-      printf '%s\n' "$allocation_row" | cut -d '|' -f 6,7,8,9 | tr '|' ',' >> build/performance-data/result-multiple.csv
-    fi
-    if [ "$allocation_index" -le "$update_result_count" ]; then
-      printf '%s\n' "$allocation_row" | cut -d '|' -f 21,22 | tr '|' ',' >> build/performance-data/update-result.csv
-    fi
-    if [ "$allocation_index" -le "$close_list_count" ]; then
-      printf '%s\n' "$allocation_row" | cut -d '|' -f 4,5 | tr '|' ',' >> build/performance-data/close-list.csv
-    fi
-    if [ "$allocation_index" -le "$bulk_officials_count" ]; then
-      printf '%s\n' "$allocation_row" | cut -d '|' -f 17,18,19,20 | tr '|' ',' >> build/performance-data/bulk-officials.csv
-    fi
-    if [ "$allocation_index" -le "$bulk_fees_count" ]; then
-      printf '%s\n' "$allocation_row" | cut -d '|' -f 13,14,15,16 | tr '|' ',' >> build/performance-data/bulk-fees.csv
-    fi
-    if [ "$allocation_index" -le "$bulk_upload_count" ]; then
-      printf '%s\n' "$allocation_row" | cut -d '|' -f 1 >> build/performance-data/bulk-upload.csv
-    fi
-    if [ "$allocation_index" -eq 1 ]; then
-      seed_allocation="$allocation_row"
-    fi
-    allocation_index=$((allocation_index + 1))
-  done
+      -A -t -F ',' -v ON_ERROR_STOP=1 -v "seed_shape=$seed_shape" \
+      -v "seed_count=$allocation_count" -f data/seed/selective-application-list-shapes.psql)"
+    # Sequence-repair SELECTs have one field. Every allocation record has the five feeder fields.
+    printf '%s\n' "$seed_output" | awk -F ',' 'NF == 5' >> "build/performance-data/$feeder_file.csv"
+  }
+
+  create_feeder update-application update_application "$update_application_count"
+  create_feeder update-list update_list "$update_list_count"
+  create_feeder add-application add_application "$add_application_count"
+  create_feeder result-application result_application "$result_application_count"
+  create_feeder result-multiple result_multiple "$result_multiple_count"
+  create_feeder update-result update_result "$update_result_count"
+  create_feeder close-list close_list "$close_list_count"
+  create_feeder bulk-officials bulk_officials "$bulk_officials_count"
+  create_feeder bulk-fees bulk_fees "$bulk_fees_count"
+  create_feeder bulk-upload bulk_upload "$bulk_upload_count"
 
   validate_feeder_rows() {
     feeder_file="$1"
@@ -205,6 +173,7 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
     fi
   }
   validate_feeder_rows update-application "$update_application_count"
+  validate_feeder_rows update-list "$update_list_count"
   validate_feeder_rows add-application "$add_application_count"
   validate_feeder_rows result-application "$result_application_count"
   validate_feeder_rows result-multiple "$result_multiple_count"
@@ -214,17 +183,38 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
   validate_feeder_rows bulk-fees "$bulk_fees_count"
   validate_feeder_rows bulk-upload "$bulk_upload_count"
   echo "Created workspace-only per-action feeder allocations"
-  IFS='|' read -r bulk_upload_list_id editable_list_id editable_entry_id \
-    close_ready_list_id close_ready_entry_id bulk_target_list_id \
-    bulk_entry_id_1 bulk_entry_id_2 bulk_entry_id_3 add_application_list_id \
-    single_result_list_id single_result_entry_id bulk_fees_list_id \
-    bulk_fees_entry_id_1 bulk_fees_entry_id_2 bulk_fees_entry_id_3 \
-    bulk_officials_list_id bulk_officials_entry_id_1 \
-    bulk_officials_entry_id_2 bulk_officials_entry_id_3 \
-    update_result_list_id update_result_entry_id <<EOF
-$seed_allocation
+  IFS=, read -r bulk_upload_list_id ignored ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/bulk-upload.csv)
+EOF
+  IFS=, read -r editable_list_id editable_entry_id ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/update-application.csv)
+EOF
+  IFS=, read -r update_list_id ignored ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/update-list.csv)
+EOF
+  IFS=, read -r add_application_list_id ignored ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/add-application.csv)
+EOF
+  IFS=, read -r single_result_list_id single_result_entry_id ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/result-application.csv)
+EOF
+  IFS=, read -r bulk_target_list_id ignored bulk_entry_id_1 bulk_entry_id_2 bulk_entry_id_3 <<EOF
+$(sed -n '2p' build/performance-data/result-multiple.csv)
+EOF
+  IFS=, read -r update_result_list_id update_result_entry_id ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/update-result.csv)
+EOF
+  IFS=, read -r close_ready_list_id close_ready_entry_id ignored ignored ignored <<EOF
+$(sed -n '2p' build/performance-data/close-list.csv)
+EOF
+  IFS=, read -r bulk_officials_list_id ignored bulk_officials_entry_id_1 bulk_officials_entry_id_2 bulk_officials_entry_id_3 <<EOF
+$(sed -n '2p' build/performance-data/bulk-officials.csv)
+EOF
+  IFS=, read -r bulk_fees_list_id ignored bulk_fees_entry_id_1 bulk_fees_entry_id_2 bulk_fees_entry_id_3 <<EOF
+$(sed -n '2p' build/performance-data/bulk-fees.csv)
 EOF
   if [ -z "$editable_list_id" ] || [ -z "$editable_entry_id" ] \
+    || [ -z "$update_list_id" ] \
     || [ -z "$close_ready_list_id" ] || [ -z "$close_ready_entry_id" ] \
     || [ -z "$add_application_list_id" ] || [ -z "$single_result_list_id" ] \
     || [ -z "$single_result_entry_id" ] || [ -z "$bulk_fees_list_id" ] \
@@ -241,6 +231,7 @@ EOF
 export APPREG_SEED_BULK_UPLOAD_LIST_ID='$bulk_upload_list_id'
 export APPREG_SEED_EDITABLE_LIST_ID='$editable_list_id'
 export APPREG_SEED_EDITABLE_ENTRY_ID='$editable_entry_id'
+export APPREG_SEED_UPDATE_LIST_ID='$update_list_id'
 export APPREG_SEED_CLOSE_READY_LIST_ID='$close_ready_list_id'
 export APPREG_SEED_CLOSE_READY_ENTRY_ID='$close_ready_entry_id'
 export APPREG_SEED_BULK_TARGET_LIST_ID='$bulk_target_list_id'
@@ -283,6 +274,7 @@ withNightlyPipeline(type, product, component) {
                     env.RUN_DB_RESET = params.RUN_DB_RESET.toString()
                     env.RUN_DB_SEED = params.RUN_DB_SEED.toString()
                     env.UPDATE_APPLICATION_ALLOCATION_COUNT = params.UPDATE_APPLICATION_ALLOCATION_COUNT
+                    env.UPDATE_LIST_ALLOCATION_COUNT = params.UPDATE_LIST_ALLOCATION_COUNT
                     env.ADD_APPLICATION_ALLOCATION_COUNT = params.ADD_APPLICATION_ALLOCATION_COUNT
                     env.RESULT_APPLICATION_ALLOCATION_COUNT = params.RESULT_APPLICATION_ALLOCATION_COUNT
                     env.RESULT_MULTIPLE_ALLOCATION_COUNT = params.RESULT_MULTIPLE_ALLOCATION_COUNT
@@ -334,6 +326,9 @@ withNightlyPipeline(type, product, component) {
                               # Requires the canonical editable list and entry allocation created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.UpdateApplicationProofSimulation
+                              # Requires the separate ordinary open list allocation created by RUN_DB_SEED.
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.UpdateApplicationListProofSimulation
                               # Requires the separate close-ready list and entry allocation created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.UpdateAndCloseApplicationListProofSimulation
