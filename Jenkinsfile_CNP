@@ -65,7 +65,8 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
     single_result_list_id single_result_entry_id bulk_fees_list_id \
     bulk_fees_entry_id_1 bulk_fees_entry_id_2 bulk_fees_entry_id_3 \
     bulk_officials_list_id bulk_officials_entry_id_1 \
-    bulk_officials_entry_id_2 bulk_officials_entry_id_3 <<EOF
+    bulk_officials_entry_id_2 bulk_officials_entry_id_3 \
+    update_result_list_id update_result_entry_id <<EOF
 $seed_allocation
 EOF
   if [ -z "$editable_list_id" ] || [ -z "$editable_entry_id" ] \
@@ -75,7 +76,8 @@ EOF
     || [ -z "$bulk_fees_entry_id_1" ] || [ -z "$bulk_fees_entry_id_2" ] \
     || [ -z "$bulk_fees_entry_id_3" ] || [ -z "$bulk_officials_list_id" ] \
     || [ -z "$bulk_officials_entry_id_1" ] || [ -z "$bulk_officials_entry_id_2" ] \
-    || [ -z "$bulk_officials_entry_id_3" ]; then
+    || [ -z "$bulk_officials_entry_id_3" ] || [ -z "$update_result_list_id" ] \
+    || [ -z "$update_result_entry_id" ]; then
     echo "Seed allocation did not include all required proof UUIDs" >&2
     exit 1
   fi
@@ -101,6 +103,8 @@ export APPREG_SEED_BULK_OFFICIALS_LIST_ID='$bulk_officials_list_id'
 export APPREG_SEED_BULK_OFFICIALS_ENTRY_ID_1='$bulk_officials_entry_id_1'
 export APPREG_SEED_BULK_OFFICIALS_ENTRY_ID_2='$bulk_officials_entry_id_2'
 export APPREG_SEED_BULK_OFFICIALS_ENTRY_ID_3='$bulk_officials_entry_id_3'
+export APPREG_SEED_UPDATE_RESULT_LIST_ID='$update_result_list_id'
+export APPREG_SEED_UPDATE_RESULT_ENTRY_ID='$update_result_entry_id'
 EOF
 ''' : ''
 
@@ -179,6 +183,9 @@ withNightlyPipeline(type, product, component) {
                               # Requires the dedicated three-entry bulk-officials allocation created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.BulkUpdateOfficialsProofSimulation
+                              # Requires the dedicated Application with an existing result created by RUN_DB_SEED.
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.UpdateApplicationResultProofSimulation
                             fi
                         '''
                     } finally {
