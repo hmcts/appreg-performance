@@ -18,6 +18,21 @@ properties([
       name: 'RUN_DB_SEED',
       defaultValue: true,
       description: 'Create and capture canonical Gatling seed data before Gatling'
+    ),
+    string(
+      name: 'PERFORMANCE_DATA_ALLOCATION_COUNT',
+      defaultValue: '1',
+      description: 'Number of canonical allocation rows to generate; one is sufficient for the proof smoke suite'
+    ),
+    booleanParam(
+      name: 'RUN_PROOF_SMOKES',
+      defaultValue: true,
+      description: 'Run every one-user proof against fresh seed allocations'
+    ),
+    booleanParam(
+      name: 'RUN_PERFTEST',
+      defaultValue: false,
+      description: 'Reserved for the weighted multi-user workload; do not enable until scaled feeders are implemented'
     )
   ])
 ])
@@ -53,12 +68,39 @@ def dbResetCommand = params.RUN_DB_RESET ? '''
 ''' : ''
 
 def dbSeedCommand = params.RUN_DB_SEED ? '''
-  echo "Creating canonical Gatling seed shapes"
+  allocation_count="${PERFORMANCE_DATA_ALLOCATION_COUNT:-1}"
+  case "$allocation_count" in
+    ''|*[!0-9]*) echo "PERFORMANCE_DATA_ALLOCATION_COUNT must be a positive integer" >&2; exit 1 ;;
+  esac
+  if [ "$allocation_count" -lt 1 ]; then
+    echo "PERFORMANCE_DATA_ALLOCATION_COUNT must be a positive integer" >&2
+    exit 1
+  fi
+
+  echo "Creating $allocation_count canonical Gatling allocation row(s)"
   export PGPASSWORD="$DB_PASSWORD"
-  seed_output="$(psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
-    -A -t -F '|' -v ON_ERROR_STOP=1 -f data/seed/canonical-application-list-shapes.psql)"
-  printf '%s\n' "$seed_output"
-  seed_allocation="$(printf '%s\n' "$seed_output" | tail -n 1)"
+  mkdir -p build/performance-data
+  allocations_file=build/performance-data/canonical-allocations.csv
+  printf '%s\n' 'bulk_upload_list_id,editable_list_id,editable_entry_id,close_ready_list_id,close_ready_entry_id,bulk_target_list_id,bulk_entry_id_1,bulk_entry_id_2,bulk_entry_id_3,add_application_list_id,single_result_list_id,single_result_entry_id,bulk_fees_list_id,bulk_fees_entry_id_1,bulk_fees_entry_id_2,bulk_fees_entry_id_3,bulk_officials_list_id,bulk_officials_entry_id_1,bulk_officials_entry_id_2,bulk_officials_entry_id_3,update_result_list_id,update_result_entry_id' > "$allocations_file"
+
+  seed_allocation=''
+  allocation_index=1
+  while [ "$allocation_index" -le "$allocation_count" ]; do
+    seed_output="$(psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
+      -A -t -F '|' -v ON_ERROR_STOP=1 -f data/seed/canonical-application-list-shapes.psql)"
+    allocation_row="$(printf '%s\n' "$seed_output" | tail -n 1)"
+    if [ -z "$allocation_row" ]; then
+      echo "Seed allocation $allocation_index was empty" >&2
+      exit 1
+    fi
+    printf '%s\n' "$allocation_row" | tr '|' ',' >> "$allocations_file"
+    if [ "$allocation_index" -eq 1 ]; then
+      seed_allocation="$allocation_row"
+    fi
+    allocation_index=$((allocation_index + 1))
+  done
+
+  echo "Created $allocation_count workspace-only canonical allocation row(s)"
   IFS='|' read -r bulk_upload_list_id editable_list_id editable_entry_id \
     close_ready_list_id close_ready_entry_id bulk_target_list_id \
     bulk_entry_id_1 bulk_entry_id_2 bulk_entry_id_3 add_application_list_id \
@@ -127,6 +169,9 @@ withNightlyPipeline(type, product, component) {
                     env.PERFORMANCE_TEST_USERS = '1'
                     env.RUN_DB_RESET = params.RUN_DB_RESET.toString()
                     env.RUN_DB_SEED = params.RUN_DB_SEED.toString()
+                    env.PERFORMANCE_DATA_ALLOCATION_COUNT = params.PERFORMANCE_DATA_ALLOCATION_COUNT
+                    env.RUN_PROOF_SMOKES = params.RUN_PROOF_SMOKES.toString()
+                    env.RUN_PERFTEST = params.RUN_PERFTEST.toString()
 
                     if (params.RUN_DB_RESET) {
                         sh dbResetCommand
@@ -154,12 +199,18 @@ withNightlyPipeline(type, product, component) {
                                 echo "$variable is missing"
                               fi
                             done
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.AppRegSimulation
-                            ./gradlew --no-daemon gatlingRun \
-                              --simulation simulations.ActivityAuditReportProofSimulation
-                            # Requires the canonical editable list and entry allocation created by RUN_DB_SEED.
-                            if [ "$RUN_DB_SEED" = "true" ]; then
+                            if [ "$RUN_PROOF_SMOKES" = "true" ]; then
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.AppRegSimulation
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.ActivityAuditReportProofSimulation
+
+                              if [ "$RUN_DB_SEED" != "true" ]; then
+                                echo "RUN_PROOF_SMOKES=true requires RUN_DB_SEED=true" >&2
+                                exit 1
+                              fi
+
+                              # Requires the canonical editable list and entry allocation created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.UpdateApplicationProofSimulation
                               # Requires the separate close-ready list and entry allocation created by RUN_DB_SEED.
@@ -186,6 +237,11 @@ withNightlyPipeline(type, product, component) {
                               # Requires the dedicated Application with an existing result created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.UpdateApplicationResultProofSimulation
+                            fi
+
+                            if [ "$RUN_PERFTEST" = "true" ]; then
+                              echo "RUN_PERFTEST is not available until ARCPOC-1633 has generated scaled feeder allocations" >&2
+                              exit 1
                             fi
                         '''
                     } finally {
