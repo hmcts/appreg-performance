@@ -224,7 +224,7 @@ The shared password is never put in a feeder, log, report, or file.
 
 For the initial Test/performance-environment proof, Jenkins uses the approved static account `appreg-001@dev.platform.hmcts.net` and retrieves only its shared password and tenant ID from Test Key Vault. The later multi-user profile will derive its allocated accounts from the agreed `appreg-<three-digit-index>@dev.platform.hmcts.net` pattern rather than store 500 individual email secrets.
 
-SSO login is deliberately included in the measured traffic. AppReg currently rate-limits `/sso/login` to ten requests per minute. Do not repeatedly log in inside a journey loop. The first Test/performance-environment run must be a one-user proof because Entra response shapes can change.
+SSO login is deliberately included in the measured traffic. The confirmed safe AppReg/Entra rate is ten login requests per second. Do not repeatedly log in inside a journey loop. The first Test/performance-environment run must be a one-user proof because Entra response shapes can change.
 
 The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE` and confirming enough dedicated accounts. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
 
@@ -236,7 +236,7 @@ The current modes are intentionally conservative:
 * `TEST_TYPE=pipeline` is the Jenkins proof mode: the configured `PERFORMANCE_TEST_USERS` count, currently one, with SSO enabled by Jenkins.
 * `TEST_TYPE=perftest` is reserved for an agreed workload run. Do not use it for a final workload until ARCPOC-1633 has provisioned allocated data and the NFR owner has approved the load profile.
 
-Set the target once with `-DappRegConcurrentUsers=<count>`; it defaults to `PERFORMANCE_TEST_USERS` (one in Jenkins). Gatling derives the one-pass SSO arrival ramp as `ceil(count / 10)` minutes, respecting AppReg's ten-logins-per-minute limit. For example, a target of 500 accounts has a 50-minute SSO ramp. `appRegSuccessfulRequestsThreshold=95` remains separately configurable.
+Set the target once with `-DappRegConcurrentUsers=<count>`; it defaults to `PERFORMANCE_TEST_USERS` (one in Jenkins). The current one-pass framework derives the SSO arrival ramp from its configured rate. The multi-user workload will use the confirmed safe maximum of ten login requests per second, so 500 accounts can be admitted over at least 50 seconds. `appRegSuccessfulRequestsThreshold=95` remains separately configurable.
 
 The target is limited to the 500 dedicated Test accounts. This shared simulation is currently a one-pass framework/warm-up journey: each virtual user logs in, performs the journey, then exits. It therefore warms and validates the requested number of distinct accounts but does *not* yet sustain that number concurrently or implement a meaningful ramp-down. The final 500-concurrent-user workload will use looping, composed business actions and independently allocated data after ARCPOC-1633; only then can Gatling use a closed concurrent-user profile with a real ramp-down.
 
