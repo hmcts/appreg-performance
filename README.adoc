@@ -60,7 +60,7 @@ The Direct Gatling proof stage has two independent parameters:
 
 * `RUN_DB_SEED` defaults to `true`. It creates canonical proof data and writes its fresh UUID allocation to `build/seed-allocation.env`; seeded destructive proofs consume this allocation in the same build.
 * `RUN_DB_RESET` defaults to `false`. It restores the approved masked Test database baseline before the seed step. Use it when a clean baseline is required, rather than on every per-ticket validation run.
-* `PERFORMANCE_DATA_ALLOCATION_COUNT` defaults to `1`. It produces that many canonical allocation rows in the workspace-only `build/performance-data/canonical-allocations.csv`. The first row remains available through `build/seed-allocation.env` for the one-user proof smoke suite.
+* Each action-specific `*_ALLOCATION_COUNT` defaults to `1`, which is the smoke allocation: one row for every implemented destructive action. Jenkins writes separate workspace-only CSV feeders to `build/performance-data/`; the first allocated shape remains available through `build/seed-allocation.env` for the one-user proof smoke suite.
 * `RUN_PROOF_SMOKES` defaults to `true`. It runs the complete one-user proof suite against fresh seed allocations and requires `RUN_DB_SEED=true`.
 * `RUN_PERFTEST` defaults to `false`. It is reserved for the weighted multi-user workload and fails clearly if enabled before scaled feeder allocations are implemented.
 
@@ -84,7 +84,7 @@ The next phase scales the approved shapes into deterministic synthetic data for 
 * assign one mutable record set to one virtual user for the duration of its destructive journey; and
 * run reset, seed/allocation and Gatling in the documented pipeline order.
 
-The first implementation step generates a configurable number of complete canonical allocation rows. This validates the generator and workspace-only feeder contract without yet claiming that every action has been scaled to its final weighted volume. The final allocation generator will use the agreed per-action volumes rather than creating every canonical shape an equal number of times.
+The allocation controls are per action, not one shared count. In smoke mode every action count is `1`. For workload mode each count will be set to its calculated volume. The current generator creates complete canonical shapes up to the highest requested count, then writes only the required fields to each action's feeder. This preserves allocation isolation while the final per-action SQL optimisation is implemented.
 
 This data-provisioning work is separate from Test-environment migration and from workload-profile configuration. A weighted workload must not be enabled until the data allocation and final profile have both been reviewed.
 

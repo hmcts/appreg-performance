@@ -20,9 +20,49 @@ properties([
       description: 'Create and capture canonical Gatling seed data before Gatling'
     ),
     string(
-      name: 'PERFORMANCE_DATA_ALLOCATION_COUNT',
+      name: 'UPDATE_APPLICATION_ALLOCATION_COUNT',
       defaultValue: '1',
-      description: 'Number of canonical allocation rows to generate; one is sufficient for the proof smoke suite'
+      description: 'Allocated rows for Update Application; one is sufficient for proof smoke'
+    ),
+    string(
+      name: 'ADD_APPLICATION_ALLOCATION_COUNT',
+      defaultValue: '1',
+      description: 'Allocated rows for Add Application; one is sufficient for proof smoke'
+    ),
+    string(
+      name: 'RESULT_APPLICATION_ALLOCATION_COUNT',
+      defaultValue: '1',
+      description: 'Allocated rows for Result Application; one is sufficient for proof smoke'
+    ),
+    string(
+      name: 'RESULT_MULTIPLE_ALLOCATION_COUNT',
+      defaultValue: '1',
+      description: 'Allocated three-entry rows for Result Multiple Applications; one is sufficient for proof smoke'
+    ),
+    string(
+      name: 'UPDATE_RESULT_ALLOCATION_COUNT',
+      defaultValue: '1',
+      description: 'Allocated rows for Update Result Application; one is sufficient for proof smoke'
+    ),
+    string(
+      name: 'CLOSE_LIST_ALLOCATION_COUNT',
+      defaultValue: '1',
+      description: 'Allocated close-ready rows for Close Application List; one is sufficient for proof smoke'
+    ),
+    string(
+      name: 'BULK_OFFICIALS_ALLOCATION_COUNT',
+      defaultValue: '1',
+      description: 'Allocated three-entry rows for Bulk Update Officials; one is sufficient for proof smoke'
+    ),
+    string(
+      name: 'BULK_FEES_ALLOCATION_COUNT',
+      defaultValue: '1',
+      description: 'Allocated three-entry rows for Bulk Update Fees; one is sufficient for proof smoke'
+    ),
+    string(
+      name: 'BULK_UPLOAD_ALLOCATION_COUNT',
+      defaultValue: '1',
+      description: 'Allocated rows for Bulk Application Upload; one is sufficient for proof smoke'
     ),
     booleanParam(
       name: 'RUN_PROOF_SMOKES',
@@ -68,24 +108,53 @@ def dbResetCommand = params.RUN_DB_RESET ? '''
 ''' : ''
 
 def dbSeedCommand = params.RUN_DB_SEED ? '''
-  allocation_count="${PERFORMANCE_DATA_ALLOCATION_COUNT:-1}"
-  case "$allocation_count" in
-    ''|*[!0-9]*) echo "PERFORMANCE_DATA_ALLOCATION_COUNT must be a positive integer" >&2; exit 1 ;;
-  esac
-  if [ "$allocation_count" -lt 1 ]; then
-    echo "PERFORMANCE_DATA_ALLOCATION_COUNT must be a positive integer" >&2
-    exit 1
-  fi
+  update_application_count="${UPDATE_APPLICATION_ALLOCATION_COUNT:-1}"
+  add_application_count="${ADD_APPLICATION_ALLOCATION_COUNT:-1}"
+  result_application_count="${RESULT_APPLICATION_ALLOCATION_COUNT:-1}"
+  result_multiple_count="${RESULT_MULTIPLE_ALLOCATION_COUNT:-1}"
+  update_result_count="${UPDATE_RESULT_ALLOCATION_COUNT:-1}"
+  close_list_count="${CLOSE_LIST_ALLOCATION_COUNT:-1}"
+  bulk_officials_count="${BULK_OFFICIALS_ALLOCATION_COUNT:-1}"
+  bulk_fees_count="${BULK_FEES_ALLOCATION_COUNT:-1}"
+  bulk_upload_count="${BULK_UPLOAD_ALLOCATION_COUNT:-1}"
 
-  echo "Creating $allocation_count canonical Gatling allocation row(s)"
+  for allocation_count in "$update_application_count" "$add_application_count" "$result_application_count" \
+    "$result_multiple_count" "$update_result_count" "$close_list_count" "$bulk_officials_count" \
+    "$bulk_fees_count" "$bulk_upload_count"; do
+    case "$allocation_count" in
+      ''|*[!0-9]*) echo "Allocation counts must be positive integers" >&2; exit 1 ;;
+    esac
+    if [ "$allocation_count" -lt 1 ]; then
+      echo "Allocation counts must be positive integers" >&2
+      exit 1
+    fi
+  done
+
+  canonical_seed_count=1
+  for allocation_count in "$update_application_count" "$add_application_count" "$result_application_count" \
+    "$result_multiple_count" "$update_result_count" "$close_list_count" "$bulk_officials_count" \
+    "$bulk_fees_count" "$bulk_upload_count"; do
+    if [ "$allocation_count" -gt "$canonical_seed_count" ]; then
+      canonical_seed_count="$allocation_count"
+    fi
+  done
+
+  echo "Creating $canonical_seed_count canonical seed row(s) for per-action allocations"
   export PGPASSWORD="$DB_PASSWORD"
   mkdir -p build/performance-data
-  allocations_file=build/performance-data/canonical-allocations.csv
-  printf '%s\n' 'bulk_upload_list_id,editable_list_id,editable_entry_id,close_ready_list_id,close_ready_entry_id,bulk_target_list_id,bulk_entry_id_1,bulk_entry_id_2,bulk_entry_id_3,add_application_list_id,single_result_list_id,single_result_entry_id,bulk_fees_list_id,bulk_fees_entry_id_1,bulk_fees_entry_id_2,bulk_fees_entry_id_3,bulk_officials_list_id,bulk_officials_entry_id_1,bulk_officials_entry_id_2,bulk_officials_entry_id_3,update_result_list_id,update_result_entry_id' > "$allocations_file"
+  printf '%s\n' 'application_list_id,application_entry_id' > build/performance-data/update-application.csv
+  printf '%s\n' 'application_list_id' > build/performance-data/add-application.csv
+  printf '%s\n' 'application_list_id,application_entry_id' > build/performance-data/result-application.csv
+  printf '%s\n' 'application_list_id,entry_id_one,entry_id_two,entry_id_three' > build/performance-data/result-multiple.csv
+  printf '%s\n' 'application_list_id,application_entry_id' > build/performance-data/update-result.csv
+  printf '%s\n' 'application_list_id,application_entry_id' > build/performance-data/close-list.csv
+  printf '%s\n' 'application_list_id,entry_id_one,entry_id_two,entry_id_three' > build/performance-data/bulk-officials.csv
+  printf '%s\n' 'application_list_id,entry_id_one,entry_id_two,entry_id_three' > build/performance-data/bulk-fees.csv
+  printf '%s\n' 'application_list_id' > build/performance-data/bulk-upload.csv
 
   seed_allocation=''
   allocation_index=1
-  while [ "$allocation_index" -le "$allocation_count" ]; do
+  while [ "$allocation_index" -le "$canonical_seed_count" ]; do
     seed_output="$(psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
       -A -t -F '|' -v ON_ERROR_STOP=1 -f data/seed/canonical-application-list-shapes.psql)"
     allocation_row="$(printf '%s\n' "$seed_output" | tail -n 1)"
@@ -93,14 +162,58 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
       echo "Seed allocation $allocation_index was empty" >&2
       exit 1
     fi
-    printf '%s\n' "$allocation_row" | tr '|' ',' >> "$allocations_file"
+    if [ "$allocation_index" -le "$update_application_count" ]; then
+      printf '%s\n' "$allocation_row" | cut -d '|' -f 2,3 | tr '|' ',' >> build/performance-data/update-application.csv
+    fi
+    if [ "$allocation_index" -le "$add_application_count" ]; then
+      printf '%s\n' "$allocation_row" | cut -d '|' -f 10 >> build/performance-data/add-application.csv
+    fi
+    if [ "$allocation_index" -le "$result_application_count" ]; then
+      printf '%s\n' "$allocation_row" | cut -d '|' -f 11,12 | tr '|' ',' >> build/performance-data/result-application.csv
+    fi
+    if [ "$allocation_index" -le "$result_multiple_count" ]; then
+      printf '%s\n' "$allocation_row" | cut -d '|' -f 6,7,8,9 | tr '|' ',' >> build/performance-data/result-multiple.csv
+    fi
+    if [ "$allocation_index" -le "$update_result_count" ]; then
+      printf '%s\n' "$allocation_row" | cut -d '|' -f 21,22 | tr '|' ',' >> build/performance-data/update-result.csv
+    fi
+    if [ "$allocation_index" -le "$close_list_count" ]; then
+      printf '%s\n' "$allocation_row" | cut -d '|' -f 4,5 | tr '|' ',' >> build/performance-data/close-list.csv
+    fi
+    if [ "$allocation_index" -le "$bulk_officials_count" ]; then
+      printf '%s\n' "$allocation_row" | cut -d '|' -f 17,18,19,20 | tr '|' ',' >> build/performance-data/bulk-officials.csv
+    fi
+    if [ "$allocation_index" -le "$bulk_fees_count" ]; then
+      printf '%s\n' "$allocation_row" | cut -d '|' -f 13,14,15,16 | tr '|' ',' >> build/performance-data/bulk-fees.csv
+    fi
+    if [ "$allocation_index" -le "$bulk_upload_count" ]; then
+      printf '%s\n' "$allocation_row" | cut -d '|' -f 1 >> build/performance-data/bulk-upload.csv
+    fi
     if [ "$allocation_index" -eq 1 ]; then
       seed_allocation="$allocation_row"
     fi
     allocation_index=$((allocation_index + 1))
   done
 
-  echo "Created $allocation_count workspace-only canonical allocation row(s)"
+  validate_feeder_rows() {
+    feeder_file="$1"
+    expected_rows="$2"
+    feeder_rows=$(($(wc -l < "build/performance-data/$feeder_file.csv") - 1))
+    if [ "$feeder_rows" -ne "$expected_rows" ]; then
+      echo "Generated feeder $feeder_file.csv has $feeder_rows rows; expected $expected_rows" >&2
+      exit 1
+    fi
+  }
+  validate_feeder_rows update-application "$update_application_count"
+  validate_feeder_rows add-application "$add_application_count"
+  validate_feeder_rows result-application "$result_application_count"
+  validate_feeder_rows result-multiple "$result_multiple_count"
+  validate_feeder_rows update-result "$update_result_count"
+  validate_feeder_rows close-list "$close_list_count"
+  validate_feeder_rows bulk-officials "$bulk_officials_count"
+  validate_feeder_rows bulk-fees "$bulk_fees_count"
+  validate_feeder_rows bulk-upload "$bulk_upload_count"
+  echo "Created workspace-only per-action feeder allocations"
   IFS='|' read -r bulk_upload_list_id editable_list_id editable_entry_id \
     close_ready_list_id close_ready_entry_id bulk_target_list_id \
     bulk_entry_id_1 bulk_entry_id_2 bulk_entry_id_3 add_application_list_id \
@@ -169,7 +282,15 @@ withNightlyPipeline(type, product, component) {
                     env.PERFORMANCE_TEST_USERS = '1'
                     env.RUN_DB_RESET = params.RUN_DB_RESET.toString()
                     env.RUN_DB_SEED = params.RUN_DB_SEED.toString()
-                    env.PERFORMANCE_DATA_ALLOCATION_COUNT = params.PERFORMANCE_DATA_ALLOCATION_COUNT
+                    env.UPDATE_APPLICATION_ALLOCATION_COUNT = params.UPDATE_APPLICATION_ALLOCATION_COUNT
+                    env.ADD_APPLICATION_ALLOCATION_COUNT = params.ADD_APPLICATION_ALLOCATION_COUNT
+                    env.RESULT_APPLICATION_ALLOCATION_COUNT = params.RESULT_APPLICATION_ALLOCATION_COUNT
+                    env.RESULT_MULTIPLE_ALLOCATION_COUNT = params.RESULT_MULTIPLE_ALLOCATION_COUNT
+                    env.UPDATE_RESULT_ALLOCATION_COUNT = params.UPDATE_RESULT_ALLOCATION_COUNT
+                    env.CLOSE_LIST_ALLOCATION_COUNT = params.CLOSE_LIST_ALLOCATION_COUNT
+                    env.BULK_OFFICIALS_ALLOCATION_COUNT = params.BULK_OFFICIALS_ALLOCATION_COUNT
+                    env.BULK_FEES_ALLOCATION_COUNT = params.BULK_FEES_ALLOCATION_COUNT
+                    env.BULK_UPLOAD_ALLOCATION_COUNT = params.BULK_UPLOAD_ALLOCATION_COUNT
                     env.RUN_PROOF_SMOKES = params.RUN_PROOF_SMOKES.toString()
                     env.RUN_PERFTEST = params.RUN_PERFTEST.toString()
 
