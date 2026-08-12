@@ -61,7 +61,7 @@ The Direct Gatling proof stage has two independent parameters:
 * `RUN_DB_SEED` defaults to `true`. It creates canonical proof data and writes its fresh UUID allocation to `build/seed-allocation.env`; seeded destructive proofs consume this allocation in the same build.
 * `RUN_DB_RESET` defaults to `false`. It restores the approved masked Test database baseline before the seed step. Use it when a clean baseline is required, rather than on every per-ticket validation run.
 * `WORKLOAD_PROFILE` selects a reviewed allocation profile from `data/seed/workload/allocation-profile.properties`. `smoke` is the default proof-only profile; `validation` is the ten-user, five-minute end-to-end workload check; `initial` is the 500-user, 75-minute benchmark profile.
-* Jenkins invokes the batch selective seed generator once per requested action shape and writes workspace-only CSV feeders to `build/performance-data/`. If a workload and proof smokes run together, the generator reserves the first row of each destructive feeder for the proof and passes only the remaining rows to the workload.
+* Jenkins invokes the batch selective seed generator once per requested action shape and writes workspace-only CSV feeders to `build/performance-data/`. If a workload and proof smokes run together, the generator reserves the first row of each destructive feeder for the proof. It passes only the exact deterministic schedule rows to Gatling; any allocation reserve remains outside the workload feeder.
 * `RUN_PROOF_SMOKES` defaults to `true`. It runs the complete one-user proof suite against fresh seed allocations and requires `RUN_DB_SEED=true`.
 * `RUN_PERFTEST` defaults to `false`. When enabled it requires `RUN_DB_SEED=true` and `WORKLOAD_PROFILE=validation` or `initial`, then runs the feeder-backed weighted workload after any selected proof smokes.
 
@@ -73,25 +73,26 @@ Application Code and Result Code wording templates in an approved environment ar
 
 Do not use legacy `p`-delimited placeholders such as `\{TEXTpAmount of costsp10}`. They are not parsed by AppReg and cause otherwise valid Application or Result submissions to fail with HTTP 400. Verify the active `application_codes` and `resolution_codes` data before validating a wording-based proof against a new environment.
 
-=== ARCPOC-1633 baseline and scalable allocation plan
+=== ARCPOC-1633 baseline and ARCPOC-1706 deterministic allocation
 
 The first ARCPOC-1633 validation is the existing seeded Jenkins batch: it runs every enabled proof after one canonical seed execution. This establishes that all canonical shapes coexist and that each proof changes only its own allocation. It uses `RUN_DB_SEED=true` and normally `RUN_DB_RESET=false`; use a reset only when a clean masked-database baseline is required.
 
-The next phase scales the approved shapes into deterministic synthetic data for the agreed workload. It must:
+ARCPOC-1706 scales the approved shapes into deterministic synthetic data for the agreed workload. It:
 
-* retain the canonical SQL as the readable source shape for each business action;
-* generate sufficient non-overlapping list and entry allocations for the requested users and journey mix;
-* persist the allocation map as feeder input, without committing generated identifiers or personal data;
-* assign one mutable record set to one virtual user for the duration of its destructive journey; and
-* run reset, seed/allocation and Gatling in the documented pipeline order.
+* retains the canonical SQL as the readable source shape for each business action;
+* generates sufficient non-overlapping list and entry allocations for the requested users and journey mix;
+* builds an exact, deterministic action plan from the reviewed action totals;
+* passes only the exact plan rows to queue feeders, without committing generated identifiers or personal data;
+* assigns one mutable record set to one virtual-user action; and
+* runs reset, seed/allocation and Gatling in the documented pipeline order.
 
 The allocation controls are per action, not one shared count. `data/seed/selective-application-list-shapes.psql` creates the requested action shape in one database session and returns its feeder rows. This avoids producing unrelated destructive records merely because one action has a larger allocation, and avoids a database connection per allocated row.
 
-`data/seed/workload/allocation-profile.properties` is the version-controlled source of the agreed smoke and initial benchmark data volumes. The initial profile provides 44,700 action slots after 20% headroom. It includes 40,343 preallocated destructive action slots, 3,214 runtime Create Application List actions, and 1,149 stable non-destructive operation slots. Do not enable the initial profile until the weighted workload consumer is complete and reviewed.
+`data/seed/workload/allocation-profile.properties` is the version-controlled source of the agreed smoke, validation and initial benchmark volumes. The initial plan has exactly 37,500 actions: 500 users × 75 actions each. It contains 33,840 destructive feeder-backed actions, 2,696 runtime Create Application List actions and 964 stable non-destructive Other UI Operations. The seed capacity contains 40,612 destructive rows—a 20% reserve per destructive action, rounded up—but the workload feeder receives only the exact scheduled rows. This preserves a deterministic execution mix without record reuse.
 
-=== Feeder-backed weighted workload
+=== Deterministic feeder-backed workload
 
-`AppRegWorkloadSimulation` is the bounded multi-user benchmark simulation. Each virtual user logs in once using a distinct `appreg-{index}@dev.platform.hmcts.net` account, then repeatedly selects one business action according to the agreed Jira weights. Destructive actions use Gatling queue feeders, so each allocated list/entry set is consumed once and is never shared between virtual users.
+`AppRegWorkloadSimulation` is the bounded multi-user benchmark simulation. Each virtual user logs in once using a distinct `appreg-{index}@dev.platform.hmcts.net` account. A deterministic largest-deficit plan evenly interleaves the reviewed action totals and assigns a fixed action sequence to each account. Destructive actions use Gatling queue feeders, so each allocated list/entry set is consumed once and is never shared between virtual users.
 
 The workload currently represents the 2.57% Other UI Operations allocation with the non-destructive Application List search action. Activity Audit reporting remains a separate functional benchmark until a reporting workload expectation is agreed.
 
@@ -105,7 +106,7 @@ Use Jenkins **Build with Parameters** for the first end-to-end run:
 * `RUN_PROOF_SMOKES=true` to verify all one-user actions first; and
 * `RUN_PERFTEST=true`.
 
-The validation profile starts ten users across one second (the confirmed safe limit is ten logins per second). Each allocated account then runs its own five-minute bounded journey and is not replaced when it completes. This preserves the one-account-per-user model for a finite destructive run. Because its branches are selected randomly, its destructive feeder allocation intentionally covers every user/action combination for up to six actions, rather than relying on small weighted expected counts. This prevents a valid short-run distribution from exhausting a feeder and prevents record reuse. It is the required gateway before a controlled `initial` profile benchmark of 500 users for 75 minutes. The initial profile starts its 500 accounts across 50 seconds.
+The validation profile starts ten users across one second (the confirmed safe limit is ten logins per second). Each account runs a fixed five-action, five-minute journey and is not replaced when it completes. This preserves the one-account-per-user model for a finite destructive run. Proof smokes cover actions whose rounded five-minute validation allocation is zero. It is the required gateway before a controlled `initial` profile benchmark of 500 users for 75 minutes. The initial profile starts its 500 accounts across 50 seconds.
 
 This data-provisioning work is separate from Test-environment migration and from workload-profile configuration. A weighted workload must not be enabled until the data allocation and final profile have both been reviewed.
 
