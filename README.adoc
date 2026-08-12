@@ -64,6 +64,7 @@ The Direct Gatling proof stage has two independent parameters:
 * Jenkins invokes the batch selective seed generator once per requested action shape and writes workspace-only CSV feeders to `build/performance-data/`. If a workload and proof smokes run together, the generator reserves the first row of each destructive feeder for the proof. It passes only the exact deterministic schedule rows to Gatling; any allocation reserve remains outside the workload feeder.
 * `RUN_PROOF_SMOKES` defaults to `true`. It runs the complete one-user proof suite against fresh seed allocations and requires `RUN_DB_SEED=true`.
 * `RUN_PERFTEST` defaults to `false`. When enabled it requires `RUN_DB_SEED=true` and `WORKLOAD_PROFILE=validation` or `initial`, then runs the feeder-backed weighted workload after any selected proof smokes.
+* `RUN_LOGIN_PREFLIGHT` defaults to `false`. It is an exclusive, read-only check of 500 complete SSO/session paths at one login per second. It requires `RUN_DB_RESET=false`, `RUN_DB_SEED=false`, `RUN_PROOF_SMOKES=false` and `RUN_PERFTEST=false`.
 
 `RUN_DB_RESET=true` and `RUN_DB_SEED=true` performs a full reset and seed. `RUN_DB_SEED=false` skips seeded destructive proofs and is suitable only for non-destructive diagnostic runs.
 
@@ -107,6 +108,8 @@ Use Jenkins **Build with Parameters** for the first end-to-end run:
 * `RUN_PERFTEST=true`.
 
 The validation profile starts ten users across one second (the confirmed safe limit is ten logins per second). Each account runs a fixed five-action, five-minute journey and is not replaced when it completes. This preserves the one-account-per-user model for a finite destructive run. Proof smokes cover actions whose rounded five-minute validation allocation is zero. It is the required gateway before a controlled `initial` profile benchmark of 500 users for 75 minutes. The initial profile starts its 500 accounts across 50 seconds.
+
+Before the initial profile, run the separate read-only `RUN_LOGIN_PREFLIGHT=true` gate. It starts all 500 accounts at one login per second, validates the full SSO/session path and performs one read-only Application List search per successful session. It must pass with zero functional errors before raising the initial profile's login rate or retrying the destructive benchmark.
 
 This data-provisioning work is separate from Test-environment migration and from workload-profile configuration. A weighted workload must not be enabled until the data allocation and final profile have both been reviewed.
 
