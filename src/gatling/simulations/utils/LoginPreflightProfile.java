@@ -5,7 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
 
-/** Controlled read-only session-establishment profile used before the initial workload. */
+/** Controlled read-only session-establishment profile used before the performance workload. */
 public record LoginPreflightProfile(int concurrentUsers, int loginRampUpSeconds) {
   private static final String PROFILE_PREFIX = "login_preflight";
 

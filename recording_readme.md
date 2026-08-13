@@ -12,11 +12,11 @@ Raw recordings are not performance tests. They must be cleaned up, parameterised
 - The following paths exist locally:
 
   ```text
-  ~/.config/gatling-recorder/staging/ca-cert.pem
-  ~/.config/gatling-recorder/staging/ca-key.pem
+  ~/.config/gatling-recorder/<environment>/ca-cert.pem
+  ~/.config/gatling-recorder/<environment>/ca-key.pem
   ```
 
-The certificate is trusted once in the macOS System keychain and survives restarts. The local, ignored Recorder configuration must use those same paths. This Recorder CA is separate from the Zscaler certificate used by Java and Gradle.
+The certificate is trusted once in the macOS System keychain and survives restarts. The local, ignored Recorder configuration must use those same paths. The CA and both paths are local to the individual user/machine; create and trust a new CA when setting up another developer or computer. This Recorder CA is separate from the Zscaler certificate used by Java and Gradle.
 
 Set the approved environment origin and matching allow-list regular expression. Do not add a path to `RECORDING_APP_URL`.
 
@@ -40,8 +40,8 @@ Use these settings before clicking **Start!**:
 | Recorder mode | `HTTP Proxy` |
 | Listening port | `8000` |
 | HTTPS mode | `Certificate Authority` |
-| Certificate | `~/.config/gatling-recorder/staging/ca-cert.pem` |
-| Private key | `~/.config/gatling-recorder/staging/ca-key.pem` |
+| Certificate | `~/.config/gatling-recorder/<environment>/ca-cert.pem` |
+| Private key | `~/.config/gatling-recorder/<environment>/ca-key.pem` |
 | Package | `recorded` |
 | Class name | A descriptive `Recorded...` name, such as `RecordedApplicationSearch` |
 | Format | `Java 17` |

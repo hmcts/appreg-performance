@@ -17,7 +17,7 @@ import static io.gatling.javaapi.http.HttpDsl.http;
 
 /**
  * Read-only preflight for the complete SSO and AppReg session path. It deliberately uses a
- * conservative one-account-per-second ramp before any destructive initial workload is attempted.
+ * conservative one-account-per-second ramp before any destructive performance workload is attempted.
  */
 public class AppRegLoginPreflightSimulation extends Simulation {
   private final LoginPreflightProfile profile = LoginPreflightProfile.fromRuntime();

@@ -21,8 +21,8 @@ properties([
     ),
     choice(
       name: 'WORKLOAD_PROFILE',
-      choices: ['smoke', 'validation', 'initial'],
-      description: 'Data and workload profile. smoke creates proof rows only; validation is 10 users for 5 minutes; initial is the 500-user, 70-minute diagnostic workload.'
+      choices: ['smoke', 'validation', 'performance'],
+      description: 'Data and workload profile. smoke creates proof rows only; validation is 10 users for 5 minutes; performance is the 500-user, 70-minute weighted performance run.'
     ),
     booleanParam(
       name: 'RUN_PROOF_SMOKES',
@@ -374,7 +374,7 @@ withNightlyPipeline(type, product, component) {
                                 exit 1
                               fi
                               if [ "$WORKLOAD_PROFILE" = "smoke" ]; then
-                                echo "RUN_PERFTEST=true requires WORKLOAD_PROFILE=validation or initial" >&2
+                                echo "RUN_PERFTEST=true requires WORKLOAD_PROFILE=validation or performance" >&2
                                 exit 1
                               fi
 
