@@ -18,17 +18,18 @@ import scenarios.UpdateApplicationResultScenario;
 import scenarios.UpdateApplicationScenario;
 import utils.Environment;
 import utils.SsoAuthentication;
+import utils.WorkloadAction;
 import utils.WorkloadProfile;
 
 import static io.gatling.javaapi.core.CoreDsl.csv;
-import static io.gatling.javaapi.core.CoreDsl.during;
+import static io.gatling.javaapi.core.CoreDsl.doSwitch;
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.feed;
 import static io.gatling.javaapi.core.CoreDsl.global;
+import static io.gatling.javaapi.core.CoreDsl.onCase;
 import static io.gatling.javaapi.core.CoreDsl.pace;
-import static io.gatling.javaapi.core.CoreDsl.percent;
 import static io.gatling.javaapi.core.CoreDsl.rampUsers;
-import static io.gatling.javaapi.core.CoreDsl.randomSwitch;
+import static io.gatling.javaapi.core.CoreDsl.repeat;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
@@ -36,37 +37,24 @@ import static io.gatling.javaapi.http.HttpDsl.http;
 
 /**
  * Bounded, feeder-backed AppReg workload. It is intentionally separate from all ProofSimulation
- * classes: each user logs in once, receives queued synthetic data for each destructive action,
- * and repeats weighted business actions for the configured profile duration.
+ * classes: each user logs in once, receives a deterministic, isolated action sequence and
+ * performs one planned action per minute for the configured duration.
  */
 public class AppRegWorkloadSimulation extends Simulation {
-  private static final double UPDATE_APPLICATION_WEIGHT = 39.32;
-  private static final double ADD_APPLICATION_WEIGHT = 18.47;
-  private static final double RESULT_MULTIPLE_WEIGHT = 7.75;
-  private static final double UPDATE_RESULT_WEIGHT = 7.28;
-  private static final double CREATE_LIST_WEIGHT = 7.19;
-  private static final double UPDATE_LIST_WEIGHT = 6.039;
-  private static final double CLOSE_LIST_WEIGHT = 0.671;
-  private static final double RESULT_APPLICATION_WEIGHT = 4.45;
-  private static final double BULK_OFFICIALS_WEIGHT = 4.21;
-  private static final double BULK_FEES_WEIGHT = 1.38;
-  private static final double BULK_UPLOAD_WEIGHT = 0.67;
-  private static final double OTHER_OPERATIONS_WEIGHT = 2.57;
-
   private final WorkloadProfile profile = WorkloadProfile.fromRuntime();
   private final String feederDirectory = Path.of(System.getProperty(
       "appRegPerformanceDataDirectory", "build/workload-data")).toAbsolutePath().toString();
 
-  private final FeederBuilder.FileBased<String> updateApplicationFeeder = feeder("update-application", profile.updateApplicationCount());
-  private final FeederBuilder.FileBased<String> addApplicationFeeder = feeder("add-application", profile.addApplicationCount());
-  private final FeederBuilder.FileBased<String> resultApplicationFeeder = feeder("result-application", profile.resultApplicationCount());
-  private final FeederBuilder.FileBased<String> resultMultipleFeeder = feeder("result-multiple", profile.resultMultipleCount());
-  private final FeederBuilder.FileBased<String> updateResultFeeder = feeder("update-result", profile.updateResultCount());
-  private final FeederBuilder.FileBased<String> updateListFeeder = feeder("update-list", profile.updateListCount());
-  private final FeederBuilder.FileBased<String> closeListFeeder = feeder("close-list", profile.closeListCount());
-  private final FeederBuilder.FileBased<String> bulkOfficialsFeeder = feeder("bulk-officials", profile.bulkOfficialsCount());
-  private final FeederBuilder.FileBased<String> bulkFeesFeeder = feeder("bulk-fees", profile.bulkFeesCount());
-  private final FeederBuilder.FileBased<String> bulkUploadFeeder = feeder("bulk-upload", profile.bulkUploadCount());
+  private final FeederBuilder.FileBased<String> updateApplicationFeeder = feeder("update-application", WorkloadAction.UPDATE_APPLICATION);
+  private final FeederBuilder.FileBased<String> addApplicationFeeder = feeder("add-application", WorkloadAction.ADD_APPLICATION);
+  private final FeederBuilder.FileBased<String> resultApplicationFeeder = feeder("result-application", WorkloadAction.RESULT_APPLICATION);
+  private final FeederBuilder.FileBased<String> resultMultipleFeeder = feeder("result-multiple", WorkloadAction.RESULT_MULTIPLE);
+  private final FeederBuilder.FileBased<String> updateResultFeeder = feeder("update-result", WorkloadAction.UPDATE_RESULT);
+  private final FeederBuilder.FileBased<String> updateListFeeder = feeder("update-list", WorkloadAction.UPDATE_LIST);
+  private final FeederBuilder.FileBased<String> closeListFeeder = feeder("close-list", WorkloadAction.CLOSE_LIST);
+  private final FeederBuilder.FileBased<String> bulkOfficialsFeeder = feeder("bulk-officials", WorkloadAction.BULK_OFFICIALS);
+  private final FeederBuilder.FileBased<String> bulkFeesFeeder = feeder("bulk-fees", WorkloadAction.BULK_FEES);
+  private final FeederBuilder.FileBased<String> bulkUploadFeeder = feeder("bulk-upload", WorkloadAction.BULK_UPLOAD);
 
   public AppRegWorkloadSimulation() {
     var httpProtocol = http.baseUrl(Environment.BASE_URL).doNotTrackHeader("1").inferHtmlResources().silentResources();
@@ -77,23 +65,26 @@ public class AppRegWorkloadSimulation extends Simulation {
         feed(users)
           .exec(SsoAuthentication.login())
           .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
-          .during(profile.durationMinutes() * 60L, false).on(
-            randomSwitch().on(
-              percent(UPDATE_APPLICATION_WEIGHT).then(updateApplication()),
-              percent(ADD_APPLICATION_WEIGHT).then(addApplication()),
-              percent(RESULT_MULTIPLE_WEIGHT).then(resultMultipleApplications()),
-              percent(UPDATE_RESULT_WEIGHT).then(updateApplicationResult()),
-              percent(CREATE_LIST_WEIGHT).then(ApplicationListCreateScenario.createApplicationList()),
-              percent(UPDATE_LIST_WEIGHT).then(updateApplicationList()),
-              percent(CLOSE_LIST_WEIGHT).then(closeApplicationList()),
-              percent(RESULT_APPLICATION_WEIGHT).then(resultApplication()),
-              percent(BULK_OFFICIALS_WEIGHT).then(bulkUpdateOfficials()),
-              percent(BULK_FEES_WEIGHT).then(bulkUpdateFees()),
-              percent(BULK_UPLOAD_WEIGHT).then(bulkUpload()),
-              // Search represents the non-destructive Other UI Operations allocation. Reporting
-              // remains a separate benchmark until its NFR and workload expectation are agreed.
-              percent(OTHER_OPERATIONS_WEIGHT).then(SearchScenario.searchApplicationLists())
-            ).exec(pace(60))
+          .repeat(profile.actionsPerUser(), "workloadIteration").on(
+            exec(session -> session.set("plannedAction", profile.actionFor(
+                session.getInt("accountOffset"), session.getInt("workloadIteration")).key()))
+              .exec(doSwitch("#{plannedAction}").on(
+                onCase(WorkloadAction.UPDATE_APPLICATION.key()).then(updateApplication()),
+                onCase(WorkloadAction.ADD_APPLICATION.key()).then(addApplication()),
+                onCase(WorkloadAction.RESULT_MULTIPLE.key()).then(resultMultipleApplications()),
+                onCase(WorkloadAction.UPDATE_RESULT.key()).then(updateApplicationResult()),
+                onCase(WorkloadAction.CREATE_LIST.key()).then(ApplicationListCreateScenario.createApplicationList()),
+                onCase(WorkloadAction.UPDATE_LIST.key()).then(updateApplicationList()),
+                onCase(WorkloadAction.CLOSE_LIST.key()).then(closeApplicationList()),
+                onCase(WorkloadAction.RESULT_APPLICATION.key()).then(resultApplication()),
+                onCase(WorkloadAction.BULK_OFFICIALS.key()).then(bulkUpdateOfficials()),
+                onCase(WorkloadAction.BULK_FEES.key()).then(bulkUpdateFees()),
+                onCase(WorkloadAction.BULK_UPLOAD.key()).then(bulkUpload()),
+                // Search represents the non-destructive Other UI Operations allocation. Reporting
+                // remains a separate benchmark until a reporting workload expectation is agreed.
+                onCase(WorkloadAction.OTHER_OPERATIONS.key()).then(SearchScenario.searchApplicationLists())
+              ))
+              .exec(pace(60))
           )
       );
 
@@ -111,15 +102,19 @@ public class AppRegWorkloadSimulation extends Simulation {
 
   @Override
   public void before() {
-    System.out.println("Workload profile: " + profile);
+    System.out.println("Workload profile: " + profile.name() + ", " + profile.concurrentUsers()
+        + " users, " + profile.actionsPerUser() + " actions per user, "
+        + profile.actionPlan().size() + " deterministic action slots");
+    System.out.println("Scheduled action totals: " + profile.scheduledActionCounts());
     System.out.println("Allocated feeder directory: " + feederDirectory);
     System.out.println("SSO is limited to " + WorkloadProfile.minimumLoginRampUpSeconds(profile.concurrentUsers())
         + " seconds minimum for " + profile.concurrentUsers() + " accounts at 10 logins per second.");
   }
 
-  private FeederBuilder.FileBased<String> feeder(String action, int requiredRows) {
+  private FeederBuilder.FileBased<String> feeder(String action, WorkloadAction scheduledAction) {
     String path = Path.of(feederDirectory, action + ".csv").toString();
     FeederBuilder.FileBased<String> feeder = csv(path).queue();
+    int requiredRows = profile.scheduledActionCount(scheduledAction);
     if (feeder.recordsCount() != requiredRows) {
       throw new IllegalArgumentException(
           "Feeder " + path + " has " + feeder.recordsCount() + " rows; " + profile.name()

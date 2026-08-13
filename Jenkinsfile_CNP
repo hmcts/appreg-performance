@@ -21,8 +21,8 @@ properties([
     ),
     choice(
       name: 'WORKLOAD_PROFILE',
-      choices: ['smoke', 'validation', 'initial'],
-      description: 'Data and workload profile. smoke creates proof rows only; validation is 10 users for 5 minutes; initial is the 500-user 75-minute benchmark.'
+      choices: ['smoke', 'validation', 'performance'],
+      description: 'Data and workload profile. smoke creates proof rows only; validation is 10 users for 5 minutes; performance is the 500-user, 70-minute weighted performance run.'
     ),
     booleanParam(
       name: 'RUN_PROOF_SMOKES',
@@ -33,6 +33,11 @@ properties([
       name: 'RUN_PERFTEST',
       defaultValue: false,
       description: 'Run the weighted multi-user workload after seed and optional proof smokes'
+    ),
+    booleanParam(
+      name: 'RUN_LOGIN_PREFLIGHT',
+      defaultValue: false,
+      description: 'Run the read-only 500-account SSO/session preflight at one login per second'
     )
   ])
 ])
@@ -86,6 +91,32 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
   if [ "$RUN_PERFTEST" != "true" ] && [ "$workload_profile" != "smoke" ]; then
     echo "WORKLOAD_PROFILE=$workload_profile requires RUN_PERFTEST=true; use smoke for proof-only runs" >&2
     exit 1
+  fi
+  if [ "$RUN_PERFTEST" = "true" ]; then
+    actions_per_user="$(profile_value actions_per_user)"
+    concurrent_users="$(profile_value concurrent_users)"
+    scheduled_total=0
+    for action in update_application update_list add_application result_application result_multiple \
+      update_result close_list bulk_officials bulk_fees bulk_upload create_list other_operations; do
+      scheduled_count="$(profile_value "scheduled_$action")"
+      case "$scheduled_count" in
+        ''|*[!0-9]*) echo "Scheduled action counts must be non-negative integers" >&2; exit 1 ;;
+      esac
+      scheduled_total=$((scheduled_total + scheduled_count))
+      case "$action" in
+        create_list|other_operations) continue ;;
+      esac
+      allocation_count="$(profile_value "$action")"
+      if [ "$allocation_count" -lt "$scheduled_count" ]; then
+        echo "Allocation for $action is $allocation_count; deterministic schedule requires $scheduled_count" >&2
+        exit 1
+      fi
+    done
+    expected_total=$((concurrent_users * actions_per_user))
+    if [ "$scheduled_total" -ne "$expected_total" ]; then
+      echo "Deterministic schedule has $scheduled_total actions; expected $expected_total" >&2
+      exit 1
+    fi
   fi
   proof_reserve=0
   if [ "$RUN_PERFTEST" = "true" ] && [ "$RUN_PROOF_SMOKES" = "true" ]; then
@@ -255,6 +286,9 @@ withNightlyPipeline(type, product, component) {
                     env.WORKLOAD_PROFILE = params.WORKLOAD_PROFILE
                     env.RUN_PROOF_SMOKES = params.RUN_PROOF_SMOKES.toString()
                     env.RUN_PERFTEST = params.RUN_PERFTEST.toString()
+                    // A new Jenkins parameter is absent for the first automatic build after this
+                    // Jenkinsfile changes; default that build safely to false.
+                    env.RUN_LOGIN_PREFLIGHT = (params.RUN_LOGIN_PREFLIGHT ?: false).toString()
 
                     if (params.RUN_DB_RESET) {
                         sh dbResetCommand
@@ -282,6 +316,15 @@ withNightlyPipeline(type, product, component) {
                                 echo "$variable is missing"
                               fi
                             done
+                            if [ "$RUN_LOGIN_PREFLIGHT" = "true" ]; then
+                              if [ "$RUN_DB_RESET" = "true" ] || [ "$RUN_DB_SEED" = "true" ] \
+                                || [ "$RUN_PROOF_SMOKES" = "true" ] || [ "$RUN_PERFTEST" = "true" ]; then
+                                echo "RUN_LOGIN_PREFLIGHT=true is read-only: set reset, seed, proof smokes and perftest to false" >&2
+                                exit 1
+                              fi
+                              ./gradlew --no-daemon gatlingRun \
+                                --simulation simulations.AppRegLoginPreflightSimulation
+                            fi
                             if [ "$RUN_PROOF_SMOKES" = "true" ]; then
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.AppRegSimulation
@@ -331,18 +374,30 @@ withNightlyPipeline(type, product, component) {
                                 exit 1
                               fi
                               if [ "$WORKLOAD_PROFILE" = "smoke" ]; then
-                                echo "RUN_PERFTEST=true requires WORKLOAD_PROFILE=validation or initial" >&2
+                                echo "RUN_PERFTEST=true requires WORKLOAD_PROFILE=validation or performance" >&2
                                 exit 1
                               fi
 
                               mkdir -p build/workload-data
                               for feeder in update-application update-list add-application result-application \
                                 result-multiple update-result close-list bulk-officials bulk-fees bulk-upload; do
-                                if [ "$RUN_PROOF_SMOKES" = "true" ]; then
-                                  { sed -n '1p' "build/performance-data/$feeder.csv"; sed -n '3,$p' "build/performance-data/$feeder.csv"; } \
-                                    > "build/workload-data/$feeder.csv"
-                                else
-                                  cp "build/performance-data/$feeder.csv" "build/workload-data/$feeder.csv"
+                                action_key="$(printf '%s' "$feeder" | tr '-' '_')"
+                                scheduled_count="$(awk -F= -v key="$WORKLOAD_PROFILE.scheduled_$action_key" '$1 == key { print $2; exit }' data/seed/workload/allocation-profile.properties)"
+                                if [ -z "$scheduled_count" ]; then
+                                  echo "No deterministic scheduled count for $action_key" >&2
+                                  exit 1
+                                fi
+                                data_start_row=2
+                                if [ "$RUN_PROOF_SMOKES" = "true" ]; then data_start_row=3; fi
+                                # Retain exactly the rows consumed by the deterministic plan.
+                                # Reserved seed rows remain out of the workload feeder.
+                                awk -F, -v start="$data_start_row" -v count="$scheduled_count" \
+                                  'NR == 1 || (NR >= start && NR < start + count)' \
+                                  "build/performance-data/$feeder.csv" > "build/workload-data/$feeder.csv"
+                                generated_count=$(($(wc -l < "build/workload-data/$feeder.csv") - 1))
+                                if [ "$generated_count" -ne "$scheduled_count" ]; then
+                                  echo "Deterministic workload feeder $feeder has $generated_count rows; expected $scheduled_count" >&2
+                                  exit 1
                                 fi
                               done
 

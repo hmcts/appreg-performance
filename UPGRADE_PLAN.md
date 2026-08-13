@@ -13,7 +13,7 @@ Keep the Gatling performance-test project supportable and able to identify depen
 - The project source and Gradle configuration are Java-only. Gatling may retain Scala implementation dependencies internally, but the repository has no Scala source or Scala Gradle plugin.
 - The one-user SSO/UI proof completed successfully in Client Platform Jenkins on Temurin Java 21.0.12 on 29 July 2026.
 - The one-user Application List create proof compiled and completed successfully against the approved staging environment on Java 21 on 3 August 2026.
-- ARCPOC-1633 will establish repeatable performance-test data provisioning and reset through Jenkins. Final destructive workload journeys will consume allocated seeded data instead of creating their own persistent setup data.
+- ARCPOC-1633 established canonical synthetic Test data, reset/seed controls and deterministic feeder allocation through Jenkins. ARCPOC-1706 builds the exact bounded workload schedule from those allocations; final destructive workload journeys consume allocated seeded data rather than creating their own persistent setup data.
 - Jenkins runs the centrally managed OWASP Dependency-Check validation and archives its report. It uses shared platform credentials and cache configuration; no repository-managed NVD API key is required.
 
 ## Java runtime compatibility
@@ -99,19 +99,19 @@ The current Gradle release can be checked at the [official Gradle versions endpo
 
 **Priority: high for multi-user and weighted workloads**
 
-**Status: planned — [ARCPOC-1633](https://tools.hmcts.net/jira/browse/ARCPOC-1633).**
+**Status: implemented for canonical proof data and deterministic allocation — [ARCPOC-1633](https://tools.hmcts.net/jira/browse/ARCPOC-1633), with bounded workload scheduling in [ARCPOC-1706](https://tools.hmcts.net/jira/browse/ARCPOC-1706).**
 
-Provision the synthetic, workflow-specific data created by the performance-test project through a dedicated Jenkins stage before Gatling execution. The stage must reset or initialise the approved target dataset, apply the reviewed seed SQL, and make a deterministic allocation of safe records available to the Gatling feeders.
+The pipeline provisions synthetic, workflow-specific data through a dedicated Jenkins seed stage before Gatling execution. Optional reset, seed, proof-smoke, login-preflight and workload controls are exposed as Jenkins parameters. The seed stage applies reviewed SQL and writes a deterministic allocation of safe records to Gatling queue feeders.
 
 The final workload journeys must use their allocated Application Lists and Applications rather than creating setup data while measurements are being taken. One-user proof simulations may retain isolated runtime setup only where it is explicitly documented as proof-only behaviour.
 
-1. Store reviewed, non-sensitive PostgreSQL seed statements in this repository, organised by workflow data ticket and based on one canonical synthetic data shape that can be scaled. The current workflow-to-data-ticket mapping is maintained in `AGENTS.md`.
-2. Define the reset boundary, execution identity, target environment and rollback/recovery approach with Platform and the AppReg service team.
-3. Add a Jenkins provisioning/reset stage that runs before Gatling and fails safely if the expected data is not available.
-4. Produce one feeder allocation per virtual user so destructive actions cannot target the same record unintentionally.
-5. Record the dataset version, volume, allocation assumptions and any retention/cleanup expectations in the build output or accompanying run documentation.
+1. Store reviewed, non-sensitive PostgreSQL seed statements in this repository, organised by workflow data ticket and based on one canonical synthetic data shape that can be scaled. **Completed.** The current workflow-to-data-ticket mapping is maintained in `AGENTS.md`.
+2. Define the reset boundary, execution identity, target environment and rollback/recovery approach with Platform and the AppReg service team. **Completed for controlled Jenkins execution; reset remains an explicit build parameter.**
+3. Add a Jenkins provisioning/reset stage that runs before Gatling and fails safely if the expected data is not available. **Completed.**
+4. Produce one feeder allocation per virtual user so destructive actions cannot target the same record unintentionally. **Completed for the bounded deterministic workload.**
+5. Record the dataset version, volume, allocation assumptions and any retention/cleanup expectations in the build output or accompanying run documentation. **Completed for profile-controlled allocation; formal-run retention remains owned by the client Jenkins service.**
 
-**Success criteria:** the approved environment can be reset and seeded repeatedly; each run receives the required deterministic data volume; and destructive performance journeys do not collide or depend on data left by prior runs.
+**Success criteria:** the approved environment can be reset and seeded repeatedly; each run receives the required deterministic data volume; and destructive performance journeys do not collide or depend on data left by prior runs. **Achieved for canonical proofs and the current bounded diagnostic workload.**
 
 ## Proposed order and ownership
 

@@ -58,7 +58,11 @@ public final class SsoAuthentication {
     String startIndex = environmentVariable("APPREG_ACCOUNT_START_INDEX");
     int firstIndex = startIndex == null ? 1 : Integer.parseInt(startIndex);
     return IntStream.range(firstIndex, firstIndex + accountCount)
-      .mapToObj(index -> Map.<String, Object>of("username", accountName(template, index, accountCount)))
+      .mapToObj(index -> Map.<String, Object>of(
+          "username", accountName(template, index, accountCount),
+          // The deterministic workload plan uses this zero-based offset to assign a stable
+          // action sequence to each dedicated account. Other simulations ignore it.
+          "accountOffset", index - firstIndex))
       .iterator();
   }
 
