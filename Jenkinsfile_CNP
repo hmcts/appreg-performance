@@ -22,7 +22,7 @@ properties([
     choice(
       name: 'WORKLOAD_PROFILE',
       choices: ['smoke', 'validation', 'initial'],
-      description: 'Data and workload profile. smoke creates proof rows only; validation is 10 users for 5 minutes; initial is the 500-user, 60-minute diagnostic workload.'
+      description: 'Data and workload profile. smoke creates proof rows only; validation is 10 users for 5 minutes; initial is the 500-user, 70-minute diagnostic workload.'
     ),
     booleanParam(
       name: 'RUN_PROOF_SMOKES',
