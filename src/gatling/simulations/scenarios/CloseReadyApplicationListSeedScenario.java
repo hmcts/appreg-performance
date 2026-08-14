@@ -9,6 +9,7 @@ import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static java.util.Objects.requireNonNull;
 
 /** Builds the entry-level conditions required to close an Application List for proof-only setup. */
 public final class CloseReadyApplicationListSeedScenario {
@@ -24,7 +25,7 @@ public final class CloseReadyApplicationListSeedScenario {
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
-          .body(StringBody(entryBody()))
+          .body(StringBody(requireNonNull(entryBody())))
           .check(status().is(200)))
         .exec(http("Add close-ready application result")
           .post("/application-lists/#{applicationListId}/entries/#{applicationEntryId}/results")
@@ -38,7 +39,7 @@ public final class CloseReadyApplicationListSeedScenario {
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
-          .body(StringBody(entryBody()))
+          .body(StringBody(requireNonNull(entryBody())))
           .check(status().is(200)))
     );
   }

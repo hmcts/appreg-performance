@@ -10,6 +10,7 @@ import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Replays the meaningful HTTP sequence from the Result selected UI journey for several Applications
@@ -46,7 +47,7 @@ public final class ResultMultipleApplicationsScenario {
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
-          .body(StringBody(selectionBody()))
+          .body(StringBody(requireNonNull(selectionBody())))
           .check(status().is(200)))
         .exec(http("Get result codes")
           .get("/result-codes")
@@ -64,7 +65,7 @@ public final class ResultMultipleApplicationsScenario {
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
-          .body(StringBody(resultBody()))
+          .body(StringBody(requireNonNull(resultBody())))
           .check(status().is(200))
           .check(jsonPath("$[0].entryId").isEL("#{entryIdOne}"))
           .check(jsonPath("$[1].entryId").isEL("#{entryIdTwo}"))

@@ -9,6 +9,7 @@ import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static java.util.Objects.requireNonNull;
 
 /** Replays the recorded UI flow for a simple update to an open Application List. */
 public final class UpdateApplicationListScenario {
@@ -30,7 +31,7 @@ public final class UpdateApplicationListScenario {
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
-          .body(StringBody(listBody("OPEN")))
+          .body(StringBody(requireNonNull(listBody("OPEN"))))
           .check(status().is(200)))
     );
   }

@@ -10,6 +10,7 @@ import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Adds and completes an Application in the Application List stored in the Gatling session.
@@ -54,7 +55,7 @@ public final class AddApplicationScenario {
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
-          .body(StringBody(applicationBody()))
+          .body(StringBody(requireNonNull(applicationBody())))
           .check(status().in(200, 201))
           .check(jsonPath("$.id").saveAs(entryIdSessionKey)))
         .exec(http("Get added application")
@@ -79,7 +80,7 @@ public final class AddApplicationScenario {
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
-          .body(StringBody(completedApplicationBody()))
+          .body(StringBody(requireNonNull(completedApplicationBody())))
           .check(status().is(200)))
     );
   }
