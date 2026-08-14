@@ -78,6 +78,8 @@ def dbResetCommand = params.RUN_DB_RESET ? '''
 ''' : ''
 
 def dbSeedCommand = params.RUN_DB_SEED ? '''
+  export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
+  export PATH="$JAVA_HOME/bin:$PATH"
   workload_profile="${WORKLOAD_PROFILE:-smoke}"
   profile_file=data/seed/workload/allocation-profile.properties
   if [ ! -f "$profile_file" ]; then
