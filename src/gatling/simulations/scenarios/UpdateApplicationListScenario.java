@@ -2,6 +2,7 @@ package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -28,9 +29,9 @@ public final class UpdateApplicationListScenario {
         .exec(updateValues())
         .exec(http("Update application list")
           .put("/application-lists/#{applicationListId}")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody(requireNonNull(listBody("OPEN"))))
           .check(status().is(200)))
     );
@@ -53,7 +54,7 @@ public final class UpdateApplicationListScenario {
       .get("/application-lists/#{applicationListId}")
       .queryParam("pageNumber", "0")
       .queryParam("pageSize", "10")
-      .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+      .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
       .check(status().is(200))
       .check(jsonPath("$.date").saveAs("applicationListDate"))
       .check(jsonPath("$.time").saveAs("applicationListTime"))

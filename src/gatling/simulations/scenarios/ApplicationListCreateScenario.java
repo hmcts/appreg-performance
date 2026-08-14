@@ -3,6 +3,8 @@ package scenarios;
 import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
 import java.util.UUID;
+import utils.Environment;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -29,15 +31,15 @@ public final class ApplicationListCreateScenario {
         .set("applicationListDate", LocalDate.now().toString())
         .set("applicationListDescription", "Gatling create-list proof " + UUID.randomUUID()))
         .exec(http("Application lists page")
-          .get("/applications-list")
+          .get(Environment.APPLICATIONS_LIST_PATH)
           .headers(COMMON_HEADER)
           .check(status().is(200)))
-        .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
+        .exec(getCookieValue(CookieKey(Headers.XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
         .exec(http("Create application list")
           .post("/application-lists")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody("{\"date\":\"#{applicationListDate}\",\"time\":\"12:00\",\"description\":\"#{applicationListDescription}\",\"status\":\"OPEN\",\"courtLocationCode\":\"" + COURT_LOCATION_CODE + "\"}"))
           .check(status().in(200, 201))
           .check(jsonPath("$.id").saveAs("applicationListId")))
@@ -45,7 +47,7 @@ public final class ApplicationListCreateScenario {
           .get("/application-lists/#{applicationListId}")
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "10")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200)))
     );
   }

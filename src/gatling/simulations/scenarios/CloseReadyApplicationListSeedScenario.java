@@ -3,6 +3,7 @@ package scenarios;
 import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
 import java.util.concurrent.ThreadLocalRandom;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -22,23 +23,23 @@ public final class CloseReadyApplicationListSeedScenario {
         .set("closeReadyDate", LocalDate.now().toString()))
         .exec(http("Add official to close-ready application")
           .put("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody(requireNonNull(entryBody())))
           .check(status().is(200)))
         .exec(http("Add close-ready application result")
           .post("/application-lists/#{applicationListId}/entries/#{applicationEntryId}/results")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody("{" + "\"resultCode\":\"AUTH\",\"wordingFields\":[]" + "}"))
           .check(status().in(200, 201)))
         .exec(http("Finalise close-ready application")
           .put("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody(requireNonNull(entryBody())))
           .check(status().is(200)))
     );

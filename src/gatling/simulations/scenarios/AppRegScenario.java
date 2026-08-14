@@ -1,6 +1,7 @@
 package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
@@ -36,7 +37,7 @@ public final class AppRegScenario {
       .get("/application-lists")
       .queryParam("pageNumber", "0")
       .queryParam("pageSize", "1")
-      .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+      .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
       .check(status().is(200))
       .check(headerRegex("Content-Type", ".*json.*")));
   }

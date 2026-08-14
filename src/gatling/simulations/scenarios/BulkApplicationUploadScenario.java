@@ -1,6 +1,7 @@
 package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.*;
 import static io.gatling.javaapi.http.HttpDsl.RawFileBodyPart;
@@ -18,22 +19,22 @@ public final class BulkApplicationUploadScenario {
       exec(http("Open application list for bulk upload")
         .get("/application-lists/#{applicationListId}/entries")
         .queryParam("pageNumber", "0").queryParam("pageSize", "10").queryParam("sort", "sequenceNumber,asc")
-        .header("Accept", "application/vnd.hmcts.appreg.v1+json").check(status().is(200)))
+        .header("Accept", Headers.APPREG_API_MEDIA_TYPE).check(status().is(200)))
       .exec(http("Start bulk application upload")
         .post("/application-lists/#{applicationListId}/entries/bulk-import")
-        .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-        .header("X-XSRF-TOKEN", "#{xsrfToken}")
+        .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+        .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
         .bodyPart(RawFileBodyPart("file", CSV_FILE).contentType("text/csv"))
         .check(status().is(202)).check(jsonPath("$.id").saveAs("bulkUploadJobId")))
       .exec(http("Check bulk upload completion")
         .get("/jobs/#{bulkUploadJobId}")
-        .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+        .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
         .check(status().is(200)).check(jsonPath("$.status").saveAs("bulkUploadStatus")))
       .asLongAs(session -> "PROCESSING".equals(session.getString("bulkUploadStatus"))).on(
         pause(2)
           .exec(http("Check bulk upload completion")
             .get("/jobs/#{bulkUploadJobId}")
-            .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
             .check(status().is(200)).check(jsonPath("$.status").saveAs("bulkUploadStatus"))))
       .exec(session -> {
         var uploadStatus = session.getString("bulkUploadStatus");

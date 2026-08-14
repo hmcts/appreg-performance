@@ -1,6 +1,7 @@
 package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -19,9 +20,9 @@ public final class CloseApplicationListScenario {
         .exec(UpdateApplicationListScenario.updateValues())
         .exec(http("Close application list")
           .put("/application-lists/#{applicationListId}")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody(requireNonNull(UpdateApplicationListScenario.listBody("CLOSED"))))
           .check(status().is(200)))
     );

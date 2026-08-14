@@ -3,6 +3,7 @@ package scenarios;
 import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
 import java.util.concurrent.ThreadLocalRandom;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -29,28 +30,28 @@ public final class UpdateApplicationScenario {
           .set("applicationUpdateId", updateId)
           .set("applicationUpdateDate", LocalDate.now().toString());
       })
-        .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
+        .exec(getCookieValue(CookieKey(Headers.XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
         .exec(http("Get application list")
           .get("/application-lists/#{applicationListId}")
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "10")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200)))
         .exec(http("Get application entry")
           .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200))
           .check(jsonPath("$.applicationCode").saveAs("applicationCode")))
         .exec(http("Get application-code details")
           .get("/application-codes/#{applicationCode}")
           .queryParam("date", "#{applicationUpdateDate}")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200)))
         .exec(http("Update application")
           .put("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody("""
             {"applicationCode":"#{applicationCode}","applicant":{"person":{"name":{"firstName":"Gatling","middleName":"Update","lastName":"Applicant #{applicationUpdateId}"},"contactDetails":{"addressLine1":"23 Performance Road","addressLine3":"Liverpool","addressLine4":"England","addressLine5":"Swansea","postcode":"SW1A 2AA","phone":"020 7946 0000","mobile":"07854 555555","email":"updated#{applicationUpdateId}@example.com"}}},"respondent":{"person":{"name":{"firstName":"Gatling","middleName":"Update","lastName":"Respondent #{applicationUpdateId}"},"dateOfBirth":"1970-01-01","contactDetails":{"addressLine1":"The House","addressLine2":"31 Test Close","addressLine3":"Galway","addressLine4":"Shropshire","addressLine5":"Tinmus","postcode":"SW1B 2BB","phone":"020 7946 0000","mobile":"07123 456789","email":"updated-respondent#{applicationUpdateId}@example.com"}}},"numberOfRespondents":null,"wordingFields":[],"feeStatuses":[{"paymentReference":"UPD-#{applicationUpdateId}","paymentStatus":"PAID","statusDate":"#{applicationUpdateDate}"}],"hasOffsiteFee":true,"caseReference":"UPD-#{applicationUpdateId}","accountNumber":"UPD-#{applicationUpdateId}","notes":"Gatling update #{applicationUpdateId}","officials":[]}
             """))

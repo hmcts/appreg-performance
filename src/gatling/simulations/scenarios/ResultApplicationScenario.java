@@ -2,6 +2,7 @@ package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -22,9 +23,9 @@ public final class ResultApplicationScenario {
       exec(session -> session.set("resultCodeDate", LocalDate.now().toString()))
         .exec(http("Preview selected application result")
           .post("/application-lists/#{applicationListId}/entries/bulk-action-preview")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody("""
             {"action":"RESULT_SELECTED","selection":{"selectionType":"IDS","entryIds":["#{applicationEntryId}"]}}
             """))
@@ -33,18 +34,18 @@ public final class ResultApplicationScenario {
           .get("/result-codes")
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "100")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200)))
         .exec(http("Get selected result-code details")
           .get("/result-codes/" + RESULT_CODE)
           .queryParam("date", "#{resultCodeDate}")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200)))
         .exec(http("Apply application result")
           .post("/application-lists/#{applicationListId}/entries/results")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody("""
             {"entryIds":["#{applicationEntryId}"],"result":{"resultCode":"%s","wordingFields":[{"key":"Time issued","value":"%s"}]}}
             """.formatted(RESULT_CODE, TIME_ISSUED)))

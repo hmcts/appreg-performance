@@ -1,6 +1,7 @@
 package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -21,9 +22,9 @@ public final class BulkUpdateOfficialsScenario {
     return group("AppReg_065_Applications_Bulk_Officials").on(
       exec(http("Preview bulk officials update")
         .post("/application-lists/#{applicationListId}/entries/bulk-action-preview")
-        .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-        .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-        .header("X-XSRF-TOKEN", "#{xsrfToken}")
+        .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+        .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+        .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
         .body(StringBody("""
           {"action":"UPDATE_OFFICIALS","selection":{"selectionType":"FILTER","filter":{}}}
           """))
@@ -31,8 +32,8 @@ public final class BulkUpdateOfficialsScenario {
       .exec(http("Bulk update Magistrates and Court Official")
         .post("/application-lists/#{applicationListId}/entries/officials")
         .header("Accept", "application/problem+json")
-        .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-        .header("X-XSRF-TOKEN", "#{xsrfToken}")
+        .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+        .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
         .body(StringBody("""
           {"entryIds":["#{entryIdOne}","#{entryIdTwo}","#{entryIdThree}"],"officials":[{"type":"MAGISTRATE","title":"mr","forename":"Gatling","surname":"Magistrate One"},{"type":"MAGISTRATE","title":"mrs","forename":"Gatling","surname":"Magistrate Two"},{"type":"MAGISTRATE","title":"miss","forename":"Gatling","surname":"Magistrate Three"},{"type":"CLERK","title":"dr","forename":"Gatling","surname":"Court Official"}]}
           """))

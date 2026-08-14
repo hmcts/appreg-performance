@@ -1,6 +1,7 @@
 package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -19,9 +20,9 @@ public final class ApplicationResultSeedScenario {
     return group("AppReg_055_Application_Result_Seed").on(
       exec(http("Create proof setup result")
         .post("/application-lists/#{applicationListId}/entries/results")
-        .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-        .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-        .header("X-XSRF-TOKEN", "#{xsrfToken}")
+        .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+        .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+        .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
         .body(StringBody("""
           {"entryIds":["#{applicationEntryId}"],"result":{"resultCode":"%s","wordingFields":[]}}
           """.formatted(INITIAL_RESULT_CODE)))
