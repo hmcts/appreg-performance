@@ -11,6 +11,8 @@ import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static java.util.Objects.requireNonNull;
+import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
+import static utils.ApplicationListFailureLogger.logFailure;
 
 /** Replays the recorded UI flow for a simple update to an open Application List. */
 public final class UpdateApplicationListScenario {
@@ -55,11 +57,13 @@ public final class UpdateApplicationListScenario {
       .queryParam("pageNumber", "0")
       .queryParam("pageSize", "10")
       .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+      .check(status().saveAs(STATUS_SESSION_KEY))
       .check(status().is(200))
       .check(jsonPath("$.date").saveAs("applicationListDate"))
       .check(jsonPath("$.time").saveAs("applicationListTime"))
       .check(jsonPath("$.description").saveAs("applicationListDescription"))
-      .check(jsonPath("$.courtCode").saveAs("applicationListCourtLocationCode")));
+      .check(jsonPath("$.courtCode").saveAs("applicationListCourtLocationCode")))
+      .exec(logFailure("Update Application List", "Get application list details"));
   }
 
   static String listBody(String status) {

@@ -33,6 +33,8 @@ Gatling writes HTML reports to `build/reports/gatling/`; the final command outpu
 
 Jenkins is configured to publish Gatling reports after every CNP and nightly performance-test run, including failed runs. Each build archives `build/reports/gatling/**`, exposes a root-level `gatling-performance-reports.html` artifact alongside the Dependency-Check report, and provides a `Gatling Performance Reports` HTML link. The HTML landing pages link to the timestamped report for each simulation generated in the build; Jenkins' standard `all files in zip` download contains the complete report set.
 
+For failed `GET /application-lists/{uuid}` calls, the Jenkins console additionally writes a sanitised correlation line containing only the business action, request name, HTTP status and Application List UUID. It never logs response bodies, cookies or credentials. Search the console log for `Application List GET failure` and use the UUID to correlate with Insight.
+
 == Test design and code structure
 
 This project uses a modular, business-action design rather than a browser-test Page Object Model. Gatling tests the application's HTTP traffic directly, so production code is organised by reusable AppReg actions instead of pages or UI selectors.
@@ -60,10 +62,11 @@ The Direct Gatling proof stage has two independent parameters:
 
 * `RUN_DB_SEED` defaults to `true`. It creates canonical proof data and writes its fresh UUID allocation to `build/seed-allocation.env`; seeded destructive proofs consume this allocation in the same build.
 * `RUN_DB_RESET` defaults to `false`. It restores the approved masked Test database baseline before the seed step. Use it when a clean baseline is required, rather than on every per-ticket validation run.
-* `WORKLOAD_PROFILE` selects a reviewed allocation profile from `data/seed/workload/allocation-profile.properties`. `smoke` is the default proof-only profile; `validation` is the ten-user, five-minute end-to-end workload check; `performance` is the 500-user, 70-minute weighted performance run.
+* `WORKLOAD_PROFILE` defaults to `performance`, the 500-user, 70-minute weighted performance profile. `validation` is the ten-user, five-minute end-to-end workload check; `smoke` is proof-only.
+* `MAX_USERS` defaults to `100`. It limits the selected workload profile to the requested number of users, never exceeding the profile's approved maximum (500 for `performance`). The pipeline derives both seed allocation and queue-feeder sizes from this capped deterministic plan.
 * Jenkins invokes the batch selective seed generator once per requested action shape and writes workspace-only CSV feeders to `build/performance-data/`. If a workload and proof smokes run together, the generator reserves the first row of each destructive feeder for the proof. It passes only the exact deterministic schedule rows to Gatling; any allocation reserve remains outside the workload feeder.
-* `RUN_PROOF_SMOKES` defaults to `true`. It runs the complete one-user proof suite against fresh seed allocations and requires `RUN_DB_SEED=true`.
-* `RUN_PERFTEST` defaults to `false`. When enabled it requires `RUN_DB_SEED=true` and `WORKLOAD_PROFILE=validation` or `performance`, then runs the feeder-backed weighted workload after any selected proof smokes.
+* `RUN_PROOF_SMOKES` defaults to `false`. Enable it to run the complete one-user proof suite against fresh seed allocations; it requires `RUN_DB_SEED=true`.
+* `RUN_PERFTEST` defaults to `true`. It requires `RUN_DB_SEED=true` and `WORKLOAD_PROFILE=validation` or `performance`, then runs the feeder-backed weighted workload after any selected proof smokes.
 * `RUN_LOGIN_PREFLIGHT` defaults to `false`. It is an exclusive, read-only check of 500 complete SSO/session paths at one login per second. It requires `RUN_DB_RESET=false`, `RUN_DB_SEED=false`, `RUN_PROOF_SMOKES=false` and `RUN_PERFTEST=false`.
 
 `RUN_DB_RESET=true` and `RUN_DB_SEED=true` performs a full reset and seed. `RUN_DB_SEED=false` skips seeded destructive proofs and is suitable only for non-destructive diagnostic runs.
@@ -74,7 +77,7 @@ The supported Jenkins run modes are:
 |===
 | Purpose | `RUN_DB_RESET` | `RUN_DB_SEED` | `WORKLOAD_PROFILE` | `RUN_PROOF_SMOKES` | `RUN_PERFTEST` / `RUN_LOGIN_PREFLIGHT`
 
-| Seeded one-user proof suite (default)
+| Seeded one-user proof suite
 | `false`
 | `true`
 | `smoke`
@@ -102,11 +105,11 @@ The supported Jenkins run modes are:
 | `true`
 | `true` / `false`
 
-| 500-account weighted performance run
+| Capped performance diagnostic run (default)
 | `false`
 | `true`
 | `performance`
-| `true` (optional)
+| `false` (optional)
 | `true` / `false`
 |===
 
@@ -145,8 +148,9 @@ Use Jenkins **Build with Parameters** for the first end-to-end run:
 
 * `RUN_DB_RESET=false` unless a clean masked baseline is specifically required;
 * `RUN_DB_SEED=true`;
-* `WORKLOAD_PROFILE=validation`;
-* `RUN_PROOF_SMOKES=true` to verify all one-user actions first; and
+* `WORKLOAD_PROFILE=performance`;
+* `MAX_USERS=100` (increase only up to 500 when needed);
+* `RUN_PROOF_SMOKES=false` unless a separate proof check is required; and
 * `RUN_PERFTEST=true`.
 
 The validation profile starts ten users across one second (the confirmed safe limit is ten logins per second). Each account runs a fixed five-action, five-minute journey and is not replaced when it completes. This preserves the one-account-per-user model for a finite destructive run. Proof smokes cover actions whose rounded five-minute validation allocation is zero. The `performance` profile is a 500-user, 70-minute weighted performance run. It starts its 500 accounts across 500 seconds (one login per second), based on the read-only preflight evidence. Its final user should complete after approximately 78 minutes and 20 seconds, leaving nearly twelve minutes of the configured 90-minute Jenkins stage timeout for setup and report generation.

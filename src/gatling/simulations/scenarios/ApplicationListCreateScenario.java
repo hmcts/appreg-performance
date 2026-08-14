@@ -14,6 +14,8 @@ import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
+import static utils.ApplicationListFailureLogger.logFailure;
 import static utils.Headers.COMMON_HEADER;
 
 /**
@@ -48,7 +50,9 @@ public final class ApplicationListCreateScenario {
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "10")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .check(status().saveAs(STATUS_SESSION_KEY))
           .check(status().is(200)))
+        .exec(logFailure("Create Application List", "Get created application list"))
     );
   }
 }

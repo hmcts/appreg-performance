@@ -43,3 +43,9 @@ tasks.named('gatlingRun') {
   // Keep CI and the default local run focused on the curated load profile.
   simulationClassName = 'simulations.AppRegSimulation'
 }
+
+tasks.register('printWorkloadPlan', JavaExec) {
+  classpath = sourceSets.gatling.runtimeClasspath
+  mainClass = 'utils.WorkloadPlanPrinter'
+  systemProperties System.properties
+}

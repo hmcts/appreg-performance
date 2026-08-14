@@ -13,6 +13,8 @@ import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
+import static utils.ApplicationListFailureLogger.logFailure;
 
 /**
  * Updates the Application List and entry identifiers stored in the Gatling session.
@@ -36,7 +38,9 @@ public final class UpdateApplicationScenario {
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "10")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .check(status().saveAs(STATUS_SESSION_KEY))
           .check(status().is(200)))
+        .exec(logFailure("Update Application", "Get application list"))
         .exec(http("Get application entry")
           .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)

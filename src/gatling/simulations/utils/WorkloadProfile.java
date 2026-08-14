@@ -31,6 +31,7 @@ public record WorkloadProfile(
 
   private static final int MAX_TEST_ACCOUNTS = 500;
   private static final int SAFE_LOGINS_PER_SECOND = 10;
+  private static final String MAX_USERS_PROPERTY = "appRegMaxUsers";
 
   public WorkloadProfile {
     if ("smoke".equals(name)) {
@@ -83,17 +84,19 @@ public record WorkloadProfile(
       throw new IllegalArgumentException("appRegWorkloadProfile=smoke is for one-user proofs, not a workload run");
     }
     Properties properties = loadProperties();
-    int concurrentUsers = positive(properties, name + ".concurrent_users");
+    int configuredUsers = positive(properties, name + ".concurrent_users");
+    int concurrentUsers = cappedUsers(configuredUsers);
     int durationMinutes = positive(properties, name + ".duration_minutes");
     int actionsPerUser = positive(properties, name + ".actions_per_user");
-    Map<WorkloadAction, Integer> scheduledCounts = scheduledCounts(properties, name);
+    Map<WorkloadAction, Integer> scheduledCounts = cappedScheduledCounts(
+      scheduledCounts(properties, name), configuredUsers, concurrentUsers, actionsPerUser);
     List<WorkloadAction> actionPlan = buildActionPlan(scheduledCounts, Math.multiplyExact(concurrentUsers, actionsPerUser));
     return new WorkloadProfile(
         name,
         concurrentUsers,
         durationMinutes,
         actionsPerUser,
-        positive(properties, name + ".login_ramp_up_seconds"),
+        Math.min(positive(properties, name + ".login_ramp_up_seconds"), concurrentUsers),
         scheduledCounts,
         actionPlan,
         nonNegative(properties, name + ".update_application"),
@@ -110,6 +113,45 @@ public record WorkloadProfile(
 
   public static int minimumLoginRampUpSeconds(int concurrentUsers) {
     return (int) Math.ceil((double) concurrentUsers / SAFE_LOGINS_PER_SECOND);
+  }
+
+  private static int cappedUsers(int configuredUsers) {
+    String requestedValue = System.getProperty(MAX_USERS_PROPERTY);
+    if (requestedValue == null) return configuredUsers;
+    final int requestedUsers;
+    try {
+      requestedUsers = Integer.parseInt(requestedValue);
+    } catch (NumberFormatException exception) {
+      throw new IllegalArgumentException(MAX_USERS_PROPERTY + " must be a positive integer", exception);
+    }
+    if (requestedUsers < 1) {
+      throw new IllegalArgumentException(MAX_USERS_PROPERTY + " must be at least 1");
+    }
+    return Math.min(requestedUsers, configuredUsers);
+  }
+
+  private static Map<WorkloadAction, Integer> cappedScheduledCounts(
+      Map<WorkloadAction, Integer> configuredCounts, int configuredUsers, int cappedUsers, int actionsPerUser) {
+    int cappedActionCount = Math.multiplyExact(cappedUsers, actionsPerUser);
+    int configuredActionCount = Math.multiplyExact(configuredUsers, actionsPerUser);
+    if (cappedActionCount == configuredActionCount) return configuredCounts;
+
+    Map<WorkloadAction, Integer> counts = new EnumMap<>(WorkloadAction.class);
+    Map<WorkloadAction, Long> remainders = new EnumMap<>(WorkloadAction.class);
+    int allocated = 0;
+    for (WorkloadAction action : WorkloadAction.values()) {
+      long scaled = (long) configuredCounts.get(action) * cappedActionCount;
+      counts.put(action, (int) (scaled / configuredActionCount));
+      remainders.put(action, scaled % configuredActionCount);
+      allocated += counts.get(action);
+    }
+    List<WorkloadAction> byRemainder = new ArrayList<>(List.of(WorkloadAction.values()));
+    byRemainder.sort((left, right) -> Long.compare(remainders.get(right), remainders.get(left)));
+    for (int index = 0; allocated < cappedActionCount; index++, allocated++) {
+      WorkloadAction action = byRemainder.get(index);
+      counts.put(action, counts.get(action) + 1);
+    }
+    return counts;
   }
 
   /** Returns the fixed action for a dedicated account and its zero-based iteration. */

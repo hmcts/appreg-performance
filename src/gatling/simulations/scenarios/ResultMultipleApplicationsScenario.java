@@ -11,6 +11,8 @@ import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
+import static utils.ApplicationListFailureLogger.logFailure;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -35,7 +37,9 @@ public final class ResultMultipleApplicationsScenario {
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "10")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .check(status().saveAs(STATUS_SESSION_KEY))
           .check(status().is(200)))
+        .exec(logFailure("Result Multiple Applications", "Open application list"))
         .exec(http("Get application list entries")
           .get("/application-lists/#{applicationListId}/entries")
           .queryParam("pageNumber", "0")
