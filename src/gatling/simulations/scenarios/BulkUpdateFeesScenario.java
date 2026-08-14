@@ -9,6 +9,8 @@ import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
+import static utils.ApplicationListFailureLogger.logFailure;
 
 /** Replays the recorded UI flow for bulk-updating Application fee details. */
 public final class BulkUpdateFeesScenario {
@@ -24,7 +26,9 @@ public final class BulkUpdateFeesScenario {
           .get("/application-lists/#{applicationListId}")
           .queryParam("pageNumber", "0").queryParam("pageSize", "10")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .check(status().saveAs(STATUS_SESSION_KEY))
           .check(status().is(200)))
+        .exec(logFailure("Bulk Update Fees Status", "Open application list for bulk fee update"))
         .exec(http("Get application list entries for bulk fee update")
           .get("/application-lists/#{applicationListId}/entries")
           .queryParam("pageNumber", "0").queryParam("pageSize", "10")

@@ -21,18 +21,23 @@ properties([
     ),
     choice(
       name: 'WORKLOAD_PROFILE',
-      choices: ['smoke', 'validation', 'performance'],
+      choices: ['performance', 'validation', 'smoke'],
       description: 'Data and workload profile. smoke creates proof rows only; validation is 10 users for 5 minutes; performance is the 500-user, 70-minute weighted performance run.'
     ),
     booleanParam(
       name: 'RUN_PROOF_SMOKES',
-      defaultValue: true,
+      defaultValue: false,
       description: 'Run every one-user proof against fresh seed allocations'
     ),
     booleanParam(
       name: 'RUN_PERFTEST',
-      defaultValue: false,
+      defaultValue: true,
       description: 'Run the weighted multi-user workload after seed and optional proof smokes'
+    ),
+    string(
+      name: 'MAX_USERS',
+      defaultValue: '100',
+      description: 'Maximum users for the weighted workload. Values above the profile limit are capped at 500.'
     ),
     booleanParam(
       name: 'RUN_LOGIN_PREFLIGHT',
@@ -122,16 +127,47 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
   if [ "$RUN_PERFTEST" = "true" ] && [ "$RUN_PROOF_SMOKES" = "true" ]; then
     proof_reserve=1
   fi
-  update_application_count=$(($(profile_value update_application) + proof_reserve))
-  update_list_count=$(($(profile_value update_list) + proof_reserve))
-  add_application_count=$(($(profile_value add_application) + proof_reserve))
-  result_application_count=$(($(profile_value result_application) + proof_reserve))
-  result_multiple_count=$(($(profile_value result_multiple) + proof_reserve))
-  update_result_count=$(($(profile_value update_result) + proof_reserve))
-  close_list_count=$(($(profile_value close_list) + proof_reserve))
-  bulk_officials_count=$(($(profile_value bulk_officials) + proof_reserve))
-  bulk_fees_count=$(($(profile_value bulk_fees) + proof_reserve))
-  bulk_upload_count=$(($(profile_value bulk_upload) + proof_reserve))
+  if [ "$RUN_PERFTEST" = "true" ]; then
+    max_users="${MAX_USERS:-100}"
+    case "$max_users" in
+      ''|*[!0-9]*) echo "MAX_USERS must be a positive integer" >&2; exit 1 ;;
+    esac
+    if [ "$max_users" -lt 1 ]; then
+      echo "MAX_USERS must be a positive integer" >&2
+      exit 1
+    fi
+    workload_plan="$(./gradlew --no-daemon --quiet printWorkloadPlan \
+      -DappRegWorkloadProfile="$workload_profile" \
+      -DappRegMaxUsers="$max_users")"
+    scheduled_count_for() {
+      printf '%s\n' "$workload_plan" | awk -F= -v key="$1" '$1 == key { print $2; exit }'
+    }
+    allocation_count_for() {
+      scheduled_count="$(scheduled_count_for "$1")"
+      if [ -z "$scheduled_count" ]; then
+        echo "No deterministic scheduled count for $1" >&2
+        exit 1
+      fi
+      # Keep one canonical row for a proof or a rounded-zero low-volume action.
+      count=$((scheduled_count + proof_reserve))
+      if [ "$count" -lt 1 ]; then count=1; fi
+      printf '%s' "$count"
+    }
+  else
+    allocation_count_for() {
+      printf '%s' "$(($(profile_value "$1") + proof_reserve))"
+    }
+  fi
+  update_application_count="$(allocation_count_for update_application)"
+  update_list_count="$(allocation_count_for update_list)"
+  add_application_count="$(allocation_count_for add_application)"
+  result_application_count="$(allocation_count_for result_application)"
+  result_multiple_count="$(allocation_count_for result_multiple)"
+  update_result_count="$(allocation_count_for update_result)"
+  close_list_count="$(allocation_count_for close_list)"
+  bulk_officials_count="$(allocation_count_for bulk_officials)"
+  bulk_fees_count="$(allocation_count_for bulk_fees)"
+  bulk_upload_count="$(allocation_count_for bulk_upload)"
 
   for allocation_count in "$update_application_count" "$update_list_count" "$add_application_count" \
     "$result_application_count" "$result_multiple_count" "$update_result_count" "$close_list_count" \
@@ -286,6 +322,7 @@ withNightlyPipeline(type, product, component) {
                     env.WORKLOAD_PROFILE = params.WORKLOAD_PROFILE
                     env.RUN_PROOF_SMOKES = params.RUN_PROOF_SMOKES.toString()
                     env.RUN_PERFTEST = params.RUN_PERFTEST.toString()
+                    env.MAX_USERS = (params.MAX_USERS ?: '100').toString()
                     // A new Jenkins parameter is absent for the first automatic build after this
                     // Jenkinsfile changes; default that build safely to false.
                     env.RUN_LOGIN_PREFLIGHT = (params.RUN_LOGIN_PREFLIGHT ?: false).toString()
@@ -379,10 +416,16 @@ withNightlyPipeline(type, product, component) {
                               fi
 
                               mkdir -p build/workload-data
+                              workload_plan="$(./gradlew --no-daemon --quiet printWorkloadPlan \
+                                -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
+                                -DappRegMaxUsers="$MAX_USERS")"
+                              scheduled_count_for() {
+                                printf '%s\n' "$workload_plan" | awk -F= -v key="$1" '$1 == key { print $2; exit }'
+                              }
                               for feeder in update-application update-list add-application result-application \
                                 result-multiple update-result close-list bulk-officials bulk-fees bulk-upload; do
                                 action_key="$(printf '%s' "$feeder" | tr '-' '_')"
-                                scheduled_count="$(awk -F= -v key="$WORKLOAD_PROFILE.scheduled_$action_key" '$1 == key { print $2; exit }' data/seed/workload/allocation-profile.properties)"
+                                scheduled_count="$(scheduled_count_for "$action_key")"
                                 if [ -z "$scheduled_count" ]; then
                                   echo "No deterministic scheduled count for $action_key" >&2
                                   exit 1
@@ -403,6 +446,7 @@ withNightlyPipeline(type, product, component) {
 
                               ./gradlew --no-daemon gatlingRun \
                                 -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
+                                -DappRegMaxUsers="$MAX_USERS" \
                                 -DappRegPerformanceDataDirectory="$PWD/build/workload-data" \
                                 --simulation simulations.AppRegWorkloadSimulation
                             fi

@@ -10,6 +10,8 @@ import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
+import static utils.ApplicationListFailureLogger.logFailure;
 
 /**
  * Replays the meaningful HTTP sequence from the Result selected UI journey for several Applications
@@ -33,7 +35,9 @@ public final class ResultMultipleApplicationsScenario {
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "10")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .check(status().saveAs(STATUS_SESSION_KEY))
           .check(status().is(200)))
+        .exec(logFailure("Result Multiple Applications", "Open application list"))
         .exec(http("Get application list entries")
           .get("/application-lists/#{applicationListId}/entries")
           .queryParam("pageNumber", "0")
