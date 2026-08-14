@@ -11,6 +11,7 @@ import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.Environment.requiredEnvironmentVariable;
 import static utils.Headers.COMMON_HEADER;
 
 /** One-user proof that uploads the approved CSV into an allocated seeded Application List. */
@@ -26,10 +27,5 @@ public class BulkApplicationUploadProofSimulation extends Simulation {
         .exec(session -> session.set("applicationListId", SEEDED_LIST_ID))
         .exec(BulkApplicationUploadScenario.bulkUploadApplications()));
     setUp(upload.injectOpen(atOnceUsers(1))).protocols(protocol).assertions(global().successfulRequests().percent().gte(100.0));
-  }
-  private static String requiredEnvironmentVariable(String name) {
-    String value = System.getenv(name);
-    if (value == null || value.isBlank()) throw new IllegalArgumentException("Set " + name + " to run the seeded bulk-upload proof");
-    return value;
   }
 }

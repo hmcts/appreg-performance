@@ -8,5 +8,14 @@ public final class Environment {
     .replaceFirst("/+$", "");
   public static final String APPLICATIONS_LIST_PATH = "/applications-list";
 
+  /** Returns a required environment value without ever including its value in an error message. */
+  public static String requiredEnvironmentVariable(String name) {
+    String value = System.getenv(name);
+    if (value == null || value.isBlank()) {
+      throw new IllegalArgumentException("Set " + name + " to run this seeded proof");
+    }
+    return value;
+  }
+
   private Environment() {}
 }

@@ -15,6 +15,7 @@ import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.Environment.requiredEnvironmentVariable;
 import static utils.Headers.COMMON_HEADER;
 
 /** One-user proof that applies the same result to three isolated Applications in one list. */
@@ -52,13 +53,5 @@ public class ResultMultipleApplicationsProofSimulation extends Simulation {
     setUp(resultMultipleApplications.injectOpen(atOnceUsers(1)))
       .protocols(httpProtocol)
       .assertions(global().successfulRequests().percent().gte(100.0));
-  }
-
-  private static String requiredEnvironmentVariable(String name) {
-    String value = System.getenv(name);
-    if (value == null || value.isBlank()) {
-      throw new IllegalArgumentException("Set " + name + " to run the seeded multiple-result proof");
-    }
-    return value;
   }
 }
