@@ -16,7 +16,6 @@ import scenarios.SearchScenario;
 import scenarios.UpdateApplicationListScenario;
 import scenarios.UpdateApplicationResultScenario;
 import scenarios.UpdateApplicationScenario;
-import utils.Environment;
 import utils.SsoAuthentication;
 import utils.WorkloadAction;
 import utils.WorkloadProfile;
@@ -33,7 +32,7 @@ import static io.gatling.javaapi.core.CoreDsl.repeat;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
-import static io.gatling.javaapi.http.HttpDsl.http;
+import static utils.AppRegHttp.protocol;
 
 /**
  * Bounded, feeder-backed AppReg workload. It is intentionally separate from all ProofSimulation
@@ -57,7 +56,7 @@ public class AppRegWorkloadSimulation extends Simulation {
   private final FeederBuilder.FileBased<String> bulkUploadFeeder = feeder("bulk-upload", WorkloadAction.BULK_UPLOAD);
 
   public AppRegWorkloadSimulation() {
-    var httpProtocol = http.baseUrl(Environment.BASE_URL).doNotTrackHeader("1").inferHtmlResources().silentResources();
+    var httpProtocol = protocol();
     var users = SsoAuthentication.users(profile.concurrentUsers());
 
     var workload = scenario("AppReg weighted workload")

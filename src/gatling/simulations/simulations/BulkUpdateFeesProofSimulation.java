@@ -12,6 +12,7 @@ import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.AppRegHttp.protocol;
 import static utils.Environment.requiredEnvironmentVariable;
 import static utils.Headers.COMMON_HEADER;
 
@@ -24,7 +25,7 @@ public class BulkUpdateFeesProofSimulation extends Simulation {
   private final Iterator<Map<String, Object>> ssoUserFeeder = SsoAuthentication.users(1);
 
   public BulkUpdateFeesProofSimulation() {
-    var httpProtocol = http.baseUrl(Environment.BASE_URL).doNotTrackHeader("1").inferHtmlResources().silentResources();
+    var httpProtocol = protocol();
     var bulkUpdateFees = scenario("AppReg bulk update fees proof").exitBlockOnFail().on(
       feed(ssoUserFeeder).exec(SsoAuthentication.login())
         .exec(http("Application lists page")

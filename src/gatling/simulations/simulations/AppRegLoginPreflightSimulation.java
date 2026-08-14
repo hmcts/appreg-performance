@@ -2,7 +2,6 @@ package simulations;
 
 import io.gatling.javaapi.core.Simulation;
 import scenarios.SearchScenario;
-import utils.Environment;
 import utils.LoginPreflightProfile;
 import utils.SsoAuthentication;
 
@@ -13,7 +12,7 @@ import static io.gatling.javaapi.core.CoreDsl.rampUsers;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
-import static io.gatling.javaapi.http.HttpDsl.http;
+import static utils.AppRegHttp.protocol;
 
 /**
  * Read-only preflight for the complete SSO and AppReg session path. It deliberately uses a
@@ -23,7 +22,7 @@ public class AppRegLoginPreflightSimulation extends Simulation {
   private final LoginPreflightProfile profile = LoginPreflightProfile.fromRuntime();
 
   public AppRegLoginPreflightSimulation() {
-    var httpProtocol = http.baseUrl(Environment.BASE_URL).doNotTrackHeader("1").inferHtmlResources().silentResources();
+    var httpProtocol = protocol();
     var users = SsoAuthentication.users(profile.concurrentUsers());
     var loginPreflight = scenario("AppReg login preflight")
       .exitBlockOnFail().on(

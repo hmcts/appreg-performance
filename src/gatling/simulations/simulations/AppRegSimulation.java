@@ -11,12 +11,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import scenarios.AppRegScenario;
-import utils.Environment;
 import utils.PerformanceProfile;
 import utils.SsoAuthentication;
 
 import static io.gatling.javaapi.core.CoreDsl.*;
-import static io.gatling.javaapi.http.HttpDsl.http;
+import static utils.AppRegHttp.protocol;
 
 public class AppRegSimulation extends Simulation {
   private final String testType = System.getenv().getOrDefault("TEST_TYPE", "perftest");
@@ -35,7 +34,7 @@ public class AppRegSimulation extends Simulation {
     ? SsoAuthentication.users(requiredAccountCount) : List.<Map<String, Object>>of().iterator();
 
   public AppRegSimulation() {
-    var httpProtocol = http.baseUrl(Environment.BASE_URL).doNotTrackHeader("1").inferHtmlResources().silentResources();
+    var httpProtocol = protocol();
     ChainBuilder authentication = switch (authMode) {
       case "none" -> exec(session -> session);
       case "sso-login" -> feed(ssoUserFeeder).exec(SsoAuthentication.login());
