@@ -60,26 +60,29 @@ Test-dependent proofs are enabled progressively:
 
 === Jenkins run modes
 
-Jenkins exposes three user-facing parameters only: `RUN_MODE`, `MAX_USERS` and `RESET_DATABASE`. The pipeline derives its seed, proof, workload and preflight stages from the selected mode; do not reintroduce independent stage toggles.
+Jenkins exposes four user-facing parameters only: `RUN_MODE`, `MAX_USERS`, `RUN_DURATION_MINUTES` and `RESET_DATABASE`. The pipeline derives its seed, proof, workload and preflight stages from the selected mode; do not reintroduce independent stage toggles.
 
-[cols="1,1,1,1",options="header"]
+[cols="1,1,1,1,1",options="header"]
 |===
-| `RUN_MODE` | Intended user | Derived execution | `MAX_USERS`
+| `RUN_MODE` | Intended user | Derived execution | `MAX_USERS` | `RUN_DURATION_MINUTES`
 
 | `application-diagnostic` (default)
 | Application developer
-| Fresh seed followed by a five-minute deterministic workload
+| Fresh seed followed by a bounded deterministic workload
 | Requested value, capped at 500; defaults to 1
+| Requested value; defaults to 5 and must keep `MAX_USERS * RUN_DURATION_MINUTES <= 35000`
 
 | `framework-proof`
 | Framework developer
 | Fresh seed followed by every one-user proof simulation
+| Ignored
 | Ignored
 
 | `performance`
 | Performance test team
 | Read-only 500-account preflight, then fresh seed and the 500-user, 70-minute workload
 | Ignored; fixed at 500
+| Ignored; fixed at 70
 |===
 
 `RESET_DATABASE=true` restores the approved masked Test baseline before the selected mode runs. It is normally unnecessary for routine diagnostics.
@@ -87,10 +90,11 @@ Jenkins exposes three user-facing parameters only: `RUN_MODE`, `MAX_USERS` and `
 The implementation details below explain the derived controls used by the pipeline:
 
 * The derived seed stage creates canonical data and writes its fresh UUID allocation to `build/seed-allocation.env`; seeded destructive proofs consume this allocation in the same build.
-* The derived workload always uses the reviewed `performance` allocation profile. Diagnostic mode scales its deterministic action plan to the selected user count and five-minute duration; performance mode uses the full 500-user, 70-minute plan.
+* The derived workload always uses the reviewed `performance` allocation profile. Diagnostic mode scales its deterministic action plan to the selected user count and duration; performance mode uses the full 500-user, 70-minute plan.
 * Jenkins invokes the batch selective seed generator once per requested action shape and writes workspace-only CSV feeders to `build/performance-data/`. If a workload and proof smokes run together, the generator reserves the first row of each destructive feeder for the proof. It passes only the exact deterministic schedule rows to Gatling; any allocation reserve remains outside the workload feeder.
 * The framework-proof mode runs the complete one-user proof suite; workload modes run the feeder-backed deterministic workload.
 * Performance mode automatically runs the exclusive read-only 500-account SSO/session preflight before it seeds any destructive data.
+* Diagnostic mode is bounded to the same approved upper envelope as the formal run: `MAX_USERS` must be `1..500`, `RUN_DURATION_MINUTES` must be positive, and `MAX_USERS * RUN_DURATION_MINUTES` must not exceed `35000`.
 
 The previous raw pipeline toggles (`RUN_DB_RESET`, `RUN_DB_SEED`, `WORKLOAD_PROFILE`, `RUN_PROOF_SMOKES`, `RUN_PERFTEST`, `RUN_LOGIN_PREFLIGHT`) remain internal derived controls only. Operators should select a single `RUN_MODE` instead of combining low-level flags.
 
@@ -149,11 +153,11 @@ The workload paces actions to one completed action per virtual user per minute. 
 
 Use Jenkins **Build with Parameters** with one of these combinations:
 
-* `RUN_MODE=application-diagnostic`, `MAX_USERS=100`, `RESET_DATABASE=false` for a short destructive diagnostic run. `MAX_USERS` may be increased up to 500 when needed.
+* `RUN_MODE=application-diagnostic`, `MAX_USERS=100`, `RUN_DURATION_MINUTES=5`, `RESET_DATABASE=false` for a short destructive diagnostic run. `MAX_USERS` may be increased up to 500 when needed, provided the requested users and minutes stay within the `35000`-action envelope.
 * `RUN_MODE=framework-proof`, `RESET_DATABASE=false` for the full one-user proof suite after a fresh seed.
 * `RUN_MODE=performance`, `RESET_DATABASE=false` for the full formal run. This mode always performs the read-only 500-account preflight first, then seeds fresh data and runs the fixed 500-user, 70-minute workload.
 
-The diagnostic mode uses the reviewed `performance` action mix but scales it to a five-minute bounded run. The full `performance` mode keeps the agreed 500-user, 70-minute weighted workload. It starts its 500 accounts across 500 seconds (one login per second), based on the read-only preflight evidence. Its final user should complete after approximately 78 minutes and 20 seconds, leaving nearly twelve minutes of the configured 90-minute Jenkins stage timeout for setup and report generation.
+The diagnostic mode uses the reviewed `performance` action mix but scales it to a bounded run of the requested size. The full `performance` mode keeps the agreed 500-user, 70-minute weighted workload. It starts its 500 accounts across 500 seconds (one login per second), based on the read-only preflight evidence. Its final user should complete after approximately 78 minutes and 20 seconds, leaving nearly twelve minutes of the configured 90-minute Jenkins stage timeout for setup and report generation.
 
 Before a full diagnostic or formal workload run, pause development activity that could change the measured system: AppReg deployments, database schema or reference-data changes, seed-SQL changes, and workload-profile/code changes. Record the Git commit, selected Jenkins parameters and Test-environment version before starting. Resume those changes only after the run has finished and its reports have been retained; otherwise the result is not a reproducible benchmark. This is an operational coordination requirement, not a Jenkins-enforced deployment freeze.
 
