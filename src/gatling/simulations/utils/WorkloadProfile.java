@@ -32,6 +32,7 @@ public record WorkloadProfile(
   private static final int MAX_TEST_ACCOUNTS = 500;
   private static final int SAFE_LOGINS_PER_SECOND = 10;
   private static final String MAX_USERS_PROPERTY = "appRegMaxUsers";
+  private static final String DURATION_MINUTES_PROPERTY = "appRegDurationMinutes";
 
   public WorkloadProfile {
     if ("smoke".equals(name)) {
@@ -86,10 +87,11 @@ public record WorkloadProfile(
     Properties properties = loadProperties();
     int configuredUsers = positive(properties, name + ".concurrent_users");
     int concurrentUsers = cappedUsers(configuredUsers);
-    int durationMinutes = positive(properties, name + ".duration_minutes");
-    int actionsPerUser = positive(properties, name + ".actions_per_user");
+    int configuredDurationMinutes = positive(properties, name + ".duration_minutes");
+    int durationMinutes = cappedDuration(configuredDurationMinutes);
+    int actionsPerUser = durationMinutes;
     Map<WorkloadAction, Integer> scheduledCounts = cappedScheduledCounts(
-      scheduledCounts(properties, name), configuredUsers, concurrentUsers, actionsPerUser);
+      scheduledCounts(properties, name), configuredUsers, configuredDurationMinutes, concurrentUsers, actionsPerUser);
     List<WorkloadAction> actionPlan = buildActionPlan(scheduledCounts, Math.multiplyExact(concurrentUsers, actionsPerUser));
     return new WorkloadProfile(
         name,
@@ -130,10 +132,23 @@ public record WorkloadProfile(
     return Math.min(requestedUsers, configuredUsers);
   }
 
+  private static int cappedDuration(int configuredDurationMinutes) {
+    String requestedValue = System.getProperty(DURATION_MINUTES_PROPERTY);
+    if (requestedValue == null) return configuredDurationMinutes;
+    try {
+      int requestedMinutes = Integer.parseInt(requestedValue);
+      if (requestedMinutes < 1) throw new NumberFormatException();
+      return Math.min(requestedMinutes, configuredDurationMinutes);
+    } catch (NumberFormatException exception) {
+      throw new IllegalArgumentException(DURATION_MINUTES_PROPERTY + " must be a positive integer", exception);
+    }
+  }
+
   private static Map<WorkloadAction, Integer> cappedScheduledCounts(
-      Map<WorkloadAction, Integer> configuredCounts, int configuredUsers, int cappedUsers, int actionsPerUser) {
+      Map<WorkloadAction, Integer> configuredCounts, int configuredUsers, int configuredActionsPerUser,
+      int cappedUsers, int actionsPerUser) {
     int cappedActionCount = Math.multiplyExact(cappedUsers, actionsPerUser);
-    int configuredActionCount = Math.multiplyExact(configuredUsers, actionsPerUser);
+    int configuredActionCount = Math.multiplyExact(configuredUsers, configuredActionsPerUser);
     if (cappedActionCount == configuredActionCount) return configuredCounts;
 
     Map<WorkloadAction, Integer> counts = new EnumMap<>(WorkloadAction.class);

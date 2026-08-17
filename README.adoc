@@ -58,16 +58,39 @@ Test-dependent proofs are enabled progressively:
 
 === Jenkins Test-data controls
 
-The Direct Gatling proof stage has two independent parameters:
+=== Jenkins run modes
 
-* `RUN_DB_SEED` defaults to `true`. It creates canonical proof data and writes its fresh UUID allocation to `build/seed-allocation.env`; seeded destructive proofs consume this allocation in the same build.
-* `RUN_DB_RESET` defaults to `false`. It restores the approved masked Test database baseline before the seed step. Use it when a clean baseline is required, rather than on every per-ticket validation run.
-* `WORKLOAD_PROFILE` defaults to `performance`, the 500-user, 70-minute weighted performance profile. `validation` is the ten-user, five-minute end-to-end workload check; `smoke` is proof-only.
-* `MAX_USERS` defaults to `100`. It limits the selected workload profile to the requested number of users, never exceeding the profile's approved maximum (500 for `performance`). The pipeline derives both seed allocation and queue-feeder sizes from this capped deterministic plan.
+Jenkins exposes three user-facing parameters only: `RUN_MODE`, `MAX_USERS` and `RESET_DATABASE`. The pipeline derives its seed, proof, workload and preflight stages from the selected mode; do not reintroduce independent stage toggles.
+
+[cols="1,1,1,1",options="header"]
+|===
+| `RUN_MODE` | Intended user | Derived execution | `MAX_USERS`
+
+| `application-diagnostic` (default)
+| Application developer
+| Fresh seed followed by a five-minute deterministic workload
+| Requested value, capped at 500; defaults to 1
+
+| `framework-proof`
+| Framework developer
+| Fresh seed followed by every one-user proof simulation
+| Ignored
+
+| `performance`
+| Performance test team
+| Read-only 500-account preflight, then fresh seed and the 500-user, 70-minute workload
+| Ignored; fixed at 500
+|===
+
+`RESET_DATABASE=true` restores the approved masked Test baseline before the selected mode runs. It is normally unnecessary for routine diagnostics.
+
+The implementation details below explain the derived controls used by the pipeline:
+
+* The derived seed stage creates canonical data and writes its fresh UUID allocation to `build/seed-allocation.env`; seeded destructive proofs consume this allocation in the same build.
+* The derived workload always uses the reviewed `performance` allocation profile. Diagnostic mode scales its deterministic action plan to the selected user count and five-minute duration; performance mode uses the full 500-user, 70-minute plan.
 * Jenkins invokes the batch selective seed generator once per requested action shape and writes workspace-only CSV feeders to `build/performance-data/`. If a workload and proof smokes run together, the generator reserves the first row of each destructive feeder for the proof. It passes only the exact deterministic schedule rows to Gatling; any allocation reserve remains outside the workload feeder.
-* `RUN_PROOF_SMOKES` defaults to `false`. Enable it to run the complete one-user proof suite against fresh seed allocations; it requires `RUN_DB_SEED=true`.
-* `RUN_PERFTEST` defaults to `true`. It requires `RUN_DB_SEED=true` and `WORKLOAD_PROFILE=validation` or `performance`, then runs the feeder-backed weighted workload after any selected proof smokes.
-* `RUN_LOGIN_PREFLIGHT` defaults to `false`. It is an exclusive, read-only check of 500 complete SSO/session paths at one login per second. It requires `RUN_DB_RESET=false`, `RUN_DB_SEED=false`, `RUN_PROOF_SMOKES=false` and `RUN_PERFTEST=false`.
+* The framework-proof mode runs the complete one-user proof suite; workload modes run the feeder-backed deterministic workload.
+* Performance mode automatically runs the exclusive read-only 500-account SSO/session preflight before it seeds any destructive data.
 
 `RUN_DB_RESET=true` and `RUN_DB_SEED=true` performs a full reset and seed. `RUN_DB_SEED=false` skips seeded destructive proofs and is suitable only for non-destructive diagnostic runs.
 

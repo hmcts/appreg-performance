@@ -9,40 +9,20 @@ def initialTestUserEmail = 'appreg-001@dev.platform.hmcts.net'
 
 properties([
   parameters([
-    booleanParam(
-      name: 'RUN_DB_RESET',
-      defaultValue: false,
-      description: 'Restore the approved masked Test database baseline before Gatling'
-    ),
-    booleanParam(
-      name: 'RUN_DB_SEED',
-      defaultValue: true,
-      description: 'Create and capture canonical Gatling seed data before Gatling'
-    ),
     choice(
-      name: 'WORKLOAD_PROFILE',
-      choices: ['performance', 'validation', 'smoke'],
-      description: 'Data and workload profile. smoke creates proof rows only; validation is 10 users for 5 minutes; performance is the 500-user, 70-minute weighted performance run.'
-    ),
-    booleanParam(
-      name: 'RUN_PROOF_SMOKES',
-      defaultValue: false,
-      description: 'Run every one-user proof against fresh seed allocations'
-    ),
-    booleanParam(
-      name: 'RUN_PERFTEST',
-      defaultValue: true,
-      description: 'Run the weighted multi-user workload after seed and optional proof smokes'
+      name: 'RUN_MODE',
+      choices: ['application-diagnostic', 'framework-proof', 'performance'],
+      description: 'Application diagnostic is a short capped workload; framework proof runs one-user proofs; performance runs the full 500-user benchmark.'
     ),
     string(
       name: 'MAX_USERS',
-      defaultValue: '100',
-      description: 'Maximum users for the weighted workload. Values above the profile limit are capped at 500.'
+      defaultValue: '1',
+      description: 'Users for application-diagnostic mode, capped at 500. Ignored by framework-proof and performance modes.'
     ),
     booleanParam(
-      name: 'RUN_LOGIN_PREFLIGHT',
+      name: 'RESET_DATABASE',
       defaultValue: false,
-      description: 'Run the read-only 500-account SSO/session preflight at one login per second'
+      description: 'Restore the approved masked Test database baseline before the selected run'
     )
   ])
 ])
@@ -69,15 +49,15 @@ def secrets = [
   ],
 ]
 
-def dbResetCommand = params.RUN_DB_RESET ? '''
+def dbResetCommand = '''
   echo "Running approved Postgres reload"
   command -v psql
   export PGPASSWORD="$DB_PASSWORD"
   psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
     -v ON_ERROR_STOP=1 -f db/postgres/reload_data.sql
-''' : ''
+'''
 
-def dbSeedCommand = params.RUN_DB_SEED ? '''
+def dbSeedCommand = '''
   export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
   export PATH="$JAVA_HOME/bin:$PATH"
   workload_profile="${WORKLOAD_PROFILE:-smoke}"
@@ -140,7 +120,8 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
     fi
     workload_plan="$(./gradlew --no-daemon --quiet printWorkloadPlan \
       -DappRegWorkloadProfile="$workload_profile" \
-      -DappRegMaxUsers="$max_users")"
+      -DappRegMaxUsers="$max_users" \
+      -DappRegDurationMinutes="$RUN_DURATION_MINUTES")"
     scheduled_count_for() {
       printf '%s\n' "$workload_plan" | awk -F= -v key="$1" '$1 == key { print $2; exit }'
     }
@@ -299,7 +280,7 @@ export APPREG_SEED_BULK_OFFICIALS_ENTRY_ID_3='$bulk_officials_entry_id_3'
 export APPREG_SEED_UPDATE_RESULT_LIST_ID='$update_result_list_id'
 export APPREG_SEED_UPDATE_RESULT_ENTRY_ID='$update_result_entry_id'
 EOF
-''' : ''
+'''
 
 
 withNightlyPipeline(type, product, component) {
@@ -319,17 +300,34 @@ withNightlyPipeline(type, product, component) {
                     env.APPREG_TEST_ACCOUNT_TEMPLATE = 'appreg-{index}@dev.platform.hmcts.net'
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
-                    env.RUN_DB_RESET = params.RUN_DB_RESET.toString()
-                    env.RUN_DB_SEED = params.RUN_DB_SEED.toString()
-                    env.WORKLOAD_PROFILE = params.WORKLOAD_PROFILE
-                    env.RUN_PROOF_SMOKES = params.RUN_PROOF_SMOKES.toString()
-                    env.RUN_PERFTEST = params.RUN_PERFTEST.toString()
-                    env.MAX_USERS = (params.MAX_USERS ?: '100').toString()
-                    // A new Jenkins parameter is absent for the first automatic build after this
-                    // Jenkinsfile changes; default that build safely to false.
-                    env.RUN_LOGIN_PREFLIGHT = (params.RUN_LOGIN_PREFLIGHT ?: false).toString()
+                    def runMode = params.RUN_MODE ?: 'application-diagnostic'
+                    def runModes = [
+                        'application-diagnostic': [profile: 'performance', users: (params.MAX_USERS ?: '1').toString(), minutes: '5', proofs: false, preflight: false],
+                        'framework-proof':         [profile: 'smoke', users: '1', minutes: '1', proofs: true, preflight: false],
+                        'performance':             [profile: 'performance', users: '500', minutes: '70', proofs: false, preflight: true]
+                    ]
+                    def selectedRun = runModes[runMode]
+                    if (selectedRun == null) {
+                        error "Unsupported RUN_MODE: ${runMode}"
+                    }
+                    env.RUN_DB_RESET = (params.RESET_DATABASE ?: false).toString()
+                    env.RUN_DB_SEED = 'true'
+                    env.WORKLOAD_PROFILE = selectedRun.profile
+                    env.RUN_PROOF_SMOKES = selectedRun.proofs.toString()
+                    env.RUN_PERFTEST = (!selectedRun.proofs).toString()
+                    env.MAX_USERS = selectedRun.users
+                    env.RUN_DURATION_MINUTES = selectedRun.minutes
+                    env.RUN_LOGIN_PREFLIGHT = 'false'
 
-                    if (params.RUN_DB_RESET) {
+                    if (selectedRun.preflight) {
+                        sh '''
+                          export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
+                          export PATH="$JAVA_HOME/bin:$PATH"
+                          ./gradlew --no-daemon gatlingRun --simulation simulations.AppRegLoginPreflightSimulation
+                        '''
+                    }
+
+                    if (params.RESET_DATABASE) {
                         sh dbResetCommand
                     }
 
@@ -420,7 +418,8 @@ withNightlyPipeline(type, product, component) {
                               mkdir -p build/workload-data
                               workload_plan="$(./gradlew --no-daemon --quiet printWorkloadPlan \
                                 -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
-                                -DappRegMaxUsers="$MAX_USERS")"
+                                -DappRegMaxUsers="$MAX_USERS" \
+                                -DappRegDurationMinutes="$RUN_DURATION_MINUTES")"
                               scheduled_count_for() {
                                 printf '%s\n' "$workload_plan" | awk -F= -v key="$1" '$1 == key { print $2; exit }'
                               }
@@ -449,6 +448,7 @@ withNightlyPipeline(type, product, component) {
                               ./gradlew --no-daemon gatlingRun \
                                 -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
                                 -DappRegMaxUsers="$MAX_USERS" \
+                                -DappRegDurationMinutes="$RUN_DURATION_MINUTES" \
                                 -DappRegPerformanceDataDirectory="$PWD/build/workload-data" \
                                 --simulation simulations.AppRegWorkloadSimulation
                             fi
