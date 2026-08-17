@@ -331,7 +331,7 @@ withNightlyPipeline(type, product, component) {
                         sh dbResetCommand
                     }
 
-                    if (params.RUN_DB_SEED) {
+                    if (env.RUN_DB_SEED == 'true') {
                         sh dbSeedCommand
                     }
 
