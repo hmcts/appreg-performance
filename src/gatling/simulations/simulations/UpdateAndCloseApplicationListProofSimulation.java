@@ -18,7 +18,9 @@ import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.AppRegHttp.protocol;
 import static utils.Environment.requiredEnvironmentVariable;
+import static utils.Headers.APPREG_API_MEDIA_TYPE;
 import static utils.Headers.COMMON_HEADER;
+import static utils.Headers.XSRF_TOKEN_COOKIE;
 
 /** One-user proof that validates a seeded close-ready Application List through the UI. */
 public class UpdateAndCloseApplicationListProofSimulation extends Simulation {
@@ -37,13 +39,13 @@ public class UpdateAndCloseApplicationListProofSimulation extends Simulation {
             .get("/applications-list")
             .headers(COMMON_HEADER)
             .check(status().is(200)))
-          .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
+          .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
           .exec(session -> session
             .set("applicationListId", SEEDED_LIST_ID)
             .set("applicationEntryId", SEEDED_ENTRY_ID))
           .exec(http("Get seeded close-ready application")
             .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
-            .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+            .header("Accept", APPREG_API_MEDIA_TYPE)
             .check(status().is(200)))
           .exec(UpdateApplicationListScenario.updateApplicationList())
           .exec(CloseApplicationListScenario.closeApplicationList())

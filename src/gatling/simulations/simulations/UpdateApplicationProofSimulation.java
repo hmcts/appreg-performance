@@ -16,6 +16,7 @@ import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.AppRegHttp.protocol;
+import static utils.Headers.XSRF_TOKEN_COOKIE;
 import static utils.Environment.requiredEnvironmentVariable;
 import static utils.Headers.COMMON_HEADER;
 
@@ -36,7 +37,7 @@ public class UpdateApplicationProofSimulation extends Simulation {
             .get("/applications-list")
             .headers(COMMON_HEADER)
             .check(status().is(200)))
-          .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
+          .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
           .exec(session -> session
             .set("applicationListId", SEEDED_LIST_ID)
             .set("applicationEntryId", SEEDED_ENTRY_ID))

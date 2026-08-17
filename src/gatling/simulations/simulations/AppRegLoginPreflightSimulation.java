@@ -13,6 +13,7 @@ import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static utils.AppRegHttp.protocol;
+import static utils.Headers.XSRF_TOKEN_COOKIE;
 
 /**
  * Read-only preflight for the complete SSO and AppReg session path. It deliberately uses a
@@ -28,7 +29,7 @@ public class AppRegLoginPreflightSimulation extends Simulation {
       .exitBlockOnFail().on(
         feed(users)
           .exec(SsoAuthentication.login())
-          .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
+          .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
           // A read-only application request confirms the authenticated session is usable.
           .exec(SearchScenario.searchApplicationLists())
       );

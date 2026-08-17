@@ -33,6 +33,7 @@ import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static utils.AppRegHttp.protocol;
+import static utils.Headers.XSRF_TOKEN_COOKIE;
 
 /**
  * Bounded, feeder-backed AppReg workload. It is intentionally separate from all ProofSimulation
@@ -63,7 +64,7 @@ public class AppRegWorkloadSimulation extends Simulation {
       .exitBlockOnFail().on(
         feed(users)
           .exec(SsoAuthentication.login())
-          .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
+          .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
           .repeat(profile.actionsPerUser(), "workloadIteration").on(
             exec(session -> session.set("plannedAction", profile.actionFor(
                 session.getInt("accountOffset"), session.getInt("workloadIteration")).key()))
