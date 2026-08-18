@@ -3,6 +3,7 @@ package scenarios;
 import io.gatling.javaapi.core.ChainBuilder;
 import utils.Environment;
 import utils.Headers;
+import utils.DiagnosticLogging;
 
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
@@ -36,6 +37,7 @@ public final class SearchScenario {
         .check(status().is(200)))
         .exec(http("Search application lists by description")
           .get("/application-lists")
+          .transformResponse(DiagnosticLogging.logIfStatusAtLeast("Search application lists by description", 400))
           .queryParam("description", APPLICATION_LIST_DESCRIPTION)
           .queryParam("pageNumber", FIRST_PAGE)
           .queryParam("pageSize", PAGE_SIZE)
