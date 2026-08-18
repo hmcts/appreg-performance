@@ -66,17 +66,17 @@ Jenkins exposes four user-facing parameters only: `RUN_MODE`, `MAX_USERS`, `RUN_
 |===
 | `RUN_MODE` | Intended user | Derived execution | `MAX_USERS` | `RUN_DURATION_MINUTES`
 
-| `application-diagnostic` (default)
-| Application developer
-| Fresh seed followed by a bounded deterministic workload
-| Requested value, capped at 500; defaults to 1
-| Requested value; defaults to 5 and must keep `MAX_USERS * RUN_DURATION_MINUTES <= 35000`
-
-| `framework-proof`
+| `framework-proof` (default)
 | Framework developer
 | Fresh seed followed by every one-user proof simulation
 | Ignored
 | Ignored
+
+| `application-diagnostic`
+| Application developer
+| Fresh seed followed by a bounded deterministic workload
+| Requested value, capped at 500; defaults to 1
+| Requested value; defaults to 5 and must keep `MAX_USERS * RUN_DURATION_MINUTES <= 35000`
 
 | `performance`
 | Performance test team

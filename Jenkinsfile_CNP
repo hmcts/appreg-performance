@@ -11,8 +11,8 @@ properties([
   parameters([
     choice(
       name: 'RUN_MODE',
-      choices: ['application-diagnostic', 'framework-proof', 'performance'],
-      description: 'Application diagnostic is a short capped workload; framework proof runs one-user proofs; performance runs the full 500-user benchmark.'
+      choices: ['framework-proof', 'application-diagnostic', 'performance'],
+      description: 'Framework proof runs one-user proofs; application diagnostic is a short capped workload; performance runs the full 500-user benchmark.'
     ),
     string(
       name: 'MAX_USERS',
@@ -321,7 +321,7 @@ withNightlyPipeline(type, product, component) {
                     env.APPREG_TEST_ACCOUNT_TEMPLATE = 'appreg-{index}@dev.platform.hmcts.net'
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
-                    def runMode = params.RUN_MODE ?: 'application-diagnostic'
+                    def runMode = params.RUN_MODE ?: 'framework-proof'
                     def diagnosticUsers = (params.MAX_USERS ?: '1').toString().trim()
                     def diagnosticMinutes = (params.RUN_DURATION_MINUTES ?: '5').toString().trim()
                     def runModes = [
