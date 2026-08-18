@@ -3,6 +3,7 @@ package scenarios;
 import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -10,6 +11,9 @@ import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
+import static utils.ApplicationListFailureLogger.logFailure;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Replays the meaningful HTTP sequence from the Result selected UI journey for several Applications
@@ -32,39 +36,41 @@ public final class ResultMultipleApplicationsScenario {
           .get("/application-lists/#{applicationListId}")
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "10")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .check(status().saveAs(STATUS_SESSION_KEY))
           .check(status().is(200)))
+        .exec(logFailure("Result Multiple Applications", "Open application list"))
         .exec(http("Get application list entries")
           .get("/application-lists/#{applicationListId}/entries")
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "10")
           .queryParam("sort", "sequenceNumber,asc")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200)))
         .exec(http("Preview result for selected applications")
           .post("/application-lists/#{applicationListId}/entries/bulk-action-preview")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
-          .body(StringBody(selectionBody()))
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
+          .body(StringBody(requireNonNull(selectionBody())))
           .check(status().is(200)))
         .exec(http("Get result codes")
           .get("/result-codes")
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "100")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200)))
         .exec(http("Get selected result-code details")
           .get("/result-codes/" + RESULT_CODE)
           .queryParam("date", "#{bulkResultCodeDate}")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200)))
         .exec(http("Apply result to selected applications")
           .post("/application-lists/#{applicationListId}/entries/results")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
-          .body(StringBody(resultBody()))
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
+          .body(StringBody(requireNonNull(resultBody())))
           .check(status().is(200))
           .check(jsonPath("$[0].entryId").isEL("#{entryIdOne}"))
           .check(jsonPath("$[1].entryId").isEL("#{entryIdTwo}"))

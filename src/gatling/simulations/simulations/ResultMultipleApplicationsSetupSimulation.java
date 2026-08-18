@@ -5,14 +5,13 @@ import java.util.Iterator;
 import java.util.Map;
 import scenarios.AddApplicationScenario;
 import scenarios.ApplicationListCreateScenario;
-import utils.Environment;
 import utils.SsoAuthentication;
 
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
 import static io.gatling.javaapi.core.CoreDsl.feed;
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
-import static io.gatling.javaapi.http.HttpDsl.http;
+import static utils.AppRegHttp.protocol;
 
 /**
  * One-user setup utility for recording ARCPOC-1617.
@@ -22,11 +21,7 @@ public class ResultMultipleApplicationsSetupSimulation extends Simulation {
   private final Iterator<Map<String, Object>> ssoUserFeeder = SsoAuthentication.users(1);
 
   public ResultMultipleApplicationsSetupSimulation() {
-    var httpProtocol = http
-      .baseUrl(Environment.BASE_URL)
-      .doNotTrackHeader("1")
-      .inferHtmlResources()
-      .silentResources();
+    var httpProtocol = protocol();
 
     var setupApplications = scenario("AppReg multiple application result recording setup")
       .exitBlockOnFail().on(

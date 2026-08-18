@@ -4,6 +4,7 @@ import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.Session;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
@@ -91,8 +92,24 @@ public final class SsoAuthentication {
           .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraCanary")))
         .doIf(SsoAuthentication::hasKmsiContinuation).then(
           exec(http("Entra KMSI").post(MICROSOFT_LOGIN_BASE_URL + "/kmsi")
+          .transformResponse(DiagnosticLogging.logIfStatusNotIn("Entra KMSI", Set.of(200, 302)))
           .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Content-Type", "application/x-www-form-urlencoded", "Origin", MICROSOFT_LOGIN_BASE_URL, "Referer", MICROSOFT_LOGIN_BASE_URL + "/" + tenantId + "/login"))
-          .formParam("LoginOptions", "3").formParam("type", "28").formParam("ctx", "#{entraContext}").formParam("hpgrequestid", "#{entraSessionId}").formParam("flowToken", "#{entraFlowToken}").formParam("canary", "#{entraCanary}").formParam("i19", "7178").check(status().in(200, 302))))
+          .disableFollowRedirect()
+          .formParam("LoginOptions", "3").formParam("type", "28").formParam("ctx", "#{entraContext}").formParam("hpgrequestid", "#{entraSessionId}").formParam("flowToken", "#{entraFlowToken}").formParam("canary", "#{entraCanary}").formParam("i19", "7178").check(status().in(200, 302))
+          .check(headerRegex("Location", "(.+)").optional().saveAs("entraKmsiRedirectUrl1")))
+          .doIf(session -> session.contains("entraKmsiRedirectUrl1")).then(
+            exec(http("Entra KMSI Redirect 1").get("#{entraKmsiRedirectUrl1}")
+              .transformResponse(DiagnosticLogging.logIfStatusNotIn("Entra KMSI Redirect 1", Set.of(200, 302)))
+              .disableFollowRedirect()
+              .headers(BROWSER_HEADERS)
+              .check(status().in(200, 302))
+              .check(headerRegex("Location", "(.+)").optional().saveAs("entraKmsiRedirectUrl2"))))
+          .doIf(session -> session.contains("entraKmsiRedirectUrl2")).then(
+            exec(http("Entra KMSI Redirect 2").get("#{entraKmsiRedirectUrl2}")
+              .transformResponse(DiagnosticLogging.logIfStatusNotIn("Entra KMSI Redirect 2", Set.of(200, 302)))
+              .disableFollowRedirect()
+              .headers(BROWSER_HEADERS)
+              .check(status().in(200, 302)))))
         .exec(http("AppReg authenticated home").get("/").headers(BROWSER_HEADERS).check(status().is(200)))
         .exec(http("AppReg session check").get("/sso/me").header("Accept", "application/json").check(status().is(200)).check(jsonPath("$.authenticated").is("true")))
     );

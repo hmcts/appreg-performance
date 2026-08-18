@@ -9,35 +9,25 @@ def initialTestUserEmail = 'appreg-001@dev.platform.hmcts.net'
 
 properties([
   parameters([
-    booleanParam(
-      name: 'RUN_DB_RESET',
-      defaultValue: false,
-      description: 'Restore the approved masked Test database baseline before Gatling'
-    ),
-    booleanParam(
-      name: 'RUN_DB_SEED',
-      defaultValue: true,
-      description: 'Create and capture canonical Gatling seed data before Gatling'
-    ),
     choice(
-      name: 'WORKLOAD_PROFILE',
-      choices: ['smoke', 'validation', 'performance'],
-      description: 'Data and workload profile. smoke creates proof rows only; validation is 10 users for 5 minutes; performance is the 500-user, 70-minute weighted performance run.'
+      name: 'RUN_MODE',
+      choices: ['framework-proof', 'application-diagnostic', 'performance'],
+      description: 'Framework proof runs one-user proofs; application diagnostic is a short capped workload; performance runs the full 500-user benchmark.'
+    ),
+    string(
+      name: 'MAX_USERS',
+      defaultValue: '1',
+      description: 'Users for application-diagnostic mode, capped at 500. Ignored by framework-proof and performance modes.'
+    ),
+    string(
+      name: 'RUN_DURATION_MINUTES',
+      defaultValue: '5',
+      description: 'Duration for application-diagnostic mode in minutes. Ignored by framework-proof and performance modes.'
     ),
     booleanParam(
-      name: 'RUN_PROOF_SMOKES',
-      defaultValue: true,
-      description: 'Run every one-user proof against fresh seed allocations'
-    ),
-    booleanParam(
-      name: 'RUN_PERFTEST',
+      name: 'RESET_DATABASE',
       defaultValue: false,
-      description: 'Run the weighted multi-user workload after seed and optional proof smokes'
-    ),
-    booleanParam(
-      name: 'RUN_LOGIN_PREFLIGHT',
-      defaultValue: false,
-      description: 'Run the read-only 500-account SSO/session preflight at one login per second'
+      description: 'Restore the approved masked Test database baseline before the selected run'
     )
   ])
 ])
@@ -64,15 +54,17 @@ def secrets = [
   ],
 ]
 
-def dbResetCommand = params.RUN_DB_RESET ? '''
+def dbResetCommand = '''
   echo "Running approved Postgres reload"
   command -v psql
   export PGPASSWORD="$DB_PASSWORD"
   psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
     -v ON_ERROR_STOP=1 -f db/postgres/reload_data.sql
-''' : ''
+'''
 
-def dbSeedCommand = params.RUN_DB_SEED ? '''
+def dbSeedCommand = '''
+  export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
+  export PATH="$JAVA_HOME/bin:$PATH"
   workload_profile="${WORKLOAD_PROFILE:-smoke}"
   profile_file=data/seed/workload/allocation-profile.properties
   if [ ! -f "$profile_file" ]; then
@@ -122,16 +114,64 @@ def dbSeedCommand = params.RUN_DB_SEED ? '''
   if [ "$RUN_PERFTEST" = "true" ] && [ "$RUN_PROOF_SMOKES" = "true" ]; then
     proof_reserve=1
   fi
-  update_application_count=$(($(profile_value update_application) + proof_reserve))
-  update_list_count=$(($(profile_value update_list) + proof_reserve))
-  add_application_count=$(($(profile_value add_application) + proof_reserve))
-  result_application_count=$(($(profile_value result_application) + proof_reserve))
-  result_multiple_count=$(($(profile_value result_multiple) + proof_reserve))
-  update_result_count=$(($(profile_value update_result) + proof_reserve))
-  close_list_count=$(($(profile_value close_list) + proof_reserve))
-  bulk_officials_count=$(($(profile_value bulk_officials) + proof_reserve))
-  bulk_fees_count=$(($(profile_value bulk_fees) + proof_reserve))
-  bulk_upload_count=$(($(profile_value bulk_upload) + proof_reserve))
+  if [ "$RUN_PERFTEST" = "true" ]; then
+    max_users="${MAX_USERS:-100}"
+    case "$max_users" in
+      ''|*[!0-9]*) echo "MAX_USERS must be a positive integer" >&2; exit 1 ;;
+    esac
+    if [ "$max_users" -lt 1 ]; then
+      echo "MAX_USERS must be a positive integer" >&2
+      exit 1
+    fi
+    if [ "$max_users" -gt 500 ]; then
+      echo "MAX_USERS must not exceed 500" >&2
+      exit 1
+    fi
+    run_duration_minutes="${RUN_DURATION_MINUTES:-70}"
+    case "$run_duration_minutes" in
+      ''|*[!0-9]*) echo "RUN_DURATION_MINUTES must be a positive integer" >&2; exit 1 ;;
+    esac
+    if [ "$run_duration_minutes" -lt 1 ]; then
+      echo "RUN_DURATION_MINUTES must be a positive integer" >&2
+      exit 1
+    fi
+    if [ $((max_users * run_duration_minutes)) -gt 35000 ]; then
+      echo "Requested run exceeds the supported workload envelope: MAX_USERS * RUN_DURATION_MINUTES must be <= 35000" >&2
+      exit 1
+    fi
+    workload_plan="$(./gradlew --no-daemon --quiet printWorkloadPlan \
+      -DappRegWorkloadProfile="$workload_profile" \
+      -DappRegMaxUsers="$max_users" \
+      -DappRegDurationMinutes="$run_duration_minutes")"
+    scheduled_count_for() {
+      printf '%s\n' "$workload_plan" | awk -F= -v key="$1" '$1 == key { print $2; exit }'
+    }
+    allocation_count_for() {
+      scheduled_count="$(scheduled_count_for "$1")"
+      if [ -z "$scheduled_count" ]; then
+        echo "No deterministic scheduled count for $1" >&2
+        exit 1
+      fi
+      # Keep one canonical row for a proof or a rounded-zero low-volume action.
+      count=$((scheduled_count + proof_reserve))
+      if [ "$count" -lt 1 ]; then count=1; fi
+      printf '%s' "$count"
+    }
+  else
+    allocation_count_for() {
+      printf '%s' "$(($(profile_value "$1") + proof_reserve))"
+    }
+  fi
+  update_application_count="$(allocation_count_for update_application)"
+  update_list_count="$(allocation_count_for update_list)"
+  add_application_count="$(allocation_count_for add_application)"
+  result_application_count="$(allocation_count_for result_application)"
+  result_multiple_count="$(allocation_count_for result_multiple)"
+  update_result_count="$(allocation_count_for update_result)"
+  close_list_count="$(allocation_count_for close_list)"
+  bulk_officials_count="$(allocation_count_for bulk_officials)"
+  bulk_fees_count="$(allocation_count_for bulk_fees)"
+  bulk_upload_count="$(allocation_count_for bulk_upload)"
 
   for allocation_count in "$update_application_count" "$update_list_count" "$add_application_count" \
     "$result_application_count" "$result_multiple_count" "$update_result_count" "$close_list_count" \
@@ -261,7 +301,7 @@ export APPREG_SEED_BULK_OFFICIALS_ENTRY_ID_3='$bulk_officials_entry_id_3'
 export APPREG_SEED_UPDATE_RESULT_LIST_ID='$update_result_list_id'
 export APPREG_SEED_UPDATE_RESULT_ENTRY_ID='$update_result_entry_id'
 EOF
-''' : ''
+'''
 
 
 withNightlyPipeline(type, product, component) {
@@ -281,20 +321,51 @@ withNightlyPipeline(type, product, component) {
                     env.APPREG_TEST_ACCOUNT_TEMPLATE = 'appreg-{index}@dev.platform.hmcts.net'
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
-                    env.RUN_DB_RESET = params.RUN_DB_RESET.toString()
-                    env.RUN_DB_SEED = params.RUN_DB_SEED.toString()
-                    env.WORKLOAD_PROFILE = params.WORKLOAD_PROFILE
-                    env.RUN_PROOF_SMOKES = params.RUN_PROOF_SMOKES.toString()
-                    env.RUN_PERFTEST = params.RUN_PERFTEST.toString()
-                    // A new Jenkins parameter is absent for the first automatic build after this
-                    // Jenkinsfile changes; default that build safely to false.
-                    env.RUN_LOGIN_PREFLIGHT = (params.RUN_LOGIN_PREFLIGHT ?: false).toString()
+                    def runMode = params.RUN_MODE ?: 'framework-proof'
+                    def diagnosticUsers = (params.MAX_USERS ?: '1').toString().trim()
+                    def diagnosticMinutes = (params.RUN_DURATION_MINUTES ?: '5').toString().trim()
+                    def runModes = [
+                        'application-diagnostic': [profile: 'performance', users: diagnosticUsers, minutes: diagnosticMinutes, proofs: false, preflight: false],
+                        'framework-proof':         [profile: 'smoke', users: '1', minutes: '1', proofs: true, preflight: false],
+                        'performance':             [profile: 'performance', users: '500', minutes: '70', proofs: false, preflight: true]
+                    ]
+                    def selectedRun = runModes[runMode]
+                    if (selectedRun == null) {
+                        error "Unsupported RUN_MODE: ${runMode}"
+                    }
+                    if (runMode == 'application-diagnostic') {
+                        if (!(diagnosticUsers ==~ /\d+/) || diagnosticUsers.toInteger() < 1 || diagnosticUsers.toInteger() > 500) {
+                            error 'application-diagnostic requires MAX_USERS to be an integer from 1 to 500'
+                        }
+                        if (!(diagnosticMinutes ==~ /\d+/) || diagnosticMinutes.toInteger() < 1) {
+                            error 'application-diagnostic requires RUN_DURATION_MINUTES to be a positive integer'
+                        }
+                        if ((diagnosticUsers.toInteger() * diagnosticMinutes.toInteger()) > 35000) {
+                            error 'application-diagnostic requires MAX_USERS * RUN_DURATION_MINUTES to be 35000 or less'
+                        }
+                    }
+                    env.RUN_DB_RESET = (params.RESET_DATABASE ?: false).toString()
+                    env.RUN_DB_SEED = 'true'
+                    env.WORKLOAD_PROFILE = selectedRun.profile
+                    env.RUN_PROOF_SMOKES = selectedRun.proofs.toString()
+                    env.RUN_PERFTEST = (!selectedRun.proofs).toString()
+                    env.MAX_USERS = selectedRun.users
+                    env.RUN_DURATION_MINUTES = selectedRun.minutes
+                    env.RUN_LOGIN_PREFLIGHT = 'false'
 
-                    if (params.RUN_DB_RESET) {
+                    if (selectedRun.preflight) {
+                        sh '''
+                          export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
+                          export PATH="$JAVA_HOME/bin:$PATH"
+                          ./gradlew --no-daemon gatlingRun --simulation simulations.AppRegLoginPreflightSimulation
+                        '''
+                    }
+
+                    if (params.RESET_DATABASE) {
                         sh dbResetCommand
                     }
 
-                    if (params.RUN_DB_SEED) {
+                    if (env.RUN_DB_SEED == 'true') {
                         sh dbSeedCommand
                     }
 
@@ -379,10 +450,17 @@ withNightlyPipeline(type, product, component) {
                               fi
 
                               mkdir -p build/workload-data
+                              workload_plan="$(./gradlew --no-daemon --quiet printWorkloadPlan \
+                                -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
+                                -DappRegMaxUsers="$MAX_USERS" \
+                                -DappRegDurationMinutes="$RUN_DURATION_MINUTES")"
+                              scheduled_count_for() {
+                                printf '%s\n' "$workload_plan" | awk -F= -v key="$1" '$1 == key { print $2; exit }'
+                              }
                               for feeder in update-application update-list add-application result-application \
                                 result-multiple update-result close-list bulk-officials bulk-fees bulk-upload; do
                                 action_key="$(printf '%s' "$feeder" | tr '-' '_')"
-                                scheduled_count="$(awk -F= -v key="$WORKLOAD_PROFILE.scheduled_$action_key" '$1 == key { print $2; exit }' data/seed/workload/allocation-profile.properties)"
+                                scheduled_count="$(scheduled_count_for "$action_key")"
                                 if [ -z "$scheduled_count" ]; then
                                   echo "No deterministic scheduled count for $action_key" >&2
                                   exit 1
@@ -403,6 +481,8 @@ withNightlyPipeline(type, product, component) {
 
                               ./gradlew --no-daemon gatlingRun \
                                 -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
+                                -DappRegMaxUsers="$MAX_USERS" \
+                                -DappRegDurationMinutes="$RUN_DURATION_MINUTES" \
                                 -DappRegPerformanceDataDirectory="$PWD/build/workload-data" \
                                 --simulation simulations.AppRegWorkloadSimulation
                             fi

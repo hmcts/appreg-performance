@@ -16,7 +16,11 @@ import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.AppRegHttp.protocol;
+import static utils.Environment.requiredEnvironmentVariable;
+import static utils.Headers.APPREG_API_MEDIA_TYPE;
 import static utils.Headers.COMMON_HEADER;
+import static utils.Headers.XSRF_TOKEN_COOKIE;
 
 /** One-user proof that validates a seeded close-ready Application List through the UI. */
 public class UpdateAndCloseApplicationListProofSimulation extends Simulation {
@@ -25,11 +29,7 @@ public class UpdateAndCloseApplicationListProofSimulation extends Simulation {
   private final Iterator<Map<String, Object>> ssoUserFeeder = SsoAuthentication.users(1);
 
   public UpdateAndCloseApplicationListProofSimulation() {
-    var httpProtocol = http
-      .baseUrl(Environment.BASE_URL)
-      .doNotTrackHeader("1")
-      .inferHtmlResources()
-      .silentResources();
+    var httpProtocol = protocol();
 
     var updateAndCloseApplicationList = scenario("AppReg application list update and close proof")
       .exitBlockOnFail().on(
@@ -39,13 +39,13 @@ public class UpdateAndCloseApplicationListProofSimulation extends Simulation {
             .get("/applications-list")
             .headers(COMMON_HEADER)
             .check(status().is(200)))
-          .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
+          .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
           .exec(session -> session
             .set("applicationListId", SEEDED_LIST_ID)
             .set("applicationEntryId", SEEDED_ENTRY_ID))
           .exec(http("Get seeded close-ready application")
             .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
-            .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+            .header("Accept", APPREG_API_MEDIA_TYPE)
             .check(status().is(200)))
           .exec(UpdateApplicationListScenario.updateApplicationList())
           .exec(CloseApplicationListScenario.closeApplicationList())
@@ -54,13 +54,5 @@ public class UpdateAndCloseApplicationListProofSimulation extends Simulation {
     setUp(updateAndCloseApplicationList.injectOpen(atOnceUsers(1)))
       .protocols(httpProtocol)
       .assertions(global().successfulRequests().percent().gte(100.0));
-  }
-
-  private static String requiredEnvironmentVariable(String name) {
-    String value = System.getenv(name);
-    if (value == null || value.isBlank()) {
-      throw new IllegalArgumentException("Set " + name + " to run the seeded close-list proof");
-    }
-    return value;
   }
 }

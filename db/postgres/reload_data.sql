@@ -5,7 +5,7 @@ BEGIN
     SELECT inet_server_addr()::text
     INTO v_host;
 
-    IF v_host <> '10.141.44.18/32' THEN
+    IF v_host NOT IN ('10.141.44.18/32', '10.141.44.17/32') THEN
         RAISE EXCEPTION 'Refusing to run: connected to % instead of the approved server', v_host;
     END IF;
 END

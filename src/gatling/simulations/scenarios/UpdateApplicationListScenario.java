@@ -2,6 +2,7 @@ package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -9,6 +10,9 @@ import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static java.util.Objects.requireNonNull;
+import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
+import static utils.ApplicationListFailureLogger.logFailure;
 
 /** Replays the recorded UI flow for a simple update to an open Application List. */
 public final class UpdateApplicationListScenario {
@@ -27,10 +31,10 @@ public final class UpdateApplicationListScenario {
         .exec(updateValues())
         .exec(http("Update application list")
           .put("/application-lists/#{applicationListId}")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
-          .body(StringBody(listBody("OPEN")))
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
+          .body(StringBody(requireNonNull(listBody("OPEN"))))
           .check(status().is(200)))
     );
   }
@@ -52,12 +56,14 @@ public final class UpdateApplicationListScenario {
       .get("/application-lists/#{applicationListId}")
       .queryParam("pageNumber", "0")
       .queryParam("pageSize", "10")
-      .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+      .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+      .check(status().saveAs(STATUS_SESSION_KEY))
       .check(status().is(200))
       .check(jsonPath("$.date").saveAs("applicationListDate"))
       .check(jsonPath("$.time").saveAs("applicationListTime"))
       .check(jsonPath("$.description").saveAs("applicationListDescription"))
-      .check(jsonPath("$.courtCode").saveAs("applicationListCourtLocationCode")));
+      .check(jsonPath("$.courtCode").saveAs("applicationListCourtLocationCode")))
+      .exec(logFailure("Update Application List", "Get application list details"));
   }
 
   static String listBody(String status) {

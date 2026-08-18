@@ -3,6 +3,7 @@ package scenarios;
 import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -35,12 +36,12 @@ public final class ActivityAuditReportScenario {
           .get("/reports")
           .headers(COMMON_HEADER)
           .check(status().is(200)))
-        .exec(getCookieValue(CookieKey("XSRF-TOKEN").saveAs("xsrfToken")))
+        .exec(getCookieValue(CookieKey(Headers.XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
         .exec(http("Start Activity Audit report")
           .post("/reports/activity-audit/jobs")
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
-          .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
-          .header("X-XSRF-TOKEN", "#{xsrfToken}")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
+          .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
+          .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody("""
             {"dateFrom":"#{activityAuditReportDateFrom}","dateTo":"#{activityAuditReportDateTo}","activityTypes":["#{activityAuditReportActivity}"]}
             """))
@@ -65,7 +66,7 @@ public final class ActivityAuditReportScenario {
   private static ChainBuilder checkReportCompletion() {
     return exec(http("Check Activity Audit report completion")
       .get("/jobs/#{activityAuditReportJobId}")
-      .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+      .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
       .check(status().is(200))
       .check(jsonPath("$.status").saveAs("activityAuditReportStatus")));
   }

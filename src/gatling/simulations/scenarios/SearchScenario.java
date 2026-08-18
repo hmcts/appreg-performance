@@ -1,6 +1,9 @@
 package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
+import utils.Environment;
+import utils.Headers;
+import utils.DiagnosticLogging;
 
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
@@ -29,16 +32,17 @@ public final class SearchScenario {
   public static ChainBuilder searchApplicationLists() {
     return group("AppReg_030_Application_List_Search").on(
       exec(http("Application lists page")
-        .get("/applications-list")
+        .get(Environment.APPLICATIONS_LIST_PATH)
         .headers(COMMON_HEADER)
         .check(status().is(200)))
         .exec(http("Search application lists by description")
           .get("/application-lists")
+          .transformResponse(DiagnosticLogging.logIfStatusAtLeast("Search application lists by description", 400))
           .queryParam("description", APPLICATION_LIST_DESCRIPTION)
           .queryParam("pageNumber", FIRST_PAGE)
           .queryParam("pageSize", PAGE_SIZE)
           .queryParam("sort", SORT_ORDER)
-          .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200))
           .check(headerRegex("Content-Type", ".*json.*"))
           .check(jsonPath("$.content[0].id").optional().saveAs("applicationListId")))

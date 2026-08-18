@@ -9,7 +9,7 @@ This is a Java-only Gatling performance-test project for the HMCTS Applications 
 Use the Jira ticket as the boundary for a business action. Keep each action reusable even where a later workflow composes it with others.
 
 | Jira Ticket | UI Journey | Gatling Weight | Aligned Workflow | Updates Test Data? | Classification | Data Ticket |
-| --- | --- | ---: | --- | --- | --- |
+| --- | --- | ---: | --- | --- | --- | --- |
 | ARCPOC-1615 | Update Application | 39.32% | Open existing application entry and update Applicant, Application Code, Wording, Respondent, Civil Fee, Notes and Officials, then Save Complete Application | Yes | Destructive | ARCPOC-1656 |
 | ARCPOC-1616 | Add Application | 18.47% | Create a new Application within an existing Application List by completing Applicant, Application Code, Wording, Respondent (if required), Civil Fee (if required), Notes, Results and Officials, then Save Complete Application | Yes | Destructive | ARCPOC-1658 |
 | ARCPOC-1617 | Result Multiple Applications | 7.75% | Search/Open Application List → Select multiple Applications → Search Result Code → Apply Result(s) to all selected Applications → Save | Yes | Destructive | ARCPOC-1659 |
