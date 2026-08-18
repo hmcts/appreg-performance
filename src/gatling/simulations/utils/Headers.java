@@ -8,7 +8,7 @@ public final class Headers {
   public static final String XSRF_TOKEN_HEADER = "X-XSRF-TOKEN";
   public static final String USER_AGENT = System.getProperty(
     "appRegUserAgent",
-    System.getenv().getOrDefault("APPREG_USER_AGENT", "appreg-performance/ARCPOC-1720"));
+    System.getenv().getOrDefault("APPREG_USER_AGENT", "Gatling Performance Runner"));
 
   public static final Map<String, String> COMMON_HEADER = Map.ofEntries(
     Map.entry("accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"),

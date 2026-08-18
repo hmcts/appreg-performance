@@ -297,7 +297,7 @@ The shared password is never put in a feeder, log, report, or file.
 
 Jenkins uses the approved static account `appreg-001@dev.platform.hmcts.net` for one-user proofs and retrieves only its shared password and tenant ID from Test Key Vault. The feeder-backed multi-user workload derives its 500 allocated accounts from the agreed `appreg-<three-digit-index>@dev.platform.hmcts.net` pattern rather than store 500 individual email secrets.
 
-All curated Gatling traffic now sends the shared `User-Agent` value `appreg-performance/ARCPOC-1720` by default. Override it with `-DappRegUserAgent=<value>` or `APPREG_USER_AGENT=<value>` when you need to mark a specific run clearly in environment, ingress, or Application Insights logs.
+All curated Gatling traffic now sends the shared `User-Agent` value `Gatling Performance Runner` by default. Override it with `-DappRegUserAgent=<value>` or `APPREG_USER_AGENT=<value>` when you need to mark a specific run clearly in environment, ingress, or Application Insights logs.
 
 SSO login is deliberately included in the measured traffic. The platform allowance is ten login requests per second, but the Test workload and its read-only preflight deliberately use one login per second following observed Test-environment failures at a higher controlled rate. Do not repeatedly log in inside a journey loop. A green 500-account preflight is required before a destructive performance workload run.
 
