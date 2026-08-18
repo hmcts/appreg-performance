@@ -9,6 +9,10 @@ public final class AppRegHttp {
   private AppRegHttp() {}
 
   public static HttpProtocolBuilder protocol() {
-    return http.baseUrl(Environment.BASE_URL).doNotTrackHeader("1").inferHtmlResources().silentResources();
+    return http.baseUrl(Environment.BASE_URL)
+      .userAgentHeader(Headers.USER_AGENT)
+      .doNotTrackHeader("1")
+      .inferHtmlResources()
+      .silentResources();
   }
 }
