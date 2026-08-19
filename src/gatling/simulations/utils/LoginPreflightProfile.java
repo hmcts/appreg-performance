@@ -1,6 +1,7 @@
 package utils;
 
 import java.io.IOException;
+import java.time.Duration;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
@@ -15,8 +16,14 @@ public record LoginPreflightProfile(int concurrentUsers, int loginRampUpSeconds)
     }
     if (loginRampUpSeconds < concurrentUsers) {
       throw new IllegalArgumentException(
-          "Login preflight ramp must be at least one second per account (one login per second)");
+          "Login preflight ramp must be at least one second per account");
     }
+  }
+
+  /** Preserves the configured average login spacing for smaller spare and retry phases. */
+  public Duration rampDurationFor(int accountCount) {
+    return Duration.ofMillis(Math.round(
+        (double) loginRampUpSeconds * 1_000 * accountCount / concurrentUsers));
   }
 
   public static LoginPreflightProfile fromRuntime() {

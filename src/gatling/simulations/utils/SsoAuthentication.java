@@ -3,6 +3,7 @@ package utils;
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.Session;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.IntStream;
@@ -12,6 +13,7 @@ import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.regex;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
+import static io.gatling.javaapi.http.HttpDsl.header;
 import static io.gatling.javaapi.http.HttpDsl.headerRegex;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
@@ -19,7 +21,7 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 /** Replays AppReg's SSO protocol at HTTP level without writing credentials to disk or logs. */
 public final class SsoAuthentication {
   private static final String MICROSOFT_LOGIN_BASE_URL = "https://login.microsoftonline.com";
-  private static final int MAX_TEST_ACCOUNTS = 500;
+  private static final int MAX_TEST_ACCOUNTS = 510;
   private static final Map<String, String> BROWSER_HEADERS = Map.of(
     "Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language", "en-GB,en;q=0.9",
@@ -67,12 +69,35 @@ public final class SsoAuthentication {
       .iterator();
   }
 
+  /** Supplies one spare account for each failed primary preflight account. */
+  public static Iterator<Map<String, Object>> spareUsers(
+      List<LoginPreflightRetryQueue.Account> failedPrimaryAccounts, int primaryAccountCount) {
+    if (primaryAccountCount + failedPrimaryAccounts.size() > MAX_TEST_ACCOUNTS) {
+      throw new IllegalArgumentException("The preflight target and spare accounts must not exceed " + MAX_TEST_ACCOUNTS);
+    }
+    String template = requiredEnvironmentVariable("APPREG_TEST_ACCOUNT_TEMPLATE", "TEST_USER_EMAIL");
+    String startIndex = environmentVariable("APPREG_ACCOUNT_START_INDEX");
+    int firstIndex = startIndex == null ? 1 : Integer.parseInt(startIndex);
+    return IntStream.range(0, failedPrimaryAccounts.size())
+      .mapToObj(index -> {
+        var failedAccount = failedPrimaryAccounts.get(index);
+        return Map.<String, Object>of(
+            "username", accountName(template, firstIndex + primaryAccountCount + index, MAX_TEST_ACCOUNTS),
+            "retryUsername", failedAccount.username(),
+            "accountOffset", failedAccount.accountOffset(),
+            "retryAfterSeconds", failedAccount.retryAfterSeconds());
+      })
+      .iterator();
+  }
+
   public static ChainBuilder login() {
     String password = requiredEnvironmentVariable("APPREG_TEST_USER_PASSWORD", "TEST_USERS_PASSWORD");
     String tenantId = requiredEnvironmentVariable("APPREG_TENANT_ID", "TENANT_ID");
     return group("AppReg_000_SSO_Login").on(
       exec(http("AppReg SSO login redirect").get("/sso/login").headers(BROWSER_HEADERS).disableFollowRedirect()
-        .check(status().is(302)).check(headerRegex("Location", "(.+)").saveAs("entraAuthorizeUrl")))
+        .transformResponse(DiagnosticLogging.logIfStatusNotIn("AppReg SSO login redirect", Set.of(302)))
+        .check(status().is(302)).check(header("Retry-After").optional().saveAs("retryAfter"))
+        .check(headerRegex("Location", "(.+)").saveAs("entraAuthorizeUrl")))
         .exec(http("Entra authorize").get("#{entraAuthorizeUrl}")
           .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Accept-Language", BROWSER_HEADERS.get("Accept-Language"), "Upgrade-Insecure-Requests", "1", "Referer", Environment.BASE_URL + "/login"))
           .check(status().is(200)).check(regex("(?s).*?\\\"sessionId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraSessionId"))
