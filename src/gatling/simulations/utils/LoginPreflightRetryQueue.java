@@ -16,10 +16,10 @@ import java.util.Map;
 public final class LoginPreflightRetryQueue {
   public static final Path PRIMARY_FAILURES_PATH = Path.of("build", "login-preflight-primary-failures.csv");
   public static final Path RETRY_PATH = Path.of("build", "login-preflight-retry.csv");
-  private static final Map<String, Integer> PRIMARY_FAILURES = new LinkedHashMap<>();
-  private static final Map<String, Integer> RETRY_FAILURES = new LinkedHashMap<>();
+  private static final Map<String, Account> PRIMARY_FAILURES = new LinkedHashMap<>();
+  private static final Map<String, Account> RETRY_FAILURES = new LinkedHashMap<>();
 
-  public record Account(String username, int accountOffset) {}
+  public record Account(String username, int accountOffset, int retryAfterSeconds) {}
 
   private LoginPreflightRetryQueue() {}
 
@@ -29,7 +29,7 @@ public final class LoginPreflightRetryQueue {
       Object accountOffset = session.get("accountOffset");
       if (username != null && accountOffset != null) {
         synchronized (PRIMARY_FAILURES) {
-          PRIMARY_FAILURES.putIfAbsent(username, ((Number) accountOffset).intValue());
+          PRIMARY_FAILURES.putIfAbsent(username, account(username, accountOffset, session));
         }
       }
       // The initial pass is reported, but its HTTP failures must not prevent the trailing retry.
@@ -45,7 +45,7 @@ public final class LoginPreflightRetryQueue {
       Object accountOffset = session.get("accountOffset");
       if (username != null && accountOffset != null) {
         synchronized (RETRY_FAILURES) {
-          RETRY_FAILURES.putIfAbsent(username, ((Number) accountOffset).intValue());
+          RETRY_FAILURES.putIfAbsent(username, account(username, accountOffset, session));
         }
       }
       return session.markAsSucceeded();
@@ -65,9 +65,12 @@ public final class LoginPreflightRetryQueue {
     try {
       List<Account> accounts = new ArrayList<>();
       for (String line : Files.readAllLines(path)) {
-        if (line.equals("username,accountOffset")) continue;
+        if (line.equals("username,accountOffset,retryAfterSeconds")) continue;
         String[] columns = line.split(",", -1);
-        if (columns.length == 2) accounts.add(new Account(columns[0], Integer.parseInt(columns[1])));
+        if (columns.length >= 2) {
+          int retryAfterSeconds = columns.length >= 3 ? Integer.parseInt(columns[2]) : 0;
+          accounts.add(new Account(columns[0], Integer.parseInt(columns[1]), retryAfterSeconds));
+        }
       }
       return accounts;
     } catch (IOException exception) {
@@ -75,16 +78,33 @@ public final class LoginPreflightRetryQueue {
     }
   }
 
-  private static void write(Path path, Map<String, Integer> accounts) {
+  private static Account account(String username, Object accountOffset, Session session) {
+    int offset = accountOffset instanceof Number number
+        ? number.intValue() : Integer.parseInt(accountOffset.toString());
+    Object retryAfter = session.get("retryAfter");
+    int retryAfterSeconds = 0;
+    if (retryAfter != null) {
+      try {
+        retryAfterSeconds = Math.max(0, Integer.parseInt(retryAfter.toString()));
+      } catch (NumberFormatException ignored) {
+        // An HTTP-date Retry-After remains in the diagnostic log but cannot be queued as seconds.
+      }
+    }
+    return new Account(username, offset, retryAfterSeconds);
+  }
+
+  private static void write(Path path, Map<String, Account> accounts) {
     try {
       Files.createDirectories(path.getParent());
       try (var writer = Files.newBufferedWriter(path)) {
-        writer.write("username,accountOffset\n");
+        writer.write("username,accountOffset,retryAfterSeconds\n");
         synchronized (accounts) {
-          for (var account : accounts.entrySet()) {
-            writer.write(account.getKey());
+          for (Account account : accounts.values()) {
+            writer.write(account.username());
             writer.write(',');
-            writer.write(account.getValue().toString());
+            writer.write(Integer.toString(account.accountOffset()));
+            writer.write(',');
+            writer.write(Integer.toString(account.retryAfterSeconds()));
             writer.write('\n');
           }
         }

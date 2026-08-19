@@ -13,6 +13,7 @@ import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.regex;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
+import static io.gatling.javaapi.http.HttpDsl.header;
 import static io.gatling.javaapi.http.HttpDsl.headerRegex;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
@@ -83,7 +84,8 @@ public final class SsoAuthentication {
         return Map.<String, Object>of(
             "username", accountName(template, firstIndex + primaryAccountCount + index, MAX_TEST_ACCOUNTS),
             "retryUsername", failedAccount.username(),
-            "accountOffset", failedAccount.accountOffset());
+            "accountOffset", failedAccount.accountOffset(),
+            "retryAfterSeconds", failedAccount.retryAfterSeconds());
       })
       .iterator();
   }
@@ -93,7 +95,9 @@ public final class SsoAuthentication {
     String tenantId = requiredEnvironmentVariable("APPREG_TENANT_ID", "TENANT_ID");
     return group("AppReg_000_SSO_Login").on(
       exec(http("AppReg SSO login redirect").get("/sso/login").headers(BROWSER_HEADERS).disableFollowRedirect()
-        .check(status().is(302)).check(headerRegex("Location", "(.+)").saveAs("entraAuthorizeUrl")))
+        .transformResponse(DiagnosticLogging.logIfStatusNotIn("AppReg SSO login redirect", Set.of(302)))
+        .check(status().is(302)).check(header("Retry-After").optional().saveAs("retryAfter"))
+        .check(headerRegex("Location", "(.+)").saveAs("entraAuthorizeUrl")))
         .exec(http("Entra authorize").get("#{entraAuthorizeUrl}")
           .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Accept-Language", BROWSER_HEADERS.get("Accept-Language"), "Upgrade-Insecure-Requests", "1", "Referer", Environment.BASE_URL + "/login"))
           .check(status().is(200)).check(regex("(?s).*?\\\"sessionId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraSessionId"))

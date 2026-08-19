@@ -359,11 +359,21 @@ withNightlyPipeline(type, product, component) {
                           export PATH="$JAVA_HOME/bin:$PATH"
                           ./gradlew --no-daemon gatlingRun --simulation simulations.AppRegLoginPreflightSimulation
                           if awk 'NR > 1 { found = 1 } END { exit !found }' build/login-preflight-primary-failures.csv; then
+                            retry_after_seconds="$(awk -F, 'NR > 1 && $3 > maximum { maximum = $3 } END { print maximum + 0 }' build/login-preflight-primary-failures.csv)"
+                            if [ "$retry_after_seconds" -gt 0 ]; then
+                              echo "Login preflight received HTTP 429; waiting Retry-After=${retry_after_seconds}s before spare accounts."
+                              sleep "$retry_after_seconds"
+                            fi
                             ./gradlew --no-daemon gatlingRun --simulation simulations.AppRegLoginPreflightSpareSimulation
                           else
                             echo "Login preflight reached its 500-account target without spare accounts."
                           fi
                           if awk 'NR > 1 { found = 1 } END { exit !found }' build/login-preflight-retry.csv; then
+                            retry_after_seconds="$(awk -F, 'NR > 1 && $3 > maximum { maximum = $3 } END { print maximum + 0 }' build/login-preflight-retry.csv)"
+                            if [ "$retry_after_seconds" -gt 0 ]; then
+                              echo "Login preflight retry received HTTP 429; waiting Retry-After=${retry_after_seconds}s."
+                              sleep "$retry_after_seconds"
+                            fi
                             ./gradlew --no-daemon gatlingRun --simulation simulations.AppRegLoginPreflightRetrySimulation
                           else
                             echo "Login preflight reached its 500-account target without a retry."

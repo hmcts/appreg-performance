@@ -13,7 +13,7 @@ public final class DiagnosticLogging {
       String requestName, int minimumStatus) {
     return (response, session) -> {
       int status = response.status().code();
-      if (status >= minimumStatus) log(requestName, status, session);
+      if (status >= minimumStatus) log(requestName, response, session);
       return response;
     };
   }
@@ -22,16 +22,18 @@ public final class DiagnosticLogging {
       String requestName, Set<Integer> expectedStatuses) {
     return (response, session) -> {
       int status = response.status().code();
-      if (!expectedStatuses.contains(status)) log(requestName, status, session);
+      if (!expectedStatuses.contains(status)) log(requestName, response, session);
       return response;
     };
   }
 
-  private static void log(String requestName, int status, Session session) {
+  private static void log(String requestName, Response response, Session session) {
+    int status = response.status().code();
     System.err.printf(
-        "APPREG_HTTP_DIAGNOSTIC request=%s status=%d user=%s accountOffset=%s authState=%s%n",
+        "APPREG_HTTP_DIAGNOSTIC request=%s status=%d retryAfter=%s user=%s accountOffset=%s authState=%s%n",
         requestName,
         status,
+        status == 429 ? response.headers().get("Retry-After") : "-",
         sessionValue(session, "username"),
         sessionValue(session, "accountOffset"),
         authState(session));
