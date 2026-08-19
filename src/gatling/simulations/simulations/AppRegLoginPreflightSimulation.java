@@ -17,7 +17,7 @@ import static utils.Headers.XSRF_TOKEN_COOKIE;
 
 /**
  * Read-only preflight for the complete SSO and AppReg session path. It deliberately uses a
- * conservative one-account-per-second ramp before any destructive performance workload is attempted.
+ * conservative, controlled login ramp before any destructive performance workload is attempted.
  */
 public class AppRegLoginPreflightSimulation extends Simulation {
   private final LoginPreflightProfile profile = LoginPreflightProfile.fromRuntime();
@@ -36,7 +36,7 @@ public class AppRegLoginPreflightSimulation extends Simulation {
       .exec(LoginPreflightRetryQueue::retainFailedAccount);
 
     setUp(loginPreflight.injectOpen(
-        rampUsers(profile.concurrentUsers()).during(profile.loginRampUpSeconds())
+        rampUsers(profile.concurrentUsers()).during(profile.rampDurationFor(profile.concurrentUsers()))
       ))
       .protocols(httpProtocol);
   }
@@ -44,7 +44,7 @@ public class AppRegLoginPreflightSimulation extends Simulation {
   @Override
   public void before() {
     System.out.println("Login preflight: " + profile.concurrentUsers() + " accounts over "
-        + profile.loginRampUpSeconds() + " seconds (one login per second maximum).");
+        + profile.loginRampUpSeconds() + " seconds.");
   }
 
   @Override

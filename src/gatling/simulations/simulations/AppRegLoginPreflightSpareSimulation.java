@@ -36,13 +36,14 @@ public class AppRegLoginPreflightSpareSimulation extends Simulation {
       )
       .exec(LoginPreflightRetryQueue::retainFailedSpare);
 
-    setUp(spare.injectOpen(rampUsers(failedPrimaryAccounts.size()).during(failedPrimaryAccounts.size())))
+    setUp(spare.injectOpen(rampUsers(failedPrimaryAccounts.size()).during(
+        profile.rampDurationFor(failedPrimaryAccounts.size()))))
       .protocols(protocol());
   }
 
   @Override
   public void before() {
-    System.out.println("Login preflight spare phase: replacing failed primary accounts at one login per second.");
+    System.out.println("Login preflight spare phase: replacing failed primary accounts at the configured rate.");
   }
 
   @Override

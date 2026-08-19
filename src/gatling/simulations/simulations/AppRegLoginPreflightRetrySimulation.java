@@ -3,6 +3,7 @@ package simulations;
 import io.gatling.javaapi.core.FeederBuilder;
 import io.gatling.javaapi.core.Simulation;
 import scenarios.SearchScenario;
+import utils.LoginPreflightProfile;
 import utils.LoginPreflightRetryQueue;
 import utils.SsoAuthentication;
 
@@ -19,6 +20,8 @@ import static utils.Headers.XSRF_TOKEN_COOKIE;
 
 /** Retries, once and only after the initial preflight, the accounts in its workspace-only queue. */
 public class AppRegLoginPreflightRetrySimulation extends Simulation {
+  private final LoginPreflightProfile profile = LoginPreflightProfile.fromRuntime();
+
   public AppRegLoginPreflightRetrySimulation() {
     FeederBuilder.FileBased<String> failedUsers = csv(LoginPreflightRetryQueue.RETRY_PATH.toString()).queue();
     int retryCount = failedUsers.recordsCount();
@@ -35,13 +38,13 @@ public class AppRegLoginPreflightRetrySimulation extends Simulation {
       )
       .exitHereIfFailed();
 
-    setUp(retry.injectOpen(rampUsers(retryCount).during(retryCount)))
+    setUp(retry.injectOpen(rampUsers(retryCount).during(profile.rampDurationFor(retryCount))))
       .protocols(protocol())
       .assertions(global().successfulRequests().percent().gte(100.0));
   }
 
   @Override
   public void before() {
-    System.out.println("Login preflight retry: retrying each failed account once at one login per second.");
+    System.out.println("Login preflight retry: retrying each failed account once at the configured rate.");
   }
 }
