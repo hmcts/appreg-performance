@@ -6,6 +6,7 @@ import java.util.Map;
 import scenarios.CloseApplicationListScenario;
 import scenarios.UpdateApplicationListScenario;
 import utils.Environment;
+import utils.AuthenticationStage;
 import utils.SsoAuthentication;
 
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
@@ -34,7 +35,7 @@ public class UpdateAndCloseApplicationListProofSimulation extends Simulation {
     var updateAndCloseApplicationList = scenario("AppReg application list update and close proof")
       .exitBlockOnFail().on(
         feed(ssoUserFeeder)
-          .exec(SsoAuthentication.login())
+          .exec(AuthenticationStage.authenticateFrameworkProof())
           .exec(http("Application lists page")
             .get("/applications-list")
             .headers(COMMON_HEADER)

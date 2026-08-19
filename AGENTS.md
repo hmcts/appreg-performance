@@ -28,12 +28,11 @@ ARCPOC-1620 has an agreed design split within its 6.71% allocation: 90% simple A
 
 ## Design approach
 
-Use modular business-action scenarios, not a browser-test Page Object Model.
+Ensure the implementation follows the `PLAN.md` file - if the implementation changes according to agreement, update the plan file with my permission.
 
 - Put reusable Gatling `ChainBuilder` actions in `src/gatling/simulations/scenarios/` and name them by business capability, such as `SearchScenario` or `ApplicationScenario`.
 - Put executable load profiles and one-user validation proofs in `src/gatling/simulations/simulations/`.
 - Keep cross-cutting code (SSO, headers, environment configuration and test-data helpers) in `src/gatling/simulations/utils/`.
-- Compose actions in simulations. A scenario action may be used as setup for another action, but do not silently include setup traffic in a measured transaction unless that is intentional and documented.
 
 Recordings are raw browser evidence only. They reveal the HTTP flow but must not be run as production performance tests. Extract only the necessary requests into a curated scenario, replace dynamic values with Gatling session values or feeders, remove browser-only noise, and add meaningful response checks.
 
@@ -57,11 +56,7 @@ Recordings are raw browser evidence only. They reveal the HTTP flow but must not
 
 - Run `./gradlew gatlingClasses` after source changes.
 - Run the smallest relevant one-user proof before adding a flow to a mixed workload or pipeline profile.
-- Keep the feeder-backed `AppRegWorkloadSimulation` separate from `*ProofSimulation` classes. It must consume queue feeders from `build/workload-data/` only after the seed stage has reserved any proof rows and trimmed each feeder to its exact deterministic schedule count.
-- Run the `validation` workload profile before the `performance` 500-user workload. The workload has no response-time NFR threshold; it must still fail on any functional HTTP error.
-- Run the read-only 500-account `RUN_LOGIN_PREFLIGHT` gate before the destructive performance workload. Do not increase the performance login ramp rate after a preflight failure without recording the evidence and validating a lower controlled rate.
 - Use approved environments only. `TEST_URL` is an origin, not a path.
-- Do not modify pipeline behaviour, workload weights or success thresholds without documenting the reason and validating the outcome.
 
 ## Documentation
 

@@ -5,6 +5,7 @@ import java.util.Iterator;
 import java.util.Map;
 import scenarios.ResultApplicationScenario;
 import utils.Environment;
+import utils.AuthenticationStage;
 import utils.SsoAuthentication;
 
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
@@ -32,7 +33,7 @@ public class ResultApplicationProofSimulation extends Simulation {
     var resultApplication = scenario("AppReg application result proof")
       .exitBlockOnFail().on(
         feed(ssoUserFeeder)
-          .exec(SsoAuthentication.login())
+          .exec(AuthenticationStage.authenticateFrameworkProof())
           .exec(http("Application lists page").get("/applications-list").headers(COMMON_HEADER).check(status().is(200)))
           .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
           .exec(session -> session.set("applicationListId", SEEDED_LIST_ID).set("applicationEntryId", SEEDED_ENTRY_ID))

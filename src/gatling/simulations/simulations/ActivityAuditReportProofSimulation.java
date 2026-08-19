@@ -4,6 +4,7 @@ import io.gatling.javaapi.core.Simulation;
 import java.util.Iterator;
 import java.util.Map;
 import scenarios.ActivityAuditReportScenario;
+import utils.AuthenticationStage;
 import utils.SsoAuthentication;
 
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
@@ -20,7 +21,7 @@ public class ActivityAuditReportProofSimulation extends Simulation {
     var httpProtocol = protocol();
     var report = scenario("AppReg Activity Audit report proof").exitBlockOnFail().on(
       feed(ssoUserFeeder)
-        .exec(SsoAuthentication.login())
+        .exec(AuthenticationStage.authenticateFrameworkProof())
         .exec(ActivityAuditReportScenario.generateActivityAuditReport()));
 
     setUp(report.injectOpen(atOnceUsers(1))).protocols(httpProtocol)

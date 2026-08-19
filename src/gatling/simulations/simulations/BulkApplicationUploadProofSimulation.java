@@ -5,6 +5,7 @@ import java.util.Iterator;
 import java.util.Map;
 import scenarios.BulkApplicationUploadScenario;
 import utils.Environment;
+import utils.AuthenticationStage;
 import utils.SsoAuthentication;
 import static io.gatling.javaapi.core.CoreDsl.*;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
@@ -23,7 +24,7 @@ public class BulkApplicationUploadProofSimulation extends Simulation {
   public BulkApplicationUploadProofSimulation() {
     var httpProtocol = protocol();
     var upload = scenario("AppReg bulk application upload proof").exitBlockOnFail().on(
-      feed(ssoUserFeeder).exec(SsoAuthentication.login())
+      feed(ssoUserFeeder).exec(AuthenticationStage.authenticateFrameworkProof())
         .exec(http("Application lists page").get("/applications-list").headers(COMMON_HEADER).check(status().is(200)))
         .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
         .exec(session -> session.set("applicationListId", SEEDED_LIST_ID))

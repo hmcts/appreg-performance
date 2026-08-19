@@ -101,7 +101,7 @@ The current Gradle release can be checked at the [official Gradle versions endpo
 
 **Status: implemented for canonical proof data and deterministic allocation — [ARCPOC-1633](https://tools.hmcts.net/jira/browse/ARCPOC-1633), with bounded workload scheduling in [ARCPOC-1706](https://tools.hmcts.net/jira/browse/ARCPOC-1706).**
 
-The pipeline provisions synthetic, workflow-specific data through a dedicated Jenkins seed stage before Gatling execution. Optional reset, seed, proof-smoke, login-preflight and workload controls are exposed as Jenkins parameters. The seed stage applies reviewed SQL and writes a deterministic allocation of safe records to Gatling queue feeders.
+The pipeline provisions synthetic, workflow-specific data through a dedicated Jenkins seed stage before Gatling execution. Reset, seed, proof-smoke and workload controls are derived from the selected Jenkins run mode. The seed stage applies reviewed SQL and writes a deterministic allocation of safe records to Gatling queue feeders.
 
 The final workload journeys must use their allocated Application Lists and Applications rather than creating setup data while measurements are being taken. One-user proof simulations may retain isolated runtime setup only where it is explicitly documented as proof-only behaviour.
 

@@ -60,7 +60,7 @@ Test-dependent proofs are enabled progressively:
 
 === Jenkins run modes
 
-Jenkins exposes four user-facing parameters only: `RUN_MODE`, `MAX_USERS`, `RUN_DURATION_MINUTES` and `RESET_DATABASE`. The pipeline derives its seed, proof, workload and preflight stages from the selected mode; do not reintroduce independent stage toggles.
+Jenkins exposes four user-facing parameters only: `RUN_MODE`, `MAX_USERS`, `RUN_DURATION_MINUTES` and `RESET_DATABASE`. The pipeline derives its seed, proof and workload stages from the selected mode; do not reintroduce independent stage toggles.
 
 [cols="1,1,1,1,1",options="header"]
 |===
@@ -80,7 +80,7 @@ Jenkins exposes four user-facing parameters only: `RUN_MODE`, `MAX_USERS`, `RUN_
 
 | `performance`
 | Performance test team
-| Read-only 500-account preflight, then fresh seed and the 500-user, 70-minute workload
+| Authenticates 500 in-process sessions, then releases those same sessions into the fresh-seed 500-user, 70-minute workload
 | Ignored; fixed at 500
 | Ignored; fixed at 70
 |===
@@ -93,32 +93,10 @@ The implementation details below explain the derived controls used by the pipeli
 * The derived workload always uses the reviewed `performance` allocation profile. Diagnostic mode scales its deterministic action plan to the selected user count and duration; performance mode uses the full 500-user, 70-minute plan.
 * Jenkins invokes the batch selective seed generator once per requested action shape and writes workspace-only CSV feeders to `build/performance-data/`. If a workload and proof smokes run together, the generator reserves the first row of each destructive feeder for the proof. It passes only the exact deterministic schedule rows to Gatling; any allocation reserve remains outside the workload feeder.
 * The framework-proof mode runs the complete one-user proof suite; workload modes run the feeder-backed deterministic workload.
-* Performance mode automatically runs the exclusive read-only 500-account SSO/session preflight before it seeds any destructive data.
+* Performance mode authenticates the 500 workload sessions before it starts any destructive action; the successful sessions are retained and released into the workload without a second login.
 * Diagnostic mode is bounded to the same approved upper envelope as the formal run: `MAX_USERS` must be `1..500`, `RUN_DURATION_MINUTES` must be positive, and `MAX_USERS * RUN_DURATION_MINUTES` must not exceed `35000`.
 
-The previous raw pipeline toggles (`RUN_DB_RESET`, `RUN_DB_SEED`, `WORKLOAD_PROFILE`, `RUN_PROOF_SMOKES`, `RUN_PERFTEST`, `RUN_LOGIN_PREFLIGHT`) remain internal derived controls only. Operators should select a single `RUN_MODE` instead of combining low-level flags.
-
-| Read-only 500-account login preflight
-| `false`
-| `false`
-| `smoke` (ignored)
-| `false`
-| `false` / `true`
-
-| Ten-user workload validation
-| `false`
-| `true`
-| `validation`
-| `true`
-| `true` / `false`
-
-| Capped performance diagnostic run (default)
-| `false`
-| `true`
-| `performance`
-| `false` (optional)
-| `true` / `false`
-|===
+The previous raw pipeline toggles (`RUN_DB_RESET`, `RUN_DB_SEED`, `WORKLOAD_PROFILE`, `RUN_PROOF_SMOKES`, `RUN_PERFTEST`) remain internal derived controls only. Operators should select a single `RUN_MODE` instead of combining low-level flags.
 
 === Wording-template reference data
 
@@ -155,9 +133,9 @@ Use Jenkins **Build with Parameters** with one of these combinations:
 
 * `RUN_MODE=application-diagnostic`, `MAX_USERS=100`, `RUN_DURATION_MINUTES=5`, `RESET_DATABASE=false` for a short destructive diagnostic run. `MAX_USERS` may be increased up to 500 when needed, provided the requested users and minutes stay within the `35000`-action envelope.
 * `RUN_MODE=framework-proof`, `RESET_DATABASE=false` for the full one-user proof suite after a fresh seed.
-* `RUN_MODE=performance`, `RESET_DATABASE=false` for the full formal run. This mode always performs the read-only 500-account preflight first, then seeds fresh data and runs the fixed 500-user, 70-minute workload.
+* `RUN_MODE=performance`, `RESET_DATABASE=false` for the full formal run. This mode seeds fresh data, authenticates 500 in-process workload sessions, and then runs the fixed 500-user, 70-minute workload with those same sessions.
 
-The diagnostic mode uses the reviewed `performance` action mix but scales it to a bounded run of the requested size. The full `performance` mode keeps the agreed 500-user, 70-minute weighted workload. It starts its 500 accounts across 750 seconds (one login every 1.5 seconds), following intermittent AppReg authentication/session failures at the previous rate. Its final user should complete after approximately 82 minutes and 30 seconds. The Jenkins performance stage allows 120 minutes, covering the 12.5-minute preflight, reset/seed setup, workload and report generation with headroom.
+The diagnostic mode uses the reviewed `performance` action mix but scales it to a bounded run of the requested size. The full `performance` mode keeps the agreed 500-user, 70-minute weighted workload. It authenticates its 500 workload sessions across 750 seconds (one login every 1.5 seconds), following intermittent AppReg authentication/session failures at the previous rate, retains them at the authenticated landing page, and releases them together into work. Its final user should complete after approximately 82 minutes and 30 seconds. The Jenkins performance stage allows 120 minutes, covering reset/seed setup, authentication, workload and report generation with headroom.
 
 Before a full diagnostic or formal workload run, pause development activity that could change the measured system: AppReg deployments, database schema or reference-data changes, seed-SQL changes, and workload-profile/code changes. Record the Git commit, selected Jenkins parameters and Test-environment version before starting. Resume those changes only after the run has finished and its reports have been retained; otherwise the result is not a reproducible benchmark. This is an operational coordination requirement, not a Jenkins-enforced deployment freeze.
 
@@ -299,7 +277,7 @@ Jenkins uses the approved static account `appreg-001@dev.platform.hmcts.net` for
 
 All curated Gatling traffic now sends the shared `User-Agent` value `Gatling Performance Runner` by default. Override it with `-DappRegUserAgent=<value>` or `APPREG_USER_AGENT=<value>` when you need to mark a specific run clearly in environment, ingress, or Application Insights logs.
 
-SSO login is deliberately included in the measured traffic. The platform allowance is ten login requests per second, but the Test workload and its read-only preflight deliberately use one login every 1.5 seconds following intermittent AppReg authentication/session failures at the previous rate. Do not repeatedly log in inside a journey loop. The preflight is a controlled readiness gate for the application workload, not an SSO performance test: it hardens the ramp against isolated transient authentication failures without masking persistent failures. It targets 500 successful authenticated sessions. For each initial failure, Jenkins authenticates exactly one of the ten spare accounts at the same rate; if a spare fails and the target remains short, it retries the corresponding failed primary account once. A 429 is logged with its `Retry-After` header; a numeric value delays the spare or final retry phase by at least that many seconds. It stops when the target is reached and fails when the target cannot be reached. The workspace-only queues contain account identifiers only; passwords are never written. A green 500-account preflight is required before a destructive performance workload run.
+SSO login is an authentication gate, not measured business-workload traffic. The Test workload deliberately uses one login every 1.5 seconds following intermittent AppReg authentication/session failures at the previous rate. Do not repeatedly log in inside a journey loop. Successful sessions wait at the authenticated landing page until the target is reached, then those same sessions begin their assigned work. For each failed primary login, the stage authenticates one of the ten spare accounts at the same controlled rate; if a spare fails and the target remains short, it retries the corresponding failed primary account once. A 429 is logged with its `Retry-After` header; a numeric value delays the applicable recovery phase by at least that many seconds. It stops when the target is reached and fails before destructive work begins when the target cannot be reached. Recovery state is in-memory only and contains account identifiers and safe scheduling metadata; passwords, tokens and cookies are never written.
 
 The curated load profile defaults to one SSO user through `PERFORMANCE_TEST_USERS=1`. Increase that only after supplying `APPREG_TEST_ACCOUNT_TEMPLATE` and confirming enough dedicated accounts. `AUTH_MODE=sso-login` is set by the Jenkins file; local runs can set `-DauthMode=sso-login` instead.
 

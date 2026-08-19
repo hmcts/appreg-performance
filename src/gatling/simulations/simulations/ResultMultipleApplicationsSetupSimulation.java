@@ -5,6 +5,7 @@ import java.util.Iterator;
 import java.util.Map;
 import scenarios.AddApplicationScenario;
 import scenarios.ApplicationListCreateScenario;
+import utils.AuthenticationStage;
 import utils.SsoAuthentication;
 
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
@@ -26,7 +27,7 @@ public class ResultMultipleApplicationsSetupSimulation extends Simulation {
     var setupApplications = scenario("AppReg multiple application result recording setup")
       .exitBlockOnFail().on(
         feed(ssoUserFeeder)
-          .exec(SsoAuthentication.login())
+          .exec(AuthenticationStage.authenticateFrameworkProof())
           .exec(ApplicationListCreateScenario.createApplicationList())
           .exec(AddApplicationScenario.addApplication("entryIdOne"))
           .exec(AddApplicationScenario.addApplication("entryIdTwo"))

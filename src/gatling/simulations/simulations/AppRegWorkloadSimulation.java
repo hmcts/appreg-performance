@@ -16,15 +16,20 @@ import scenarios.SearchScenario;
 import scenarios.UpdateApplicationListScenario;
 import scenarios.UpdateApplicationResultScenario;
 import scenarios.UpdateApplicationScenario;
+import utils.AuthenticationStage;
+import utils.AuthenticationTargetCoordinator;
 import utils.SsoAuthentication;
 import utils.WorkloadAction;
 import utils.WorkloadProfile;
 
 import static io.gatling.javaapi.core.CoreDsl.csv;
+import static io.gatling.javaapi.core.CoreDsl.doIf;
 import static io.gatling.javaapi.core.CoreDsl.doSwitch;
+import static io.gatling.javaapi.core.CoreDsl.exitBlockOnFail;
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.feed;
 import static io.gatling.javaapi.core.CoreDsl.global;
+import static io.gatling.javaapi.core.CoreDsl.nothingFor;
 import static io.gatling.javaapi.core.CoreDsl.onCase;
 import static io.gatling.javaapi.core.CoreDsl.pace;
 import static io.gatling.javaapi.core.CoreDsl.rampUsers;
@@ -41,7 +46,10 @@ import static utils.Headers.XSRF_TOKEN_COOKIE;
  * performs one planned action per minute for the configured duration.
  */
 public class AppRegWorkloadSimulation extends Simulation {
+  private static final int SPARE_ACCOUNT_COUNT = 10;
   private final WorkloadProfile profile = WorkloadProfile.fromRuntime();
+  private final AuthenticationTargetCoordinator authentication = new AuthenticationTargetCoordinator(
+      profile.concurrentUsers(), SPARE_ACCOUNT_COUNT);
   private final String feederDirectory = Path.of(System.getProperty(
       "appRegPerformanceDataDirectory", "build/workload-data")).toAbsolutePath().toString();
 
@@ -59,41 +67,50 @@ public class AppRegWorkloadSimulation extends Simulation {
   public AppRegWorkloadSimulation() {
     var httpProtocol = protocol();
     var users = SsoAuthentication.users(profile.concurrentUsers());
+    var spareUsers = SsoAuthentication.spareCandidates(profile.concurrentUsers(), SPARE_ACCOUNT_COUNT);
+    var retryUsers = SsoAuthentication.users(profile.concurrentUsers());
 
-    var workload = scenario("AppReg weighted workload")
+    var primaryWorkload = scenario("AppReg workload primary authentication")
       .exitBlockOnFail().on(
         feed(users)
-          .exec(SsoAuthentication.login())
-          .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
-          .repeat(profile.actionsPerUser(), "workloadIteration").on(
-            exec(session -> session.set("plannedAction", profile.actionFor(
-                session.getInt("accountOffset"), session.getInt("workloadIteration")).key()))
-              .exec(doSwitch("#{plannedAction}").on(
-                onCase(WorkloadAction.UPDATE_APPLICATION.key()).then(updateApplication()),
-                onCase(WorkloadAction.ADD_APPLICATION.key()).then(addApplication()),
-                onCase(WorkloadAction.RESULT_MULTIPLE.key()).then(resultMultipleApplications()),
-                onCase(WorkloadAction.UPDATE_RESULT.key()).then(updateApplicationResult()),
-                onCase(WorkloadAction.CREATE_LIST.key()).then(ApplicationListCreateScenario.createApplicationList()),
-                onCase(WorkloadAction.UPDATE_LIST.key()).then(updateApplicationList()),
-                onCase(WorkloadAction.CLOSE_LIST.key()).then(closeApplicationList()),
-                onCase(WorkloadAction.RESULT_APPLICATION.key()).then(resultApplication()),
-                onCase(WorkloadAction.BULK_OFFICIALS.key()).then(bulkUpdateOfficials()),
-                onCase(WorkloadAction.BULK_FEES.key()).then(bulkUpdateFees()),
-                onCase(WorkloadAction.BULK_UPLOAD.key()).then(bulkUpload()),
-                // Search represents the non-destructive Other UI Operations allocation. Reporting
-                // remains a separate benchmark until a reporting workload expectation is agreed.
-                onCase(WorkloadAction.OTHER_OPERATIONS.key()).then(SearchScenario.searchApplicationLists())
-              ))
-              .exec(pace(60))
-          )
-      );
+          .exec(AuthenticationStage.authenticate(profile.concurrentUsers()))
+          .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken"))))
+      .exec(AuthenticationStage.registerPrimary(authentication))
+      .exec(AuthenticationStage.awaitTarget(authentication))
+      .doIf(AuthenticationStage::hasAuthenticatedSession).then(workloadActions());
+
+    var spareWorkload = scenario("AppReg workload spare authentication")
+      .feed(spareUsers)
+      .exec(AuthenticationStage.claimSpare(authentication))
+      .doIf(AuthenticationStage::hasClaimedSpare).then(
+        exitBlockOnFail().on(exec(AuthenticationStage.authenticate(profile.concurrentUsers()))
+          .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))),
+        AuthenticationStage.registerSpare(authentication))
+      .exec(AuthenticationStage.completeUnclaimedSpare(authentication))
+      .exec(AuthenticationStage.awaitTarget(authentication))
+      .doIf(AuthenticationStage::hasAuthenticatedSession).then(workloadActions());
+
+    var retryWorkload = scenario("AppReg workload final authentication retry")
+      .feed(retryUsers)
+      .exec(AuthenticationStage.claimRetry(authentication))
+      .doIf(AuthenticationStage::hasClaimedRetry).then(
+        exitBlockOnFail().on(exec(AuthenticationStage.authenticate(profile.concurrentUsers()))
+          .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))),
+        AuthenticationStage.registerRetry(authentication))
+      .exec(AuthenticationStage.awaitTarget(authentication))
+      .doIf(AuthenticationStage::hasAuthenticatedSession).then(workloadActions());
 
     // This is a finite, feeder-backed run: start each allocated account once and allow its
     // bounded journey to finish. A closed injection would replace a completed user to preserve
     // concurrency, requiring additional accounts and risking account reuse.
-    setUp(workload.injectOpen(
-        rampUsers(profile.concurrentUsers()).during(profile.loginRampUpSeconds())
-      ))
+    setUp(
+        primaryWorkload.injectOpen(rampUsers(profile.concurrentUsers()).during(profile.loginRampUpSeconds())),
+        spareWorkload.injectOpen(
+            nothingFor(profile.loginRampUpSeconds()),
+            rampUsers(SPARE_ACCOUNT_COUNT).during(15)),
+        retryWorkload.injectOpen(
+            nothingFor(profile.loginRampUpSeconds() + 15),
+            rampUsers(profile.concurrentUsers()).during(profile.loginRampUpSeconds())))
       .protocols(httpProtocol)
       // This is a benchmark, so it has no response-time NFR. Functional HTTP failures remain
       // failures: do not mask platform or application errors behind an arbitrary success rate.
@@ -108,7 +125,14 @@ public class AppRegWorkloadSimulation extends Simulation {
     System.out.println("Scheduled action totals: " + profile.scheduledActionCounts());
     System.out.println("Allocated feeder directory: " + feederDirectory);
     System.out.println("SSO is limited to " + WorkloadProfile.minimumLoginRampUpSeconds(profile.concurrentUsers())
-        + " seconds minimum for " + profile.concurrentUsers() + " accounts at 10 logins per second.");
+        + " seconds minimum for " + profile.concurrentUsers() + " accounts at one login every 1.5 seconds.");
+  }
+
+  @Override
+  public void after() {
+    if (!authentication.targetReached()) {
+      throw new IllegalStateException("Authentication target was not reached; destructive workload was not released");
+    }
   }
 
   private FeederBuilder.FileBased<String> feeder(String action, WorkloadAction scheduledAction) {
@@ -121,6 +145,27 @@ public class AppRegWorkloadSimulation extends Simulation {
               + " requires exactly " + requiredRows + " for " + action);
     }
     return feeder;
+  }
+
+  private ChainBuilder workloadActions() {
+    return repeat(profile.actionsPerUser(), "workloadIteration").on(
+      exec(session -> session.set("plannedAction", profile.actionFor(
+          session.getInt("accountOffset"), session.getInt("workloadIteration")).key()))
+        .exec(doSwitch("#{plannedAction}").on(
+          onCase(WorkloadAction.UPDATE_APPLICATION.key()).then(updateApplication()),
+          onCase(WorkloadAction.ADD_APPLICATION.key()).then(addApplication()),
+          onCase(WorkloadAction.RESULT_MULTIPLE.key()).then(resultMultipleApplications()),
+          onCase(WorkloadAction.UPDATE_RESULT.key()).then(updateApplicationResult()),
+          onCase(WorkloadAction.CREATE_LIST.key()).then(ApplicationListCreateScenario.createApplicationList()),
+          onCase(WorkloadAction.UPDATE_LIST.key()).then(updateApplicationList()),
+          onCase(WorkloadAction.CLOSE_LIST.key()).then(closeApplicationList()),
+          onCase(WorkloadAction.RESULT_APPLICATION.key()).then(resultApplication()),
+          onCase(WorkloadAction.BULK_OFFICIALS.key()).then(bulkUpdateOfficials()),
+          onCase(WorkloadAction.BULK_FEES.key()).then(bulkUpdateFees()),
+          onCase(WorkloadAction.BULK_UPLOAD.key()).then(bulkUpload()),
+          onCase(WorkloadAction.OTHER_OPERATIONS.key()).then(SearchScenario.searchApplicationLists())
+        ))
+        .exec(pace(60)));
   }
 
   private ChainBuilder updateApplication() {

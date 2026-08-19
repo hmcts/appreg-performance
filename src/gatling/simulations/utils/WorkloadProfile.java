@@ -30,7 +30,7 @@ public record WorkloadProfile(
     int bulkUploadCount) {
 
   private static final int MAX_TEST_ACCOUNTS = 500;
-  private static final int SAFE_LOGINS_PER_SECOND = 10;
+  private static final double LOGIN_INTERVAL_SECONDS = 1.5;
   private static final String MAX_USERS_PROPERTY = "appRegMaxUsers";
   private static final String DURATION_MINUTES_PROPERTY = "appRegDurationMinutes";
 
@@ -49,7 +49,7 @@ public record WorkloadProfile(
     }
     if (loginRampUpSeconds < minimumLoginRampUpSeconds(concurrentUsers)) {
       throw new IllegalArgumentException(
-          "Workload login ramp must allow no more than " + SAFE_LOGINS_PER_SECOND + " logins per second");
+          "Workload login ramp must allow one login every " + LOGIN_INTERVAL_SECONDS + " seconds");
     }
     scheduledActionCounts = Map.copyOf(scheduledActionCounts);
     actionPlan = List.copyOf(actionPlan);
@@ -90,6 +90,7 @@ public record WorkloadProfile(
     int configuredDurationMinutes = positive(properties, name + ".duration_minutes");
     int durationMinutes = cappedDuration(configuredDurationMinutes);
     int actionsPerUser = durationMinutes;
+    int configuredLoginRampUpSeconds = positive(properties, name + ".login_ramp_up_seconds");
     Map<WorkloadAction, Integer> scheduledCounts = cappedScheduledCounts(
       scheduledCounts(properties, name), configuredUsers, configuredDurationMinutes, concurrentUsers, actionsPerUser);
     List<WorkloadAction> actionPlan = buildActionPlan(scheduledCounts, Math.multiplyExact(concurrentUsers, actionsPerUser));
@@ -98,7 +99,7 @@ public record WorkloadProfile(
         concurrentUsers,
         durationMinutes,
         actionsPerUser,
-        Math.min(positive(properties, name + ".login_ramp_up_seconds"), concurrentUsers),
+        Math.min(configuredLoginRampUpSeconds, minimumLoginRampUpSeconds(concurrentUsers)),
         scheduledCounts,
         actionPlan,
         nonNegative(properties, name + ".update_application"),
@@ -114,7 +115,7 @@ public record WorkloadProfile(
   }
 
   public static int minimumLoginRampUpSeconds(int concurrentUsers) {
-    return (int) Math.ceil((double) concurrentUsers / SAFE_LOGINS_PER_SECOND);
+    return (int) Math.ceil(concurrentUsers * LOGIN_INTERVAL_SECONDS);
   }
 
   private static int cappedUsers(int configuredUsers) {
