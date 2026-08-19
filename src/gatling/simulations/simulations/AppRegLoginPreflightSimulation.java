@@ -49,6 +49,6 @@ public class AppRegLoginPreflightSimulation extends Simulation {
 
   @Override
   public void after() {
-    LoginPreflightRetryQueue.write();
+    LoginPreflightRetryQueue.writePrimaryFailures();
   }
 }

@@ -20,7 +20,7 @@ import static utils.Headers.XSRF_TOKEN_COOKIE;
 /** Retries, once and only after the initial preflight, the accounts in its workspace-only queue. */
 public class AppRegLoginPreflightRetrySimulation extends Simulation {
   public AppRegLoginPreflightRetrySimulation() {
-    FeederBuilder.FileBased<String> failedUsers = csv(LoginPreflightRetryQueue.PATH.toString()).queue();
+    FeederBuilder.FileBased<String> failedUsers = csv(LoginPreflightRetryQueue.RETRY_PATH.toString()).queue();
     int retryCount = failedUsers.recordsCount();
     if (retryCount < 1) {
       throw new IllegalArgumentException("Login preflight retry queue contains no failed accounts");

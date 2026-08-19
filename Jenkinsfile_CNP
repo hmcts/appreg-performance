@@ -358,10 +358,15 @@ withNightlyPipeline(type, product, component) {
                           export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
                           export PATH="$JAVA_HOME/bin:$PATH"
                           ./gradlew --no-daemon gatlingRun --simulation simulations.AppRegLoginPreflightSimulation
+                          if awk 'NR > 1 { found = 1 } END { exit !found }' build/login-preflight-primary-failures.csv; then
+                            ./gradlew --no-daemon gatlingRun --simulation simulations.AppRegLoginPreflightSpareSimulation
+                          else
+                            echo "Login preflight reached its 500-account target without spare accounts."
+                          fi
                           if awk 'NR > 1 { found = 1 } END { exit !found }' build/login-preflight-retry.csv; then
                             ./gradlew --no-daemon gatlingRun --simulation simulations.AppRegLoginPreflightRetrySimulation
                           else
-                            echo "Login preflight completed without accounts to retry."
+                            echo "Login preflight reached its 500-account target without a retry."
                           fi
                         '''
                     }
