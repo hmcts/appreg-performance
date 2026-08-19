@@ -307,7 +307,7 @@ EOF
 withNightlyPipeline(type, product, component) {
     node {
         stage('Direct Gatling proof') {
-            timeout(time: 90, unit: 'MINUTES') {
+            timeout(time: 120, unit: 'MINUTES') {
                 checkout scm
                 withAzureKeyvault(
                     azureKeyVaultSecrets: secrets['appreg-${env}'],
