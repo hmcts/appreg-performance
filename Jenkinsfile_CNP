@@ -350,7 +350,7 @@ withNightlyPipeline(type, product, component) {
                             error 'application-diagnostic requires MAX_USERS * RUN_DURATION_MINUTES to be 35000 or less'
                         }
                     }
-                    if (!(workloadReleaseInterval ==~ /\d+(\.\d+)?/) || workloadReleaseInterval.toBigDecimal() <= 0) {
+                    if (!(workloadReleaseInterval ==~ /\d+(\.\d+)?/) || workloadReleaseInterval ==~ /0*\.?0*/) {
                         error 'WORKLOAD_RELEASE_INTERVAL_SECONDS must be a positive number'
                     }
                     env.RUN_DB_RESET = (params.RESET_DATABASE ?: false).toString()
