@@ -55,6 +55,7 @@ Recordings are raw browser evidence only. They reveal the HTTP flow but must not
 
 ## Validation
 
+- Commit logging-only changes locally; do not push them unless the user explicitly asks.
 - Run `./gradlew gatlingClasses` after source changes.
 - Run the smallest relevant one-user proof before adding a flow to a mixed workload or pipeline profile.
 - Keep the feeder-backed `AppRegWorkloadSimulation` separate from `*ProofSimulation` classes. It must consume queue feeders from `build/workload-data/` only after the seed stage has reserved any proof rows and trimmed each feeder to its exact deterministic schedule count.
