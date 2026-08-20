@@ -33,11 +33,6 @@ properties([
       name: 'RUN_PERFTEST',
       defaultValue: false,
       description: 'Run the weighted multi-user workload after seed and optional proof smokes'
-    ),
-    booleanParam(
-      name: 'RUN_LOGIN_PREFLIGHT',
-      defaultValue: false,
-      description: 'Run the read-only 500-account SSO/session preflight at one login per second'
     )
   ])
 ])
@@ -286,10 +281,6 @@ withNightlyPipeline(type, product, component) {
                     env.WORKLOAD_PROFILE = params.WORKLOAD_PROFILE
                     env.RUN_PROOF_SMOKES = params.RUN_PROOF_SMOKES.toString()
                     env.RUN_PERFTEST = params.RUN_PERFTEST.toString()
-                    // A new Jenkins parameter is absent for the first automatic build after this
-                    // Jenkinsfile changes; default that build safely to false.
-                    env.RUN_LOGIN_PREFLIGHT = (params.RUN_LOGIN_PREFLIGHT ?: false).toString()
-
                     if (params.RUN_DB_RESET) {
                         sh dbResetCommand
                     }
@@ -316,15 +307,6 @@ withNightlyPipeline(type, product, component) {
                                 echo "$variable is missing"
                               fi
                             done
-                            if [ "$RUN_LOGIN_PREFLIGHT" = "true" ]; then
-                              if [ "$RUN_DB_RESET" = "true" ] || [ "$RUN_DB_SEED" = "true" ] \
-                                || [ "$RUN_PROOF_SMOKES" = "true" ] || [ "$RUN_PERFTEST" = "true" ]; then
-                                echo "RUN_LOGIN_PREFLIGHT=true is read-only: set reset, seed, proof smokes and perftest to false" >&2
-                                exit 1
-                              fi
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.AppRegLoginPreflightSimulation
-                            fi
                             if [ "$RUN_PROOF_SMOKES" = "true" ]; then
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.AppRegSimulation
