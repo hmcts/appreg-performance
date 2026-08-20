@@ -30,7 +30,7 @@ public record WorkloadProfile(
     int bulkUploadCount) {
 
   private static final int MAX_TEST_ACCOUNTS = 500;
-  private static final double LOGIN_INTERVAL_SECONDS = 1.5;
+  private static final double LOGIN_INTERVAL_SECONDS = 1.0;
   private static final String MAX_USERS_PROPERTY = "appRegMaxUsers";
   private static final String DURATION_MINUTES_PROPERTY = "appRegDurationMinutes";
 

@@ -77,6 +77,7 @@ public class AppRegWorkloadSimulation extends Simulation {
           .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken"))))
       .exec(AuthenticationStage.registerPrimary(authentication))
       .exec(AuthenticationStage.awaitTarget(authentication))
+      .exec(AuthenticationStage.staggerWorkloadRelease(authentication))
       .doIf(AuthenticationStage::hasAuthenticatedSession).then(workloadActions());
 
     var spareWorkload = scenario("AppReg workload spare authentication")
@@ -88,6 +89,7 @@ public class AppRegWorkloadSimulation extends Simulation {
         AuthenticationStage.registerSpare(authentication))
       .exec(AuthenticationStage.completeUnclaimedSpare(authentication))
       .exec(AuthenticationStage.awaitTarget(authentication))
+      .exec(AuthenticationStage.staggerWorkloadRelease(authentication))
       .doIf(AuthenticationStage::hasAuthenticatedSession).then(workloadActions());
 
     var retryWorkload = scenario("AppReg workload final authentication retry")
@@ -98,6 +100,7 @@ public class AppRegWorkloadSimulation extends Simulation {
           .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))),
         AuthenticationStage.registerRetry(authentication))
       .exec(AuthenticationStage.awaitTarget(authentication))
+      .exec(AuthenticationStage.staggerWorkloadRelease(authentication))
       .doIf(AuthenticationStage::hasAuthenticatedSession).then(workloadActions());
 
     // This is a finite, feeder-backed run: start each allocated account once and allow its
@@ -125,7 +128,7 @@ public class AppRegWorkloadSimulation extends Simulation {
     System.out.println("Scheduled action totals: " + profile.scheduledActionCounts());
     System.out.println("Allocated feeder directory: " + feederDirectory);
     System.out.println("SSO is limited to " + WorkloadProfile.minimumLoginRampUpSeconds(profile.concurrentUsers())
-        + " seconds minimum for " + profile.concurrentUsers() + " accounts at one login every 1.5 seconds.");
+        + " seconds minimum for " + profile.concurrentUsers() + " accounts at one login per second.");
   }
 
   @Override

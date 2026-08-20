@@ -2,6 +2,7 @@ package utils;
 
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.Session;
+import java.time.Duration;
 import java.util.OptionalInt;
 
 import static io.gatling.javaapi.core.CoreDsl.asLongAs;
@@ -22,6 +23,8 @@ public final class AuthenticationStage {
   private static final String RETRY_CLAIMED_SESSION_KEY = "authenticationStageRetryClaimed";
   private static final String RETRY_EXAMINED_SESSION_KEY = "authenticationStageRetryExamined";
   private static final String TARGET_USERS_SESSION_KEY = "authenticationStageTargetUsers";
+  private static final String WORKLOAD_RELEASE_DELAY_MILLIS_SESSION_KEY = "authenticationStageWorkloadReleaseDelayMillis";
+  private static final long WORKLOAD_RELEASE_RAMP_MILLIS = 120_000L;
 
   private AuthenticationStage() {}
 
@@ -122,6 +125,22 @@ public final class AuthenticationStage {
         pause(1))
       .doIf(session -> !hasAuthenticatedSession(session)).then(exitHere())
       .doIf(session -> coordinator.targetFailed()).then(exec(session -> session.markAsFailed()));
+  }
+
+  /** Releases retained sessions evenly over two minutes after the authentication target opens. */
+  public static ChainBuilder staggerWorkloadRelease(AuthenticationTargetCoordinator coordinator) {
+    return exec(session -> {
+      if (!hasAuthenticatedSession(session)) return session;
+      int slot = session.getInt("accountOffset");
+      long delayMillis = coordinator.targetUsers() == 1
+          ? 0
+          : Math.round((double) slot * WORKLOAD_RELEASE_RAMP_MILLIS / (coordinator.targetUsers() - 1));
+      return session.set(WORKLOAD_RELEASE_DELAY_MILLIS_SESSION_KEY, delayMillis);
+    }).pause(session -> {
+      if (!session.contains(WORKLOAD_RELEASE_DELAY_MILLIS_SESSION_KEY)) return Duration.ZERO;
+      Long delayMillis = session.getLong(WORKLOAD_RELEASE_DELAY_MILLIS_SESSION_KEY);
+      return Duration.ofMillis(delayMillis == null ? 0 : delayMillis);
+    });
   }
 
   private static Session registerPrimarySession(Session session, AuthenticationTargetCoordinator coordinator) {
