@@ -60,7 +60,8 @@ public final class AuthenticationStage {
   }
 
   public static boolean hasAuthenticatedSession(Session session) {
-    return Boolean.TRUE.equals(session.getBoolean(AUTHENTICATED_SESSION_KEY));
+    return session.contains(AUTHENTICATED_SESSION_KEY)
+        && Boolean.TRUE.equals(session.getBoolean(AUTHENTICATED_SESSION_KEY));
   }
 
   public static boolean hasClaimedSpare(Session session) {
@@ -119,7 +120,7 @@ public final class AuthenticationStage {
   public static ChainBuilder awaitTarget(AuthenticationTargetCoordinator coordinator) {
     return asLongAs(session -> !coordinator.targetReached() && !coordinator.targetFailed()).on(
         pause(1))
-      .doIf(session -> !Boolean.TRUE.equals(session.getBoolean(AUTHENTICATED_SESSION_KEY))).then(exitHere())
+      .doIf(session -> !hasAuthenticatedSession(session)).then(exitHere())
       .doIf(session -> coordinator.targetFailed()).then(exec(session -> session.markAsFailed()));
   }
 
