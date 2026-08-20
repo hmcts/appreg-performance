@@ -24,7 +24,6 @@ public final class AuthenticationStage {
   private static final String RETRY_EXAMINED_SESSION_KEY = "authenticationStageRetryExamined";
   private static final String TARGET_USERS_SESSION_KEY = "authenticationStageTargetUsers";
   private static final String WORKLOAD_RELEASE_DELAY_MILLIS_SESSION_KEY = "authenticationStageWorkloadReleaseDelayMillis";
-  private static final long WORKLOAD_RELEASE_RAMP_MILLIS = 120_000L;
 
   private AuthenticationStage() {}
 
@@ -127,14 +126,13 @@ public final class AuthenticationStage {
       .doIf(session -> coordinator.targetFailed()).then(exec(session -> session.markAsFailed()));
   }
 
-  /** Releases retained sessions evenly over two minutes after the authentication target opens. */
-  public static ChainBuilder staggerWorkloadRelease(AuthenticationTargetCoordinator coordinator) {
+  /** Releases retained sessions at the selected cadence after the authentication target opens. */
+  public static ChainBuilder staggerWorkloadRelease(
+      AuthenticationTargetCoordinator coordinator, double intervalSeconds) {
     return exec(session -> {
       if (!hasAuthenticatedSession(session)) return session;
       int slot = session.getInt("accountOffset");
-      long delayMillis = coordinator.targetUsers() == 1
-          ? 0
-          : Math.round((double) slot * WORKLOAD_RELEASE_RAMP_MILLIS / (coordinator.targetUsers() - 1));
+      long delayMillis = Math.round(slot * intervalSeconds * 1_000D);
       return session.set(WORKLOAD_RELEASE_DELAY_MILLIS_SESSION_KEY, delayMillis);
     }).pause(session -> {
       if (!session.contains(WORKLOAD_RELEASE_DELAY_MILLIS_SESSION_KEY)) return Duration.ZERO;

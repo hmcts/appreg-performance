@@ -33,6 +33,7 @@ public record WorkloadProfile(
   private static final double LOGIN_INTERVAL_SECONDS = 1.0;
   private static final String MAX_USERS_PROPERTY = "appRegMaxUsers";
   private static final String DURATION_MINUTES_PROPERTY = "appRegDurationMinutes";
+  private static final String WORKLOAD_RELEASE_INTERVAL_SECONDS_PROPERTY = "appRegWorkloadReleaseIntervalSeconds";
 
   public WorkloadProfile {
     if ("smoke".equals(name)) {
@@ -116,6 +117,20 @@ public record WorkloadProfile(
 
   public static int minimumLoginRampUpSeconds(int concurrentUsers) {
     return (int) Math.ceil(concurrentUsers * LOGIN_INTERVAL_SECONDS);
+  }
+
+  public static double workloadReleaseIntervalSeconds() {
+    String value = System.getProperty(
+        WORKLOAD_RELEASE_INTERVAL_SECONDS_PROPERTY,
+        System.getenv().getOrDefault("WORKLOAD_RELEASE_INTERVAL_SECONDS", "1.5"));
+    try {
+      double interval = Double.parseDouble(value);
+      if (interval <= 0) throw new IllegalArgumentException();
+      return interval;
+    } catch (IllegalArgumentException exception) {
+      throw new IllegalArgumentException(
+          WORKLOAD_RELEASE_INTERVAL_SECONDS_PROPERTY + " must be a positive number", exception);
+    }
   }
 
   private static int cappedUsers(int configuredUsers) {

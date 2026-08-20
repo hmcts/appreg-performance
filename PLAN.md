@@ -46,7 +46,7 @@ The routine must not log passwords, tokens, cookies, client secrets, or response
 ## Current controlled settings
 
 - Primary authentication, spares and retries: one login per second.
-- Workload release: after the target is reached, retained sessions begin business work evenly over two minutes; this avoids an all-at-once application burst.
+- Workload release: after the target is reached, retained sessions begin business work at the selected Jenkins cadence; the default is one user every 1.5 seconds to avoid an all-at-once application burst.
 - Spare pool: ten approved accounts beyond the selected primary target.
 - Recovery: one spare replacement per failed primary account, then at most one retry if the target is still short.
 - Performance workload action pace: one planned action per authenticated user per minute.
