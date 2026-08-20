@@ -10,6 +10,7 @@ import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.DiagnosticLogging.logIfStatusAtLeast;
 
 /**
  * Adds and completes an Application in the Application List stored in the Gatling session.
@@ -43,11 +44,13 @@ public final class AddApplicationScenario {
           .queryParam("pageSize", "10")
           .queryParam("sort", "code,asc")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .transformResponse(logIfStatusAtLeast("Search application codes", 400))
           .check(status().is(200)))
         .exec(http("Get application-code details")
           .get("/application-codes/" + APPLICATION_CODE)
           .queryParam("date", "#{applicationAddDate}")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .transformResponse(logIfStatusAtLeast("Get application-code details", 400))
           .check(status().is(200)))
         .exec(http("Add application")
           .post("/application-lists/#{applicationListId}/entries")
@@ -55,11 +58,13 @@ public final class AddApplicationScenario {
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
           .body(StringBody(applicationBody()))
+          .transformResponse(logIfStatusAtLeast("Add application", 400))
           .check(status().in(200, 201))
           .check(jsonPath("$.id").saveAs(entryIdSessionKey)))
         .exec(http("Get added application")
           .get("/application-lists/#{applicationListId}/entries/#{" + entryIdSessionKey + "}")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .transformResponse(logIfStatusAtLeast("Get added application", 400))
           .check(status().is(200))
           .check(jsonPath("$.applicationCode").saveAs("applicationCode")))
         .exec(http("Get result codes")
@@ -67,12 +72,14 @@ public final class AddApplicationScenario {
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "100")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .transformResponse(logIfStatusAtLeast("Get result codes", 400))
           .check(status().is(200)))
         .exec(http("Get application results")
           .get("/application-lists/#{applicationListId}/entries/#{" + entryIdSessionKey + "}/results")
           .queryParam("pageNumber", "0")
           .queryParam("pageSize", "100")
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .transformResponse(logIfStatusAtLeast("Get application results", 400))
           .check(status().is(200)))
         .exec(http("Complete application")
           .put("/application-lists/#{applicationListId}/entries/#{" + entryIdSessionKey + "}")
@@ -80,6 +87,7 @@ public final class AddApplicationScenario {
           .header("Content-Type", "application/vnd.hmcts.appreg.v1+json")
           .header("X-XSRF-TOKEN", "#{xsrfToken}")
           .body(StringBody(completedApplicationBody()))
+          .transformResponse(logIfStatusAtLeast("Complete application", 400))
           .check(status().is(200)))
     );
   }

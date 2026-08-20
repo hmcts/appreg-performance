@@ -9,6 +9,7 @@ import static io.gatling.javaapi.http.HttpDsl.headerRegex;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.Headers.COMMON_HEADER;
+import static utils.DiagnosticLogging.logIfStatusAtLeast;
 
 /**
  * Searches Application Lists by description.
@@ -39,6 +40,7 @@ public final class SearchScenario {
           .queryParam("pageSize", PAGE_SIZE)
           .queryParam("sort", SORT_ORDER)
           .header("Accept", "application/vnd.hmcts.appreg.v1+json")
+          .transformResponse(logIfStatusAtLeast("Search application lists by description", 400))
           .check(status().is(200))
           .check(headerRegex("Content-Type", ".*json.*"))
           .check(jsonPath("$.content[0].id").optional().saveAs("applicationListId")))
