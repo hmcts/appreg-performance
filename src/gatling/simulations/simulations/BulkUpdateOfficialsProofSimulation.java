@@ -5,6 +5,7 @@ import java.util.Iterator;
 import java.util.Map;
 import scenarios.BulkUpdateOfficialsScenario;
 import utils.Environment;
+import utils.AuthenticationStage;
 import utils.SsoAuthentication;
 
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
@@ -34,7 +35,7 @@ public class BulkUpdateOfficialsProofSimulation extends Simulation {
     var bulkUpdateOfficials = scenario("AppReg bulk update officials proof")
       .exitBlockOnFail().on(
         feed(ssoUserFeeder)
-          .exec(SsoAuthentication.login())
+          .exec(AuthenticationStage.authenticateFrameworkProof())
           .exec(http("Application lists page")
             .get("/applications-list")
             .headers(COMMON_HEADER)

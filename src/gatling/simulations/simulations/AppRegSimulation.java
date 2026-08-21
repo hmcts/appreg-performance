@@ -11,6 +11,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import scenarios.AppRegScenario;
+import utils.AuthenticationStage;
 import utils.PerformanceProfile;
 import utils.SsoAuthentication;
 
@@ -37,7 +38,7 @@ public class AppRegSimulation extends Simulation {
     var httpProtocol = protocol();
     ChainBuilder authentication = switch (authMode) {
       case "none" -> exec(session -> session);
-      case "sso-login" -> feed(ssoUserFeeder).exec(SsoAuthentication.login());
+      case "sso-login" -> feed(ssoUserFeeder).exec(AuthenticationStage.authenticate(requiredAccountCount));
       default -> throw new IllegalArgumentException("authMode must be none or sso-login");
     };
     ScenarioBuilder applicationsListScenario = scenario("AppReg applications list")

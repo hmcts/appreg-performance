@@ -49,7 +49,7 @@ withNightlyPipeline("java", product, component) {
     // Entra/AppReg login-rate capacity have been agreed.
     env.PERFORMANCE_TEST_USERS = '1'
 
-    enablePerformanceTest(90)
+    enablePerformanceTest(120)
 
     afterAlways('test') {
         publishGatlingReports()

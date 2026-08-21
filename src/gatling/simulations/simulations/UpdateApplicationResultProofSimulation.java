@@ -5,6 +5,7 @@ import java.util.Iterator;
 import java.util.Map;
 import scenarios.UpdateApplicationResultScenario;
 import utils.Environment;
+import utils.AuthenticationStage;
 import utils.SsoAuthentication;
 
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
@@ -32,7 +33,7 @@ public class UpdateApplicationResultProofSimulation extends Simulation {
     var updateApplicationResult = scenario("AppReg application result update proof")
       .exitBlockOnFail().on(
         feed(ssoUserFeeder)
-          .exec(SsoAuthentication.login())
+          .exec(AuthenticationStage.authenticateFrameworkProof())
           .exec(http("Application lists page")
             .get("/applications-list")
             .headers(COMMON_HEADER)

@@ -3,7 +3,6 @@ package utils;
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.Session;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.IntStream;
@@ -69,24 +68,18 @@ public final class SsoAuthentication {
       .iterator();
   }
 
-  /** Supplies one spare account for each failed primary preflight account. */
-  public static Iterator<Map<String, Object>> spareUsers(
-      List<LoginPreflightRetryQueue.Account> failedPrimaryAccounts, int primaryAccountCount) {
-    if (primaryAccountCount + failedPrimaryAccounts.size() > MAX_TEST_ACCOUNTS) {
-      throw new IllegalArgumentException("The preflight target and spare accounts must not exceed " + MAX_TEST_ACCOUNTS);
+  /** Candidate spare identities for an in-process target authentication stage. */
+  public static Iterator<Map<String, Object>> spareCandidates(int primaryAccountCount, int spareAccountCount) {
+    if (primaryAccountCount + spareAccountCount > MAX_TEST_ACCOUNTS) {
+      throw new IllegalArgumentException("The authentication target and spare accounts must not exceed " + MAX_TEST_ACCOUNTS);
     }
     String template = requiredEnvironmentVariable("APPREG_TEST_ACCOUNT_TEMPLATE", "TEST_USER_EMAIL");
     String startIndex = environmentVariable("APPREG_ACCOUNT_START_INDEX");
     int firstIndex = startIndex == null ? 1 : Integer.parseInt(startIndex);
-    return IntStream.range(0, failedPrimaryAccounts.size())
-      .mapToObj(index -> {
-        var failedAccount = failedPrimaryAccounts.get(index);
-        return Map.<String, Object>of(
-            "username", accountName(template, firstIndex + primaryAccountCount + index, MAX_TEST_ACCOUNTS),
-            "retryUsername", failedAccount.username(),
-            "accountOffset", failedAccount.accountOffset(),
-            "retryAfterSeconds", failedAccount.retryAfterSeconds());
-      })
+    return IntStream.range(0, spareAccountCount)
+      .mapToObj(index -> Map.<String, Object>of(
+          "username", accountName(template, firstIndex + primaryAccountCount + index, MAX_TEST_ACCOUNTS),
+          "accountOffset", -1))
       .iterator();
   }
 
@@ -97,16 +90,16 @@ public final class SsoAuthentication {
       exec(http("AppReg SSO login redirect").get("/sso/login").headers(BROWSER_HEADERS).disableFollowRedirect()
         .transformResponse(DiagnosticLogging.logIfStatusNotIn("AppReg SSO login redirect", Set.of(302)))
         .check(status().is(302)).check(header("Retry-After").optional().saveAs("retryAfter"))
-        .check(headerRegex("Location", "(.+)").saveAs("entraAuthorizeUrl")))
+        .check(headerRegex("Location", "(.+)").saveAs("entraAuthorizeUrl")).silent())
         .exec(http("Entra authorize").get("#{entraAuthorizeUrl}")
           .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Accept-Language", BROWSER_HEADERS.get("Accept-Language"), "Upgrade-Insecure-Requests", "1", "Referer", Environment.BASE_URL + "/login"))
           .check(status().is(200)).check(regex("(?s).*?\\\"sessionId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraSessionId"))
           .check(regex("(?s).*?\\\"sCtx\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraContext"))
           .check(regex("(?s).*?\\\"sFT\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraFlowToken"))
-          .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraCanary")))
+          .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraCanary")).silent())
         .exec(http("Entra credential discovery").post(MICROSOFT_LOGIN_BASE_URL + "/common/GetCredentialType?mkt=en-GB")
           .headers(Map.of("Accept", "application/json, text/javascript, */*; q=0.01", "Content-Type", "application/json; charset=UTF-8", "Origin", MICROSOFT_LOGIN_BASE_URL, "Referer", "#{entraAuthorizeUrl}", "canary", "#{entraCanary}", "hpgrequestid", "#{entraSessionId}"))
-          .body(StringBody(CREDENTIAL_DISCOVERY_BODY)).asJson().check(status().is(200)))
+          .body(StringBody(CREDENTIAL_DISCOVERY_BODY)).asJson().check(status().is(200)).silent())
         .exec(http("Entra username and password").post(MICROSOFT_LOGIN_BASE_URL + "/" + tenantId + "/login")
           .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Content-Type", "application/x-www-form-urlencoded", "Origin", MICROSOFT_LOGIN_BASE_URL, "Referer", "#{entraAuthorizeUrl}"))
           .formParam("i13", "0").formParam("login", "#{username}").formParam("loginfmt", "#{username}").formParam("type", "11").formParam("LoginOptions", "3").formParam("lrt", "").formParam("lrtPartition", "").formParam("hisRegion", "").formParam("hisScaleUnit", "").formParam("passwd", password).formParam("ps", "2").formParam("psRNGCDefaultType", "").formParam("psRNGCEntropy", "").formParam("psRNGCSLK", "").formParam("canary", "#{entraCanary}").formParam("ctx", "#{entraContext}").formParam("hpgrequestid", "#{entraSessionId}").formParam("flowToken", "#{entraFlowToken}").formParam("PPSX", "").formParam("NewUser", "1").formParam("FoundMSAs", "").formParam("fspost", "0").formParam("i21", "0").formParam("CookieDisclosure", "0").formParam("IsFidoSupported", "1").formParam("isSignupPost", "0").formParam("DfpArtifact", "").formParam("i19", "3306")
@@ -114,29 +107,29 @@ public final class SsoAuthentication {
           .check(regex("(?s).*?\\\"sessionId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraSessionId"))
           .check(regex("(?s).*?\\\"sCtx\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraContext"))
           .check(regex("(?s).*?\\\"sFT\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraFlowToken"))
-          .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraCanary")))
+          .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraCanary")).silent())
         .doIf(SsoAuthentication::hasKmsiContinuation).then(
           exec(http("Entra KMSI").post(MICROSOFT_LOGIN_BASE_URL + "/kmsi")
           .transformResponse(DiagnosticLogging.logIfStatusNotIn("Entra KMSI", Set.of(200, 302)))
           .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Content-Type", "application/x-www-form-urlencoded", "Origin", MICROSOFT_LOGIN_BASE_URL, "Referer", MICROSOFT_LOGIN_BASE_URL + "/" + tenantId + "/login"))
           .disableFollowRedirect()
           .formParam("LoginOptions", "3").formParam("type", "28").formParam("ctx", "#{entraContext}").formParam("hpgrequestid", "#{entraSessionId}").formParam("flowToken", "#{entraFlowToken}").formParam("canary", "#{entraCanary}").formParam("i19", "7178").check(status().in(200, 302))
-          .check(headerRegex("Location", "(.+)").optional().saveAs("entraKmsiRedirectUrl1")))
+          .check(headerRegex("Location", "(.+)").optional().saveAs("entraKmsiRedirectUrl1")).silent())
           .doIf(session -> session.contains("entraKmsiRedirectUrl1")).then(
             exec(http("Entra KMSI Redirect 1").get("#{entraKmsiRedirectUrl1}")
               .transformResponse(DiagnosticLogging.logIfStatusNotIn("Entra KMSI Redirect 1", Set.of(200, 302)))
               .disableFollowRedirect()
               .headers(BROWSER_HEADERS)
               .check(status().in(200, 302))
-              .check(headerRegex("Location", "(.+)").optional().saveAs("entraKmsiRedirectUrl2"))))
+              .check(headerRegex("Location", "(.+)").optional().saveAs("entraKmsiRedirectUrl2")).silent()))
           .doIf(session -> session.contains("entraKmsiRedirectUrl2")).then(
             exec(http("Entra KMSI Redirect 2").get("#{entraKmsiRedirectUrl2}")
               .transformResponse(DiagnosticLogging.logIfStatusNotIn("Entra KMSI Redirect 2", Set.of(200, 302)))
               .disableFollowRedirect()
               .headers(BROWSER_HEADERS)
-              .check(status().in(200, 302)))))
-        .exec(http("AppReg authenticated home").get("/").headers(BROWSER_HEADERS).check(status().is(200)))
-        .exec(http("AppReg session check").get("/sso/me").header("Accept", "application/json").check(status().is(200)).check(jsonPath("$.authenticated").is("true")))
+              .check(status().in(200, 302)).silent())))
+        .exec(http("AppReg authenticated home").get("/").headers(BROWSER_HEADERS).check(status().is(200)).silent())
+        .exec(http("AppReg session check").get("/sso/me").header("Accept", "application/json").check(status().is(200)).check(jsonPath("$.authenticated").is("true")).silent())
     );
   }
 

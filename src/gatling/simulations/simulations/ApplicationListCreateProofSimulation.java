@@ -4,6 +4,7 @@ import io.gatling.javaapi.core.Simulation;
 import java.util.Iterator;
 import java.util.Map;
 import scenarios.ApplicationListCreateScenario;
+import utils.AuthenticationStage;
 import utils.SsoAuthentication;
 
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
@@ -22,7 +23,7 @@ public class ApplicationListCreateProofSimulation extends Simulation {
     var createApplicationList = scenario("AppReg application list create proof")
       .exitBlockOnFail().on(
         feed(ssoUserFeeder)
-          .exec(SsoAuthentication.login())
+          .exec(AuthenticationStage.authenticateFrameworkProof())
           .exec(ApplicationListCreateScenario.createApplicationList())
       );
 
