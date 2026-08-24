@@ -1,4 +1,4 @@
-CREATE TEMP TABLE reload_data_execution_guard ON COMMIT DROP AS
+CREATE TEMP TABLE reload_data_execution_guard AS
 SELECT
     :'appreg_reset_confirm'::text AS reset_confirm,
     :'appreg_reset_pipeline_component'::text AS pipeline_component,
