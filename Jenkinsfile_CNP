@@ -62,9 +62,54 @@ def secrets = [
 def dbResetCommand = '''
   echo "Running approved Postgres reload"
   command -v psql
+  required_value() {
+    name="$1"
+    expected="$2"
+    actual="$(printenv "$name" || true)"
+    if [ "$actual" != "$expected" ]; then
+      echo "Refusing database reset: $name must be $expected" >&2
+      exit 1
+    fi
+  }
+  required_non_empty() {
+    name="$1"
+    if [ -z "$(printenv "$name" || true)" ]; then
+      echo "Refusing database reset: $name is not set" >&2
+      exit 1
+    fi
+  }
+  required_value APPREG_PIPELINE_COMPONENT performance
+  required_value APPREG_PIPELINE_ENVIRONMENT test
+  required_value TEST_TYPE pipeline
+  required_value TEST_URL https://appreg.test.apps.hmcts.net
+  required_value RUN_DB_RESET true
+  for variable in DB_HOST DB_PORT DB_NAME DB_USER DB_PASSWORD; do
+    required_non_empty "$variable"
+  done
+  case "$DB_HOST" in
+    *test*|*Test*|*TEST*) ;;
+    *)
+      echo "Refusing database reset: DB_HOST must identify the Test database host" >&2
+      exit 1
+      ;;
+  esac
+  case "$DB_HOST $DB_NAME" in
+    *staging*|*Staging*|*STAGING*|*prod*|*Prod*|*PROD*|*production*|*Production*|*PRODUCTION*)
+      echo "Refusing database reset: DB_HOST/DB_NAME must not identify staging or production" >&2
+      exit 1
+      ;;
+  esac
   export PGPASSWORD="$DB_PASSWORD"
   psql -h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -U "$DB_USER" \
-    -v ON_ERROR_STOP=1 -f db/postgres/reload_data.sql
+    -v ON_ERROR_STOP=1 \
+    -v appreg_reset_confirm=APPREG_PERFORMANCE_TEST_RESET \
+    -v appreg_reset_pipeline_component="$APPREG_PIPELINE_COMPONENT" \
+    -v appreg_reset_environment="$APPREG_PIPELINE_ENVIRONMENT" \
+    -v appreg_reset_test_type="$TEST_TYPE" \
+    -v appreg_reset_test_url="$TEST_URL" \
+    -v appreg_reset_db_host="$DB_HOST" \
+    -v appreg_reset_db_name="$DB_NAME" \
+    -f db/postgres/reload_data.sql
 '''
 
 def dbSeedCommand = '''
@@ -322,6 +367,8 @@ withNightlyPipeline(type, product, component) {
                 ) {
                     env.TEST_TYPE = 'pipeline'
                     env.TEST_URL = 'https://appreg.test.apps.hmcts.net'
+                    env.APPREG_PIPELINE_COMPONENT = component
+                    env.APPREG_PIPELINE_ENVIRONMENT = 'test'
                     env.TEST_USER_EMAIL = initialTestUserEmail
                     env.APPREG_TEST_ACCOUNT_TEMPLATE = 'appreg-{index}@dev.platform.hmcts.net'
                     env.AUTH_MODE = 'sso-login'

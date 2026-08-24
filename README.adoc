@@ -85,7 +85,7 @@ Jenkins exposes five user-facing parameters: `RUN_MODE`, `MAX_USERS`, `RUN_DURAT
 | Ignored; fixed at 70
 |===
 
-`RESET_DATABASE=true` restores the approved masked Test baseline before the selected mode runs. It is normally unnecessary for routine diagnostics.
+`RESET_DATABASE=true` restores the approved masked Test baseline before the selected mode runs. It is normally unnecessary for routine diagnostics. The reset stage is guarded as a Test-only performance-pipeline operation: Jenkins requires the Test pipeline markers and the approved Test application origin before invoking `db/postgres/reload_data.sql`, and the SQL script refuses to run unless those values are passed explicitly by Jenkins. The database host must identify Test and must not identify staging or production.
 
 The implementation details below explain the derived controls used by the pipeline:
 
