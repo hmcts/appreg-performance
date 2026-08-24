@@ -1,12 +1,50 @@
+CREATE TEMP TABLE reload_data_execution_guard ON COMMIT DROP AS
+SELECT
+    :'appreg_reset_confirm'::text AS reset_confirm,
+    :'appreg_reset_pipeline_component'::text AS pipeline_component,
+    :'appreg_reset_environment'::text AS environment,
+    :'appreg_reset_test_type'::text AS test_type,
+    :'appreg_reset_test_url'::text AS test_url,
+    :'appreg_reset_db_host'::text AS db_host,
+    :'appreg_reset_db_name'::text AS db_name;
+
 DO $$
 DECLARE
-    v_host text;
+    v_guard record;
 BEGIN
-    SELECT inet_server_addr()::text
-    INTO v_host;
+    SELECT *
+    INTO STRICT v_guard
+    FROM reload_data_execution_guard;
 
-    IF v_host NOT IN ('10.141.44.18/32', '10.141.44.17/32') THEN
-        RAISE EXCEPTION 'Refusing to run: connected to % instead of the approved server', v_host;
+    IF v_guard.reset_confirm <> 'APPREG_PERFORMANCE_TEST_RESET' THEN
+        RAISE EXCEPTION 'Refusing to run: reset confirmation was not provided by the performance pipeline';
+    END IF;
+
+    IF v_guard.pipeline_component <> 'performance' THEN
+        RAISE EXCEPTION 'Refusing to run: pipeline component must be performance';
+    END IF;
+
+    IF v_guard.environment <> 'test' THEN
+        RAISE EXCEPTION 'Refusing to run: pipeline environment must be test';
+    END IF;
+
+    IF v_guard.test_type <> 'pipeline' THEN
+        RAISE EXCEPTION 'Refusing to run: TEST_TYPE must be pipeline';
+    END IF;
+
+    IF v_guard.test_url <> 'https://appreg.test.apps.hmcts.net' THEN
+        RAISE EXCEPTION 'Refusing to run: TEST_URL must be the approved Test origin';
+    END IF;
+
+    IF v_guard.db_host !~* 'test'
+        OR v_guard.db_host ~* '(staging|prod|production)'
+        OR v_guard.db_name ~* '(staging|prod|production)'
+        OR current_database() ~* '(staging|prod|production)' THEN
+        RAISE EXCEPTION 'Refusing to run: database identity does not match the Test-only reset guard';
+    END IF;
+
+    IF current_database() <> v_guard.db_name THEN
+        RAISE EXCEPTION 'Refusing to run: connected database does not match the Jenkins DB_NAME value';
     END IF;
 END
 $$;
