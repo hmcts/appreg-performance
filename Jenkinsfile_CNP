@@ -11,18 +11,23 @@ properties([
   parameters([
     choice(
       name: 'RUN_MODE',
-      choices: ['framework-proof', 'application-diagnostic', 'performance'],
-      description: 'Framework proof runs one-user proofs; application diagnostic is a short capped workload; performance runs the full 500-user benchmark.'
+      choices: ['framework-proof', 'application-diagnostic', 'prototype', 'performance'],
+      description: 'Framework proof runs one-user proofs; application diagnostic is a short capped workload; prototype proves read-only phase measurement; performance runs the full 500-user benchmark.'
     ),
     string(
       name: 'MAX_USERS',
-      defaultValue: '1',
-      description: 'Users for application-diagnostic mode, capped at 500. Ignored by framework-proof and performance modes.'
+      defaultValue: '2',
+      description: 'Users for application-diagnostic and prototype modes, capped at 500. Ignored by framework-proof and performance modes.'
     ),
     string(
       name: 'RUN_DURATION_MINUTES',
       defaultValue: '5',
-      description: 'Duration for application-diagnostic mode in minutes. Ignored by framework-proof and performance modes.'
+      description: 'Duration for application-diagnostic mode in minutes. Ignored by framework-proof, prototype and performance modes.'
+    ),
+    string(
+      name: 'STEADY_STATE_MINUTES',
+      defaultValue: '30',
+      description: 'Measured steady-state duration for prototype mode. Ignored by other modes.'
     ),
     string(
       name: 'WORKLOAD_RELEASE_INTERVAL_SECONDS',
@@ -32,7 +37,7 @@ properties([
     booleanParam(
       name: 'RESET_DATABASE',
       defaultValue: false,
-      description: 'Restore the approved masked Test database baseline before the selected run'
+      description: 'Restore the approved masked Test database baseline before a seeded run. Ignored by prototype.'
     )
   ])
 ])
@@ -374,13 +379,15 @@ withNightlyPipeline(type, product, component) {
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
                     def runMode = params.RUN_MODE ?: 'framework-proof'
-                    def diagnosticUsers = (params.MAX_USERS ?: '1').toString().trim()
+                    def diagnosticUsers = (params.MAX_USERS ?: '2').toString().trim()
                     def diagnosticMinutes = (params.RUN_DURATION_MINUTES ?: '5').toString().trim()
+                    def steadyStateMinutes = (params.STEADY_STATE_MINUTES ?: '30').toString().trim()
                     def workloadReleaseInterval = (params.WORKLOAD_RELEASE_INTERVAL_SECONDS ?: '1.5').toString().trim()
                     def runModes = [
-                        'application-diagnostic': [profile: 'performance', users: diagnosticUsers, minutes: diagnosticMinutes, proofs: false],
-                        'framework-proof':         [profile: 'smoke', users: '1', minutes: '1', proofs: true],
-                        'performance':             [profile: 'performance', users: '500', minutes: '70', proofs: false]
+                        'application-diagnostic': [profile: 'performance', users: diagnosticUsers, minutes: diagnosticMinutes, proofs: false, prototype: false, workload: true, seed: true],
+                        'framework-proof':         [profile: 'smoke', users: '1', minutes: '1', proofs: true, prototype: false, workload: false, seed: true],
+                        'prototype':               [profile: 'smoke', users: diagnosticUsers, minutes: steadyStateMinutes, proofs: false, prototype: true, workload: false, seed: false],
+                        'performance':             [profile: 'performance', users: '500', minutes: '70', proofs: false, prototype: false, workload: true, seed: true]
                     ]
                     def selectedRun = runModes[runMode]
                     if (selectedRun == null) {
@@ -397,18 +404,29 @@ withNightlyPipeline(type, product, component) {
                             error 'application-diagnostic requires MAX_USERS * RUN_DURATION_MINUTES to be 35000 or less'
                         }
                     }
-                    if (!(workloadReleaseInterval ==~ /\d+(\.\d+)?/) || workloadReleaseInterval ==~ /0*\.?0*/) {
+                    if (runMode == 'prototype') {
+                        if (!(diagnosticUsers ==~ /\d+/) || diagnosticUsers.toInteger() < 1 || diagnosticUsers.toInteger() > 500) {
+                            error 'prototype requires MAX_USERS to be an integer from 1 to 500'
+                        }
+                        if (!(steadyStateMinutes ==~ /\d+/) || steadyStateMinutes.toInteger() < 1) {
+                            error 'prototype requires STEADY_STATE_MINUTES to be a positive integer'
+                        }
+                    }
+                    if (selectedRun.workload
+                        && (!(workloadReleaseInterval ==~ /\d+(\.\d+)?/) || workloadReleaseInterval ==~ /0*\.?0*/)) {
                         error 'WORKLOAD_RELEASE_INTERVAL_SECONDS must be a positive number'
                     }
-                    env.RUN_DB_RESET = (params.RESET_DATABASE ?: false).toString()
-                    env.RUN_DB_SEED = 'true'
+                    env.RUN_DB_RESET = (selectedRun.seed && (params.RESET_DATABASE ?: false)).toString()
+                    env.RUN_DB_SEED = selectedRun.seed.toString()
                     env.WORKLOAD_PROFILE = selectedRun.profile
                     env.RUN_PROOF_SMOKES = selectedRun.proofs.toString()
-                    env.RUN_PERFTEST = (!selectedRun.proofs).toString()
+                    env.RUN_PROTOTYPE = selectedRun.prototype.toString()
+                    env.RUN_PERFTEST = selectedRun.workload.toString()
                     env.MAX_USERS = selectedRun.users
                     env.RUN_DURATION_MINUTES = selectedRun.minutes
+                    env.STEADY_STATE_MINUTES = steadyStateMinutes
                     env.WORKLOAD_RELEASE_INTERVAL_SECONDS = workloadReleaseInterval
-                    if (params.RESET_DATABASE) {
+                    if (env.RUN_DB_RESET == 'true') {
                         sh dbResetCommand
                     }
 
@@ -475,6 +493,14 @@ withNightlyPipeline(type, product, component) {
                               # Requires the dedicated Application with an existing result created by RUN_DB_SEED.
                               ./gradlew --no-daemon gatlingRun \
                                 --simulation simulations.UpdateApplicationResultProofSimulation
+                            fi
+
+                            if [ "$RUN_PROTOTYPE" = "true" ]; then
+                              ./gradlew --no-daemon gatlingRun \
+                                -DappRegPrototypeUsers="$MAX_USERS" \
+                                -DappRegPrototypeSteadyStateMinutes="$STEADY_STATE_MINUTES" \
+                                -Dgatling.charting.useGroupDurationMetric=true \
+                                --simulation simulations.PhaseMeasurementPrototypeSimulation
                             fi
 
                             if [ "$RUN_PERFTEST" = "true" ]; then

@@ -49,3 +49,8 @@ tasks.register('printWorkloadPlan', JavaExec) {
   mainClass = 'utils.WorkloadPlanPrinter'
   systemProperties System.properties
 }
+
+tasks.register('prototypeSelfCheck', JavaExec) {
+  classpath = sourceSets.gatling.runtimeClasspath
+  mainClass = 'utils.PrototypeSettings'
+}

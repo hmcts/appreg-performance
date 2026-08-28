@@ -17,3 +17,4 @@ src/gatling/resources/recorder.conf
 # Downloaded Jenkins/Gatling evidence is local-only and may contain environment identifiers.
 .local/gatling-reports/
 .gradle-home/
+PLAN.md

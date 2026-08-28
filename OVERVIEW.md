@@ -10,10 +10,11 @@ Applications Register at the HTTP layer. It provides:
 
 - a basic Applications List smoke journey;
 - focused one-user proofs for individual business actions;
+- an isolated read-only prototype for proving phase-specific measurement;
 - a deterministic multi-user workload;
 - AppReg and Microsoft Entra authentication replay;
 - PostgreSQL-backed test-data allocation; and
-- Jenkins entrypoints for proof, diagnostic and performance execution.
+- Jenkins entrypoints for proof, prototype, diagnostic and performance execution.
 
 The default target is `https://appreg.test.apps.hmcts.net`.
 
@@ -60,7 +61,7 @@ Current framework coverage is limited:
 | `NFR004` | The performance profile eventually overlaps 500 finite user journeys, but it does not define or assert a 500-user steady-state acceptance window or performance degradation limit. |
 | `NFR005` | Not measured. |
 | `NFR006` | Simple backend operations are exercised, but the two-second limit is not asserted. |
-| `NFR007` | Search and reporting operations are exercised, but the five-second limit is not asserted. |
+| `NFR007` | The prototype asserts the five-second p95 limit for read-only search, but the full mixed workload and reporting operations do not yet have NFR assertions. |
 
 ### Workload operation classification
 
@@ -184,6 +185,7 @@ workload actions; it does not protect or roll back the earlier seed operation.
 | `BulkUpdateFeesProofSimulation` | Update fee details on three seeded Applications | Changes data | Yes |
 | `BulkApplicationUploadProofSimulation` | Upload Applications into a seeded empty list | Creates data | Yes |
 | `ResultMultipleApplicationsSetupSimulation` | Create a list and three Applications for manual setup | Creates data | No |
+| `PhaseMeasurementPrototypeSimulation` | Authenticate, warm up and measure Application List search using explicit population-wide phase boundaries | Read-only | `prototype` only |
 | `AppRegWorkloadSimulation` | Execute the deterministic mixed workload | Creates and changes data | Workload modes |
 
 All executable proof simulations assert 100% successful requests. Proofs that
@@ -230,7 +232,9 @@ service-level objective or response-time pass/fail threshold.
 
 ## Test-data provisioning
 
-The CNP pipeline runs PostgreSQL seed logic before every mode. It creates
+The CNP pipeline runs PostgreSQL seed logic before proof and workload modes. It
+is deliberately skipped by the read-only `prototype` mode. Where seeding runs,
+it creates
 isolated synthetic records and writes:
 
 - proof allocation variables to `build/seed-allocation.env`;
@@ -242,21 +246,22 @@ the workload directory. Mutable allocations are intended for one action only so
 virtual users do not update the same record.
 
 `RESET_DATABASE=true` runs the guarded masked-database restore before the seed
-stage. Reset is optional; seeding is not.
+stage. Reset is optional. The setting is ignored by `prototype`.
 
 ## CNP Jenkins execution
 
-`Jenkinsfile_CNP` exposes five parameters:
+`Jenkinsfile_CNP` exposes six parameters:
 
 | Parameter | Behaviour |
 | --- | --- |
-| `RUN_MODE` | Selects `framework-proof`, `application-diagnostic` or `performance` |
-| `MAX_USERS` | Caps diagnostic users to `1..500` |
+| `RUN_MODE` | Selects `framework-proof`, `application-diagnostic`, `prototype` or `performance` |
+| `MAX_USERS` | Caps diagnostic or prototype users to `1..500` |
 | `RUN_DURATION_MINUTES` | Caps diagnostic duration |
+| `STEADY_STATE_MINUTES` | Configures the prototype measured steady state; defaults to 30 minutes |
 | `WORKLOAD_RELEASE_INTERVAL_SECONDS` | Staggers retained sessions into business work; Jenkins defaults to one second |
-| `RESET_DATABASE` | Optionally restores the masked Test baseline before seeding |
+| `RESET_DATABASE` | Optionally restores the masked Test baseline before seeding; ignored by `prototype` |
 
-The common execution order is:
+The seeded-mode execution order is:
 
 1. Optionally reset the database.
 2. Seed and allocate data.
@@ -278,6 +283,20 @@ The common execution order is:
 - Requires a positive duration.
 - Rejects users multiplied by minutes above 35,000.
 - Runs `AppRegWorkloadSimulation`.
+
+### `prototype`
+
+- Does not reset or seed the database.
+- Authenticates `MAX_USERS` progressively at one user per second.
+- Retains each user's Gatling session and cookies across all phases.
+- Holds the population at common authentication, warm-up and ramp-down
+  boundaries.
+- Runs one unmeasured Application List search warm-up.
+- Repeats the measured `AppReg_030_Application_List_Search` group once per
+  minute for the configurable steady-state duration.
+- Uses elapsed group duration and asserts that measured requests are 100%
+  successful and p95 is less than five seconds.
+- Prints prominent phase banners once per population transition.
 
 ### `performance`
 

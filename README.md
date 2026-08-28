@@ -105,11 +105,12 @@ environment and data scope have been explicitly approved.
 
 | Parameter | Purpose |
 | --- | --- |
-| `RUN_MODE` | Select `framework-proof`, `application-diagnostic` or `performance` |
-| `MAX_USERS` | Cap users for `application-diagnostic` |
+| `RUN_MODE` | Select `framework-proof`, `application-diagnostic`, `prototype` or `performance` |
+| `MAX_USERS` | Cap users for `application-diagnostic` or `prototype` |
 | `RUN_DURATION_MINUTES` | Cap duration for `application-diagnostic` |
+| `STEADY_STATE_MINUTES` | Set the measured steady-state duration for `prototype`; defaults to 30 minutes |
 | `WORKLOAD_RELEASE_INTERVAL_SECONDS` | Delay between authenticated sessions starting workload actions |
-| `RESET_DATABASE` | Optionally restore the masked Test baseline before seeding |
+| `RESET_DATABASE` | Optionally restore the masked Test baseline before seeding; ignored by `prototype` |
 
 Current modes:
 
@@ -117,12 +118,36 @@ Current modes:
 | --- | --- |
 | `framework-proof` | Seed data and run the proof set explicitly listed in `Jenkinsfile_CNP` |
 | `application-diagnostic` | Seed data and run a bounded deterministic workload using the `performance` profile scaled to the requested users and minutes |
+| `prototype` | Run the read-only phase-measurement prototype without resetting or seeding the database |
 | `performance` | Seed data and run the fixed 500-user, 70-action-per-user deterministic workload |
 
 For `application-diagnostic`, users must be between 1 and 500, duration must be
 positive, and users multiplied by minutes must not exceed 35,000.
 
-Every mode seeds data. Database reset is optional and runs before seeding.
+The `prototype` mode authenticates the requested users progressively, holds the
+same sessions at explicit phase boundaries, performs an unmeasured warm-up
+search and then repeats the measured search for `STEADY_STATE_MINUTES`. Its p95
+elapsed group duration must be less than five seconds and all requests must
+succeed. Phase changes are printed as prominent `PROTOTYPE PHASE` banners.
+
+Run the prototype locally with the group-duration metric enabled:
+
+```bash
+./gradlew gatlingRun \
+  -DappRegPrototypeUsers=2 \
+  -DappRegPrototypeSteadyStateMinutes=1 \
+  -Dgatling.charting.useGroupDurationMetric=true \
+  --simulation simulations.PhaseMeasurementPrototypeSimulation
+```
+
+Validate its configuration without authenticating or sending HTTP traffic:
+
+```bash
+./gradlew prototypeSelfCheck gatlingClasses
+```
+
+The prototype is read-only and does not seed data. Other CNP modes seed data;
+database reset remains optional and runs before their seed stage.
 
 The `framework-proof` mode does not currently execute every proof class present
 in the source tree. See [OVERVIEW.md](OVERVIEW.md) for the exact current list.
