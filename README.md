@@ -4,7 +4,8 @@ Java 21 Gatling tests for the HMCTS Applications Register. The suite sends HTTP
 requests directly to AppReg; it does not drive a browser.
 
 See [OVERVIEW.md](OVERVIEW.md) for the current architecture, implemented
-journeys, authentication gate, workload scheduling and Jenkins execution flow.
+journeys, applicable non-functional requirements and coverage gaps,
+authentication gate, workload scheduling and Jenkins execution flow.
 
 ## Prerequisites
 

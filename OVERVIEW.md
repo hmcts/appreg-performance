@@ -17,6 +17,78 @@ Applications Register at the HTTP layer. It provides:
 
 The default target is `https://appreg.test.apps.hmcts.net`.
 
+## Applicable non-functional requirements
+
+The supplied non-functional requirements are:
+
+| ID | Requirement |
+| --- | --- |
+| `NFR001` | The system shall maintain at least 98.5% availability, excluding planned maintenance. |
+| `NFR004` | The system shall support at least 500 concurrent users without performance degradation. |
+| `NFR005` | The system shall complete trivial operations with no backend interaction in less than 0.25 seconds. |
+| `NFR006` | The system shall complete simple backend operations, such as GET or PUT operations, in less than 2 seconds. |
+| `NFR007` | The system shall complete complex backend operations, such as search or reporting, in less than 5 seconds. |
+
+These requirements are not evidence that the current framework demonstrates
+compliance. The agreed acceptance interpretation for the Gatling-owned
+requirements is:
+
+- a concurrent user is an authenticated user with an active Gatling session,
+  including while that user is in think time;
+- all 500 sessions must remain active throughout a measured steady-state period;
+- the steady-state duration will be configurable and will default to 30 minutes;
+- authentication, setup and warm-up are outside measured business-operation
+  timings, but a failure to establish 500 authenticated sessions prevents an
+  `NFR004` pass;
+- the p95 duration of each complete named business-action group must be below
+  the applicable `NFR006` or `NFR007` limit;
+- measured business requests must be 100% successful; and
+- the initial interpretation of “without performance degradation” is that the
+  absolute `NFR006` and `NFR007` limits still pass at 500 users. The measurement
+  and reporting model must allow a later comparison with a low-load baseline,
+  but no permitted percentage increase has yet been agreed.
+
+`NFR001` and `NFR005` remain to be defined. A single Gatling run cannot
+establish availability, and a no-backend browser interaction cannot be measured
+accurately by this HTTP-only suite.
+
+Current framework coverage is limited:
+
+| Requirement | Current coverage |
+| --- | --- |
+| `NFR001` | Not measured. |
+| `NFR004` | The performance profile eventually overlaps 500 finite user journeys, but it does not define or assert a 500-user steady-state acceptance window or performance degradation limit. |
+| `NFR005` | Not measured. |
+| `NFR006` | Simple backend operations are exercised, but the two-second limit is not asserted. |
+| `NFR007` | Search and reporting operations are exercised, but the five-second limit is not asserted. |
+
+### Workload operation classification
+
+The acceptance boundary is the complete named Gatling group, including the
+supporting requests that form that business action. Authentication, unrelated
+setup and warm-up traffic are excluded. The phase-specific prototype must
+confirm that Gatling reports and asserts the intended elapsed group duration
+before these classifications become executable assertions.
+
+| Workload action | Gatling group | Classification | p95 limit |
+| --- | --- | --- | --- |
+| `update_application` | `AppReg_040_Application_Update` | `NFR006` simple single-application operation | Less than 2 seconds |
+| `add_application` | `AppReg_050_Application_Add` | `NFR006` simple single-application operation | Less than 2 seconds |
+| `result_multiple` | `AppReg_060_Applications_Bulk_Result` | `NFR007` complex multi-application operation | Less than 5 seconds |
+| `update_result` | `AppReg_070_Application_Result_Update` | `NFR006` simple single-application operation | Less than 2 seconds |
+| `create_list` | `AppReg_020_Application_List_Create` | `NFR006` simple single-list operation | Less than 2 seconds |
+| `update_list` | `AppReg_080_Application_List_Update` | `NFR006` simple single-list operation | Less than 2 seconds |
+| `close_list` | `AppReg_090_Application_List_Close` | `NFR006` simple single-list operation | Less than 2 seconds |
+| `result_application` | `AppReg_065_Application_Result` | `NFR006` simple single-application operation | Less than 2 seconds |
+| `bulk_officials` | `AppReg_065_Applications_Bulk_Officials` | `NFR007` complex multi-application operation | Less than 5 seconds |
+| `bulk_fees` | `AppReg_070_Applications_Bulk_Fees` | `NFR007` complex multi-application operation | Less than 5 seconds |
+| `bulk_upload` | `AppReg_085_Applications_Bulk_Upload` | `NFR007` complex asynchronous bulk operation | Less than 5 seconds |
+| `other_operations` | `AppReg_030_Application_List_Search` | `NFR007` complex search operation | Less than 5 seconds |
+
+The Activity Audit report proof group,
+`AppReg_090_Reports_Activity_Audit`, is also a complex `NFR007` operation when
+it is included in an NFR workload. It is not currently a `WorkloadAction`.
+
 ## Technology
 
 - Java 21 toolchain
