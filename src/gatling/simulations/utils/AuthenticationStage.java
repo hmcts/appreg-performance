@@ -6,7 +6,7 @@ import io.gatling.javaapi.core.ChainBuilder;
 public final class AuthenticationStage {
   private AuthenticationStage() {}
 
-  /** Framework proofs deliberately authenticate one user and run one focused journey. */
+  /** Authenticates a framework-proof user while retaining that user's session and cookie jar. */
   public static ChainBuilder authenticateFrameworkProof() {
     return SsoAuthentication.login();
   }

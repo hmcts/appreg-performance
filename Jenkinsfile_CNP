@@ -473,46 +473,14 @@ withNightlyPipeline(type, product, component) {
                               fi
                             done
                             if [ "$RUN_PROOF_SMOKES" = "true" ]; then
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.AppRegSimulation
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.ActivityAuditReportProofSimulation
-
                               if [ "$RUN_DB_SEED" != "true" ]; then
                                 echo "RUN_PROOF_SMOKES=true requires RUN_DB_SEED=true" >&2
                                 exit 1
                               fi
 
-                              # Requires the canonical editable list and entry allocation created by RUN_DB_SEED.
+                              # One virtual user reuses one SSO session across the complete seeded proof set.
                               ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.UpdateApplicationProofSimulation
-                              # Requires the separate ordinary open list allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.UpdateApplicationListProofSimulation
-                              # Requires the separate close-ready list and entry allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.UpdateAndCloseApplicationListProofSimulation
-                              # Requires the dedicated empty list allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.AddApplicationProofSimulation
-                              # Requires the dedicated three-entry bulk target allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.ResultMultipleApplicationsProofSimulation
-                              # Requires the dedicated single-result list and entry allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.ResultApplicationProofSimulation
-                              # Requires the dedicated empty bulk-upload list allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.BulkApplicationUploadProofSimulation
-                              # Requires the dedicated three-entry bulk-fees allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.BulkUpdateFeesProofSimulation
-                              # Requires the dedicated three-entry bulk-officials allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.BulkUpdateOfficialsProofSimulation
-                              # Requires the dedicated Application with an existing result created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.UpdateApplicationResultProofSimulation
+                                --simulation simulations.FrameworkProofSimulation
                             fi
 
                             if [ "$RUN_PROTOTYPE" = "true" ]; then

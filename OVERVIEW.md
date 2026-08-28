@@ -170,8 +170,9 @@ authentication later fails.
 
 ## Executable simulations
 
-| Simulation | Behaviour | Persistent-data effect | CNP proof mode |
+| Simulation | Behaviour | Persistent-data effect | Included in `framework-proof` sequence |
 | --- | --- | --- | --- |
+| `FrameworkProofSimulation` | Authenticate once and orchestrate the selected proof journeys sequentially | Includes the effects listed below | Orchestrator |
 | `AppRegSimulation` | Basic Applications List HTML, JavaScript and optional API journey | Read-only | Yes |
 | `ApplicationListSearchProofSimulation` | Search Application Lists | Read-only | No |
 | `ActivityAuditReportProofSimulation` | Generate, poll and download an Activity Audit report | Does not change AppReg records | Yes |
@@ -194,7 +195,7 @@ All executable proof simulations assert 100% successful requests. Proofs that
 use seeded data read their allocation identifiers from required environment
 variables and fail at startup when those variables are absent.
 
-The CNP proof mode does not currently run
+The CNP proof sequence does not currently include the journeys from
 `ApplicationListSearchProofSimulation`, `ApplicationListCreateProofSimulation`
 or `ResultMultipleApplicationsSetupSimulation`.
 
@@ -283,9 +284,14 @@ The seeded-mode execution order is:
 ### `framework-proof`
 
 - Uses the `smoke` allocation.
-- Runs `AppRegSimulation` plus the proof simulations marked **Yes** in the table
-  above.
-- Uses one authenticated user per proof.
+- Launches `FrameworkProofSimulation` once and runs the same twelve business
+  proofs previously listed as separate Jenkins invocations.
+- Authenticates one virtual user once, then retains that Gatling session and
+  cookie jar for the complete sequence.
+- Starts each proof when the preceding proof completes. The sequence remains
+  single-threaded, and authentication remains outside the business-action
+  groups.
+- Keeps the individual proof simulations available for focused diagnosis.
 - Does not currently run every proof class in the repository.
 
 ### `application-diagnostic`

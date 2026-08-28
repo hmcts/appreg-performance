@@ -115,7 +115,7 @@ Current modes:
 
 | Mode | Execution |
 | --- | --- |
-| `framework-proof` | Seed data and run the proof set explicitly listed in `Jenkinsfile_CNP` |
+| `framework-proof` | Seed data, authenticate one user once and run the twelve-proof set sequentially in one Gatling session |
 | `application-diagnostic` | Seed data and run a bounded deterministic workload using the `performance` profile scaled to the requested users and minutes |
 | `prototype` | Run the read-only phase-measurement prototype without resetting or seeding the database |
 | `performance` | Seed isolated ramp-up and measured data, then run the phase-based workload with 500 users and a configurable measured period |
@@ -187,8 +187,14 @@ construction checks the exact ramp-up and measured feeder sizes before Gatling
 starts, so a short allocation fails before authentication rather than reusing a
 mutable record.
 
-The `framework-proof` mode does not currently execute every proof class present
-in the source tree. See [OVERVIEW.md](OVERVIEW.md) for the exact current list.
+The `framework-proof` mode launches `FrameworkProofSimulation` once. It performs
+one SSO journey, retains that virtual user's session and cookies, and runs the
+twelve selected business proofs sequentially. Each proof starts when the
+preceding proof finishes, so the sequence remains single-threaded without an
+artificial delay. Authentication remains outside the business-action groups.
+Individual proof simulations remain available for focused local diagnosis.
+The mode does not execute every proof class present in the source tree; see
+[OVERVIEW.md](OVERVIEW.md) for the exact current list.
 
 ## Reports and diagnostics
 
