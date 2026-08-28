@@ -12,12 +12,17 @@ properties([
     choice(
       name: 'RUN_MODE',
       choices: ['framework-proof', 'application-diagnostic', 'prototype', 'performance'],
-      description: 'Framework proof runs one-user proofs; application diagnostic is a short capped workload; prototype proves read-only phase measurement; performance runs the 500-user phase-based workload.'
+      description: 'Framework proof runs one retained-session proof sequence; application diagnostic is a short capped workload; prototype proves pooled-session concurrent access; performance retains the current 500-session workload pending prototype evidence.'
     ),
     string(
       name: 'MAX_USERS',
+      defaultValue: '10',
+      description: 'Users for application-diagnostic or concurrent-access actors for prototype, capped at 500. Ignored by framework-proof and performance modes.'
+    ),
+    string(
+      name: 'SESSION_POOL_SIZE',
       defaultValue: '2',
-      description: 'Users for application-diagnostic and prototype modes, capped at 500. Ignored by framework-proof and performance modes.'
+      description: 'Authenticated sessions shared round-robin by prototype actors. Must not exceed MAX_USERS and is ignored by other modes.'
     ),
     string(
       name: 'RUN_DURATION_MINUTES',
@@ -372,7 +377,8 @@ withNightlyPipeline(type, product, component) {
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
                     def runMode = params.RUN_MODE ?: 'framework-proof'
-                    def diagnosticUsers = (params.MAX_USERS ?: '2').toString().trim()
+                    def diagnosticUsers = (params.MAX_USERS ?: '10').toString().trim()
+                    def prototypeSessionPoolSize = (params.SESSION_POOL_SIZE ?: '2').toString().trim()
                     def diagnosticMinutes = (params.RUN_DURATION_MINUTES ?: '5').toString().trim()
                     def steadyStateMinutes = (params.STEADY_STATE_MINUTES ?: '30').toString().trim()
                     def workloadSetupTimeoutMinutes = (env.WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES ?: '15').toString().trim()
@@ -404,7 +410,12 @@ withNightlyPipeline(type, product, component) {
                     }
                     if (runMode == 'prototype') {
                         if (!(diagnosticUsers ==~ /\d+/) || diagnosticUsers.toInteger() < 1 || diagnosticUsers.toInteger() > 500) {
-                            error 'prototype requires MAX_USERS to be an integer from 1 to 500'
+                            error 'prototype requires MAX_USERS actors to be an integer from 1 to 500'
+                        }
+                        if (!(prototypeSessionPoolSize ==~ /\d+/)
+                            || prototypeSessionPoolSize.toInteger() < 1
+                            || prototypeSessionPoolSize.toInteger() > diagnosticUsers.toInteger()) {
+                            error 'prototype requires SESSION_POOL_SIZE to be an integer from 1 to MAX_USERS'
                         }
                     }
                     if (runMode == 'prototype' || runMode == 'performance') {
@@ -443,6 +454,7 @@ withNightlyPipeline(type, product, component) {
                     env.MAX_USERS = selectedRun.users
                     env.RUN_DURATION_MINUTES = selectedRun.minutes
                     env.STEADY_STATE_MINUTES = steadyStateMinutes
+                    env.PROTOTYPE_SESSION_POOL_SIZE = prototypeSessionPoolSize
                     env.WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES = workloadSetupTimeoutMinutes
                     env.WORKLOAD_ACTION_PACE_SECONDS = workloadActionPaceSeconds
                     env.WORKLOAD_RAMP_DOWN_GRACE_SECONDS = workloadRampDownGraceSeconds
@@ -486,6 +498,7 @@ withNightlyPipeline(type, product, component) {
                             if [ "$RUN_PROTOTYPE" = "true" ]; then
                               ./gradlew --no-daemon gatlingRun \
                                 -DappRegPrototypeUsers="$MAX_USERS" \
+                                -DappRegPrototypeSessionPoolSize="$PROTOTYPE_SESSION_POOL_SIZE" \
                                 -DappRegPrototypeSteadyStateMinutes="$STEADY_STATE_MINUTES" \
                                 -Dgatling.charting.useGroupDurationMetric=true \
                                 --simulation simulations.PhaseMeasurementPrototypeSimulation

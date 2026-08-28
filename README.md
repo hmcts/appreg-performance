@@ -106,7 +106,8 @@ environment and data scope have been explicitly approved.
 | Parameter | Purpose |
 | --- | --- |
 | `RUN_MODE` | Select `framework-proof`, `application-diagnostic`, `prototype` or `performance` |
-| `MAX_USERS` | Cap users for `application-diagnostic` or `prototype` |
+| `MAX_USERS` | Cap users for `application-diagnostic` or concurrent-access actors for `prototype`; defaults to 10 |
+| `SESSION_POOL_SIZE` | Set authenticated sessions shared by `prototype` actors; defaults to 2 and must not exceed `MAX_USERS` |
 | `RUN_DURATION_MINUTES` | Cap duration for `application-diagnostic` |
 | `STEADY_STATE_MINUTES` | Set the measured steady-state duration for `prototype` and `performance`; defaults to 30 minutes |
 | `RESET_DATABASE` | Optionally restore the masked Test baseline before seeding; ignored by `prototype` |
@@ -117,29 +118,33 @@ Current modes:
 | --- | --- |
 | `framework-proof` | Seed data, authenticate one user once and run the twelve-proof set sequentially in one Gatling session |
 | `application-diagnostic` | Seed data and run a bounded deterministic workload using the `performance` profile scaled to the requested users and minutes |
-| `prototype` | Run the read-only phase-measurement prototype without resetting or seeding the database |
+| `prototype` | Authenticate a small session pool and run a larger read-only concurrent-access actor population without resetting or seeding |
 | `performance` | Seed isolated ramp-up and measured data, then run the phase-based workload with 500 users and a configurable measured period |
 
 For `application-diagnostic`, users must be between 1 and 500, duration must be
 from 1 to 70 minutes, and users multiplied by minutes must not exceed 35,000.
 
-The `prototype` mode authenticates users progressively. Each user immediately
-starts a read-only search workload using the same Gatling session and cookies;
-there is no wait-for-all gate or later workload release. Searches remain under
-an unmeasured ramp-up group until the requested authenticated-session count is
-reached. The same paced sessions then continue under the measured group for the
-common `STEADY_STATE_MINUTES` window.
+The `prototype` mode authenticates `SESSION_POOL_SIZE` sessions first. Its
+`MAX_USERS` workload actors wait without sending HTTP traffic, then receive the
+pooled AppReg session cookie and XSRF state round-robin in separate Gatling
+cookie jars. Every actor must pass `/sso/me` before it counts as ready. Actors
+start read-only searches as they validate; searches remain under an unmeasured
+ramp-up group until the requested actor count is ready. The same paced actors
+then continue under the measured group for the common
+`STEADY_STATE_MINUTES` window.
 
 The measured search group's p95 elapsed duration must be less than five seconds
 and all requests, including authentication and ramp-up traffic, must succeed.
 Effective configuration and phase changes are printed as prominent prototype
-banners.
+banners. A ten-actor/two-session result is evidence of ten concurrent access
+actors, not ten distinct users or server-side sessions.
 
 Run the prototype locally with the group-duration metric enabled:
 
 ```bash
 ./gradlew gatlingRun \
-  -DappRegPrototypeUsers=2 \
+  -DappRegPrototypeUsers=10 \
+  -DappRegPrototypeSessionPoolSize=2 \
   -DappRegPrototypeSteadyStateMinutes=1 \
   -DappRegPrototypeAuthenticationRatePerSecond=1 \
   -DappRegPrototypeAuthenticationSetupTimeoutMinutes=15 \
@@ -149,9 +154,10 @@ Run the prototype locally with the group-duration metric enabled:
   --simulation simulations.PhaseMeasurementPrototypeSimulation
 ```
 
-The last four prototype properties are internal controls rather than Jenkins
-parameters. Their shown values are the defaults. The authentication setup
-timeout must be long enough to contain the configured user-injection ramp.
+The authentication rate, setup timeout, action pace and completion grace are
+internal controls rather than Jenkins parameters. Their shown values are the
+defaults. The authentication setup timeout must be long enough to contain the
+configured session-pool injection ramp.
 
 The workload modes use the same lifecycle with the mixed workload. Each user
 authenticates once and immediately starts its assigned actions. Before the

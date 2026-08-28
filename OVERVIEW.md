@@ -34,21 +34,23 @@ These requirements are not evidence that the current framework demonstrates
 compliance. The agreed acceptance interpretation for the Gatling-owned
 requirements is:
 
-- a concurrent user is an authenticated user with an active Gatling session,
-  including while that user is in think time;
-- all 500 sessions must remain active throughout a measured steady-state period;
+- concurrent access is represented by a Gatling workload actor participating in
+  the representative workload, including while that actor is in think time;
+- all 500 actors must remain active throughout a measured steady-state period;
+- actors may share a smaller authenticated session pool, and reports must state
+  actor count, pool size and SSO journey count separately;
 - the steady-state duration will be configurable and will default to 30 minutes;
 - authentication, setup and pre-target ramp-up workload are outside measured
   business-operation timings, but their functional failures remain failures and
-  failure to establish 500 authenticated sessions prevents an `NFR004` pass;
-- users begin work as soon as their individual login succeeds; reaching the
-  authenticated-session target changes the classification of their subsequent
-  actions without releasing, restarting or reauthenticating the population;
+  failure to establish the configured pool or validate 500 actors prevents an
+  `NFR004` pass;
+- the session pool authenticates first; actors then receive pooled state
+  round-robin, validate `/sso/me`, and begin work without another SSO journey;
 - the p95 duration of each complete named business-action group must be below
   the applicable `NFR006` or `NFR007` limit;
 - measured business requests must be 100% successful; and
 - the initial interpretation of “without performance degradation” is that the
-  absolute `NFR006` and `NFR007` limits still pass at 500 users. The measurement
+  absolute `NFR006` and `NFR007` limits still pass at 500 actors. The measurement
   and reporting model must allow a later comparison with a low-load baseline,
   but no permitted percentage increase has yet been agreed.
 
@@ -61,7 +63,7 @@ Current framework coverage is limited:
 | Requirement | Current coverage |
 | --- | --- |
 | `NFR001` | Not measured. |
-| `NFR004` | The performance mode now defines a 500-session target and a common measured steady-state window. The lifecycle has not yet been proven with the mixed workload at 500 users, and no degradation comparison has been agreed. |
+| `NFR004` | The read-only prototype implements the agreed actor/session-pool distinction, but has not yet passed its live pooled-session run. The performance mode still uses 500 independently authenticated sessions pending that evidence, and no degradation comparison has been agreed. |
 | `NFR005` | Not measured. |
 | `NFR006` | Simple backend operations are exercised, but the two-second limit is not asserted. |
 | `NFR007` | The prototype asserts the five-second p95 limit for read-only search, but the full mixed workload and reporting operations do not yet have NFR assertions. |
@@ -188,7 +190,7 @@ authentication later fails.
 | `BulkUpdateFeesProofSimulation` | Update fee details on three seeded Applications | Changes data | Yes |
 | `BulkApplicationUploadProofSimulation` | Upload Applications into a seeded empty list | Creates data | Yes |
 | `ResultMultipleApplicationsSetupSimulation` | Create a list and three Applications for manual setup | Creates data | No |
-| `PhaseMeasurementPrototypeSimulation` | Authenticate users progressively, start each read-only search workload after login, and continue the same sessions through a common measured window | Read-only | `prototype` only |
+| `PhaseMeasurementPrototypeSimulation` | Authenticate a smaller session pool, assign it round-robin to concurrent-access actors, validate every actor and run paced searches through a common measured window | Read-only | `prototype` only |
 | `AppRegWorkloadSimulation` | Execute the deterministic mixed workload | Creates and changes data | Workload modes |
 
 All executable proof simulations assert 100% successful requests. Proofs that
@@ -264,12 +266,13 @@ stage. Reset is optional. The setting is ignored by `prototype`.
 
 ## CNP Jenkins execution
 
-`Jenkinsfile_CNP` exposes five parameters:
+`Jenkinsfile_CNP` exposes six parameters:
 
 | Parameter | Behaviour |
 | --- | --- |
 | `RUN_MODE` | Selects `framework-proof`, `application-diagnostic`, `prototype` or `performance` |
-| `MAX_USERS` | Caps diagnostic or prototype users to `1..500` |
+| `MAX_USERS` | Caps diagnostic users or prototype concurrent-access actors to `1..500` |
+| `SESSION_POOL_SIZE` | Configures authenticated sessions for `prototype`; defaults to 2 and must not exceed `MAX_USERS` |
 | `RUN_DURATION_MINUTES` | Caps diagnostic duration |
 | `STEADY_STATE_MINUTES` | Configures the prototype and performance measured steady state; defaults to 30 minutes |
 | `RESET_DATABASE` | Optionally restores the masked Test baseline before seeding; ignored by `prototype` |
@@ -306,16 +309,19 @@ The seeded-mode execution order is:
 ### `prototype`
 
 - Does not reset or seed the database.
-- Authenticates `MAX_USERS` progressively, defaulting to one user per second.
-- Starts each user's read-only search workload immediately after that user's
-  login succeeds; there is no population-wide gate or workload release.
-- Retains each user's Gatling session, cookies and action cadence throughout the
-  run.
+- Authenticates only `SESSION_POOL_SIZE` sessions, defaulting to two at one SSO
+  journey per second.
+- Starts `MAX_USERS` concurrent-access actors, defaulting to ten. They wait
+  without HTTP traffic until the complete session pool is ready.
+- Assigns pool entries round-robin into separate Gatling actor cookie jars and
+  verifies `/sso/me` for every actor without another SSO journey.
+- Begins each actor's read-only search workload as soon as its pooled session
+  validates.
 - Records searches under `Prototype_Ramp_Up_Application_List_Search` until the
-  requested authenticated-session count is reached.
-- Opens one common measured window when the target is reached. Subsequent
+  requested actor count is ready.
+- Opens one common measured window when all actors are ready. Subsequent
   paced searches use `AppReg_030_Application_List_Search` without restarting
-  the users.
+  the actors.
 - Defaults to a 15-minute authentication setup deadline, 30-minute measured
   window, 60-second action pace and 60-second completion grace. These internal
   controls are configurable with the system properties documented in
@@ -325,6 +331,8 @@ The seeded-mode execution order is:
   successful and p95 is less than five seconds.
 - Requires 100% success globally so authentication and ramp-up failures still
   fail the run.
+- Reports actor count, authenticated pool size, SSO journeys and reuse ratio,
+  and explicitly does not claim distinct-user or distinct-session equivalence.
 - Prints prominent configuration and phase banners once per transition.
 
 ### `performance`

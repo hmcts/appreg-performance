@@ -4,6 +4,9 @@ import java.util.Map;
 
 public final class Headers {
   public static final String APPREG_API_MEDIA_TYPE = "application/vnd.hmcts.appreg.v1+json";
+  public static final String APPREG_SESSION_COOKIE = System.getProperty(
+    "appRegSessionCookieName",
+    System.getenv().getOrDefault("APPREG_SESSION_COOKIE_NAME", "appreg.sid"));
   public static final String XSRF_TOKEN_COOKIE = "XSRF-TOKEN";
   public static final String XSRF_TOKEN_HEADER = "X-XSRF-TOKEN";
   public static final String USER_AGENT = System.getProperty(

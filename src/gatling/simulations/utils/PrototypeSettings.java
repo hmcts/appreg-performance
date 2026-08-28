@@ -5,12 +5,14 @@ import java.time.Duration;
 /** Validated runtime settings for the isolated phase-measurement prototype. */
 public record PrototypeSettings(
     int users,
+    int sessionPoolSize,
     int steadyStateMinutes,
     double authenticationRatePerSecond,
     int authenticationSetupTimeoutMinutes,
     double actionPaceSeconds,
     int rampDownGraceSeconds) {
-  private static final int DEFAULT_USERS = 2;
+  private static final int DEFAULT_USERS = 10;
+  private static final int DEFAULT_SESSION_POOL_SIZE = 2;
   private static final int MAX_USERS = 500;
   private static final int DEFAULT_STEADY_STATE_MINUTES = 30;
   private static final double DEFAULT_AUTHENTICATION_RATE_PER_SECOND = 1.0;
@@ -22,7 +24,10 @@ public record PrototypeSettings(
 
   public PrototypeSettings {
     if (users < 1 || users > MAX_USERS) {
-      throw new IllegalArgumentException("Prototype users must be between 1 and " + MAX_USERS);
+      throw new IllegalArgumentException("Prototype actors must be between 1 and " + MAX_USERS);
+    }
+    if (sessionPoolSize < 1 || sessionPoolSize > users) {
+      throw new IllegalArgumentException("Prototype session-pool size must be between 1 and the actor count");
     }
     requireMinutes("Prototype steady-state duration", steadyStateMinutes);
     requirePositiveFinite("Prototype authentication rate", authenticationRatePerSecond);
@@ -36,7 +41,7 @@ public record PrototypeSettings(
       throw new IllegalArgumentException(
           "Prototype ramp-down grace must be between 0 and " + MAX_INTERVAL_SECONDS + " seconds");
     }
-    if (authenticationRampDuration(users, authenticationRatePerSecond)
+    if (authenticationRampDuration(sessionPoolSize, authenticationRatePerSecond)
         .compareTo(Duration.ofMinutes(authenticationSetupTimeoutMinutes)) > 0) {
       throw new IllegalArgumentException(
           "Prototype authentication setup timeout must cover the configured authentication ramp");
@@ -46,6 +51,7 @@ public record PrototypeSettings(
   public static PrototypeSettings fromRuntime() {
     return new PrototypeSettings(
         integerProperty("appRegPrototypeUsers", DEFAULT_USERS),
+        integerProperty("appRegPrototypeSessionPoolSize", DEFAULT_SESSION_POOL_SIZE),
         integerProperty("appRegPrototypeSteadyStateMinutes", DEFAULT_STEADY_STATE_MINUTES),
         doubleProperty(
             "appRegPrototypeAuthenticationRatePerSecond",
@@ -58,7 +64,7 @@ public record PrototypeSettings(
   }
 
   public Duration authenticationRampDuration() {
-    return authenticationRampDuration(users, authenticationRatePerSecond);
+    return authenticationRampDuration(sessionPoolSize, authenticationRatePerSecond);
   }
 
   public Duration authenticationSetupTimeout() {
@@ -83,12 +89,14 @@ public record PrototypeSettings(
   public static void main(String[] args) {
     var defaults = new PrototypeSettings(
         DEFAULT_USERS,
+        DEFAULT_SESSION_POOL_SIZE,
         DEFAULT_STEADY_STATE_MINUTES,
         DEFAULT_AUTHENTICATION_RATE_PER_SECOND,
         DEFAULT_AUTHENTICATION_SETUP_TIMEOUT_MINUTES,
         DEFAULT_ACTION_PACE_SECONDS,
         DEFAULT_RAMP_DOWN_GRACE_SECONDS);
-    if (defaults.users() != 2
+    if (defaults.users() != 10
+        || defaults.sessionPoolSize() != 2
         || defaults.steadyStateMinutes() != 30
         || defaults.authenticationRatePerSecond() != 1.0
         || defaults.authenticationSetupTimeoutMinutes() != 15
@@ -97,20 +105,23 @@ public record PrototypeSettings(
         || !defaults.authenticationRampDuration().equals(Duration.ofSeconds(2))) {
       throw new IllegalStateException("Prototype defaults changed unexpectedly");
     }
-    expectInvalid(() -> new PrototypeSettings(0, 30, 1, 15, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(MAX_USERS + 1, 30, 1, 15, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(2, 0, 1, 15, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(2, 30, 0, 15, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(2, 30, 1, 0, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(2, 30, 1, 15, 0, 60));
-    expectInvalid(() -> new PrototypeSettings(2, 30, 1, 15, 60, -1));
-    expectInvalid(() -> new PrototypeSettings(500, 30, 0.1, 15, 60, 60));
+    expectInvalid(() -> new PrototypeSettings(0, 1, 30, 1, 15, 60, 60));
+    expectInvalid(() -> new PrototypeSettings(MAX_USERS + 1, 1, 30, 1, 15, 60, 60));
+    expectInvalid(() -> new PrototypeSettings(10, 0, 30, 1, 15, 60, 60));
+    expectInvalid(() -> new PrototypeSettings(10, 11, 30, 1, 15, 60, 60));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 0, 1, 15, 60, 60));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 0, 15, 60, 60));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 1, 0, 60, 60));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 1, 15, 0, 60));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 1, 15, 60, -1));
+    expectInvalid(() -> new PrototypeSettings(500, 500, 30, 0.1, 15, 60, 60));
+    AuthenticatedSessionPool.selfCheck();
     PhaseController.selfCheck();
     System.out.println("Prototype settings self-check passed");
   }
 
-  private static Duration authenticationRampDuration(int users, double ratePerSecond) {
-    return durationFromSeconds(users / ratePerSecond);
+  private static Duration authenticationRampDuration(int sessions, double ratePerSecond) {
+    return durationFromSeconds(sessions / ratePerSecond);
   }
 
   private static Duration durationFromSeconds(double seconds) {
