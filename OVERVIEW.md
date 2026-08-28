@@ -61,7 +61,7 @@ Current framework coverage is limited:
 | Requirement | Current coverage |
 | --- | --- |
 | `NFR001` | Not measured. |
-| `NFR004` | The performance profile eventually overlaps 500 finite user journeys, but it does not define or assert a 500-user steady-state acceptance window or performance degradation limit. |
+| `NFR004` | The performance mode now defines a 500-session target and a common measured steady-state window. The lifecycle has not yet been proven with the mixed workload at 500 users, and no degradation comparison has been agreed. |
 | `NFR005` | Not measured. |
 | `NFR006` | Simple backend operations are exercised, but the two-second limit is not asserted. |
 | `NFR007` | The prototype asserts the five-second p95 limit for read-only search, but the full mixed workload and reporting operations do not yet have NFR assertions. |
@@ -145,28 +145,28 @@ from a `{index}` template so each virtual user receives a dedicated identity.
 The password is read directly by the authentication chain and is not placed in
 a feeder.
 
-### Workload authentication gate
+### Workload phase lifecycle
 
 `AppRegWorkloadSimulation` authenticates and retains the same Gatling sessions
 that later perform workload actions:
 
-1. Primary users authenticate at one account per second.
-2. Successful sessions wait at a shared target gate while retaining their
-   cookies.
-3. Failed primary workload slots can be claimed by up to ten spare accounts.
-4. If a claimed spare fails, the corresponding primary account can be retried
-   once.
-5. A positive HTTP `Retry-After` value delays recovery.
-6. If the authentication target is reached, retained sessions are staggered
-   into their assigned workload actions.
-7. If the target cannot be reached, the simulation fails without releasing
-   business actions.
+1. One primary population is injected at the configured login rate.
+2. Every virtual user receives one dedicated identity and authenticates once.
+3. A successful user immediately starts its paced mixed workload with the same
+   Gatling session, cookies and XSRF state.
+4. Actions started before the authenticated-session target is reached are
+   nested under `AppReg_Ramp_Up` and consume ramp-up-only feeder rows.
+5. When the final required session authenticates, the common measured window
+   opens. Existing users retain their cadence; their next actions use the
+   measured groups and measured-only feeder rows.
+6. Failure to reach the target within the setup deadline fails the run.
+7. At the measured deadline, no new action starts and in-flight work must finish
+   within the completion grace.
 
-The 500-user profile plus ten spare accounts fits the current
-`SsoAuthentication` limit of 510 accounts.
-
-The Jenkins seed stage runs before Gatling starts. The gate protects release of
-workload actions; it does not protect or roll back the earlier seed operation.
+There are no spare identities, authentication-retry population, shared gate or
+post-login workload release. `SsoAuthentication` accepts at most 500 accounts.
+The Jenkins seed stage still runs before Gatling and is not rolled back if
+authentication later fails.
 
 ## Executable simulations
 
@@ -216,18 +216,27 @@ or `ResultMultipleApplicationsSetupSimulation`.
 - `other_operations`, implemented as Application List search
 
 `data/seed/workload/allocation-profile.properties` is the source of the
-configured users, duration, login ramp, allocation capacity and exact scheduled
-action counts.
+configured users, maximum duration, login ramp and workload weighting counts.
 
 The workload does not randomly select actions at runtime. `WorkloadProfile`
-constructs an evenly interleaved deterministic plan and assigns a fixed action
-sequence to each account. When a diagnostic run is smaller than the configured
-profile, the scheduled counts are scaled using largest-remainder allocation.
+constructs two evenly interleaved deterministic plans using the same configured
+mix:
 
-Each user performs one planned action per minute. Destructive actions consume
-queue-backed CSV rows, and the simulation requires the feeder row count to match
-the scheduled count exactly. Create-list and search actions do not use these
-seeded feeder rows.
+- a maximum ramp-up plan bounded by the setup deadline and action pace; and
+- a measured plan bounded by the common steady-state duration.
+
+The default 15-minute setup deadline and 60-second pace reserve at most 15
+ramp-up actions per user. The default 500-user, 30-minute performance run
+therefore reserves 7,500 ramp-up action slots and 15,000 measured action slots.
+Of these, 20,304 actions need mutable feeder rows; create-list and search actions
+do not consume pre-seeded rows. The seed script inserts approximately 160,741
+persistent rows for those feeder allocations before the default run, compared
+with approximately 250,027 rows for the previous 500-user, 70-minute workload.
+
+Ramp-up and measured actions consume different queue-backed CSV files. The
+simulation requires every feeder row count to match its phase plan exactly and
+never reuses a mutable allocation. Unused worst-case ramp-up rows remain
+untouched if authentication completes before the deadline.
 
 The workload requires 100% successful requests. It has no response-time
 service-level objective or response-time pass/fail threshold.
@@ -241,26 +250,27 @@ isolated synthetic records and writes:
 
 - proof allocation variables to `build/seed-allocation.env`;
 - action-specific allocation CSV files to `build/performance-data/`; and
-- exact scheduled workload CSV files to `build/workload-data/`.
+- exact ramp-up workload CSV files to `build/workload-data/ramp-up/`; and
+- exact measured workload CSV files to `build/workload-data/measured/`.
 
-The pipeline copies only the rows required by the deterministic schedule into
-the workload directory. Mutable allocations are intended for one action only so
-virtual users do not update the same record.
+The pipeline calculates both plans before seeding, generates their combined
+capacity, splits the results into the two phase directories and validates every
+file count. Mutable allocations are intended for one action only so virtual
+users do not update the same record.
 
 `RESET_DATABASE=true` runs the guarded masked-database restore before the seed
 stage. Reset is optional. The setting is ignored by `prototype`.
 
 ## CNP Jenkins execution
 
-`Jenkinsfile_CNP` exposes six parameters:
+`Jenkinsfile_CNP` exposes five parameters:
 
 | Parameter | Behaviour |
 | --- | --- |
 | `RUN_MODE` | Selects `framework-proof`, `application-diagnostic`, `prototype` or `performance` |
 | `MAX_USERS` | Caps diagnostic or prototype users to `1..500` |
 | `RUN_DURATION_MINUTES` | Caps diagnostic duration |
-| `STEADY_STATE_MINUTES` | Configures the prototype measured steady state; defaults to 30 minutes |
-| `WORKLOAD_RELEASE_INTERVAL_SECONDS` | Staggers retained sessions into business work; Jenkins defaults to one second |
+| `STEADY_STATE_MINUTES` | Configures the prototype and performance measured steady state; defaults to 30 minutes |
 | `RESET_DATABASE` | Optionally restores the masked Test baseline before seeding; ignored by `prototype` |
 
 The seeded-mode execution order is:
@@ -282,9 +292,10 @@ The seeded-mode execution order is:
 
 - Uses the `performance` profile scaled to the requested users and duration.
 - Requires `MAX_USERS` from 1 to 500.
-- Requires a positive duration.
+- Requires a duration from 1 to 70 minutes.
 - Rejects users multiplied by minutes above 35,000.
-- Runs `AppRegWorkloadSimulation`.
+- Runs the same phase-based `AppRegWorkloadSimulation` with separately allocated
+  ramp-up and measured data.
 
 ### `prototype`
 
@@ -312,10 +323,13 @@ The seeded-mode execution order is:
 
 ### `performance`
 
-- Uses the fixed `performance` profile.
-- Requests 500 users and 70 actions per user.
-- Authenticates at one primary account per second.
-- Runs `AppRegWorkloadSimulation`.
+- Uses the `performance` profile's action mix.
+- Requests 500 users and authenticates at one account per second.
+- Uses `STEADY_STATE_MINUTES`, defaulting to 30 and capped at the profile's
+  70-minute envelope.
+- Defaults internally to a 15-minute authentication setup deadline, 60-second
+  action pace and 60-second completion grace; all effective values are logged.
+- Runs the single-population phase-based `AppRegWorkloadSimulation`.
 
 The properties file also contains a ten-user, five-minute `validation` profile,
 but the current user-facing CNP modes do not select it.
@@ -343,5 +357,5 @@ logging raw HTML, tokens, cookies or credentials.
 - The `validation` workload profile has no matching user-facing CNP mode.
 - The seed stage changes the database before workload authentication succeeds.
 - The workload has functional success assertions but no response-time NFR.
-- The action mix and fixed performance size are implementation inputs, not
+- The action mix and 500-user performance size are implementation inputs, not
   independently validated requirements.

@@ -22,7 +22,7 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 /** Replays AppReg's SSO protocol at HTTP level without writing credentials to disk or logs. */
 public final class SsoAuthentication {
   private static final String MICROSOFT_LOGIN_BASE_URL = "https://login.microsoftonline.com";
-  private static final int MAX_TEST_ACCOUNTS = 510;
+  private static final int MAX_TEST_ACCOUNTS = 500;
   private static final Map<String, String> BROWSER_HEADERS = Map.of(
     "Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language", "en-GB,en;q=0.9",
@@ -67,22 +67,6 @@ public final class SsoAuthentication {
           // The deterministic workload plan uses this zero-based offset to assign a stable
           // action sequence to each dedicated account. Other simulations ignore it.
           "accountOffset", index - firstIndex))
-      .iterator();
-  }
-
-  /** Candidate spare identities for an in-process authentication gate. */
-  public static Iterator<Map<String, Object>> spareCandidates(int primaryAccountCount, int spareAccountCount) {
-    if (spareAccountCount < 0) throw new IllegalArgumentException("The spare account count must not be negative");
-    if (primaryAccountCount + spareAccountCount > MAX_TEST_ACCOUNTS) {
-      throw new IllegalArgumentException("The authentication target and spare accounts must not exceed " + MAX_TEST_ACCOUNTS);
-    }
-    String template = requiredEnvironmentVariable("APPREG_TEST_ACCOUNT_TEMPLATE", "TEST_USER_EMAIL");
-    String startIndex = environmentVariable("APPREG_ACCOUNT_START_INDEX");
-    int firstIndex = startIndex == null ? 1 : Integer.parseInt(startIndex);
-    return IntStream.range(0, spareAccountCount)
-      .mapToObj(index -> Map.<String, Object>of(
-          "username", accountName(template, firstIndex + primaryAccountCount + index, MAX_TEST_ACCOUNTS),
-          "accountOffset", -1))
       .iterator();
   }
 

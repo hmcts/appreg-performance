@@ -38,7 +38,7 @@ public class AppRegSimulation extends Simulation {
     var httpProtocol = protocol();
     ChainBuilder authentication = switch (authMode) {
       case "none" -> exec(session -> session);
-      case "sso-login" -> feed(ssoUserFeeder).exec(AuthenticationStage.authenticate(requiredAccountCount));
+      case "sso-login" -> feed(ssoUserFeeder).exec(AuthenticationStage.authenticate());
       default -> throw new IllegalArgumentException("authMode must be none or sso-login");
     };
     ScenarioBuilder applicationsListScenario = scenario("AppReg applications list")

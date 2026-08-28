@@ -9,8 +9,8 @@ import utils.AuthenticationStage;
 import utils.DiagnosticLogging;
 import utils.Environment;
 import utils.Headers;
-import utils.PrototypePhaseController;
-import utils.PrototypePhaseController.Phase;
+import utils.PhaseController;
+import utils.PhaseController.Phase;
 import utils.PrototypeSettings;
 import utils.SsoAuthentication;
 
@@ -44,7 +44,7 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
 
   private final PrototypeSettings settings = PrototypeSettings.fromRuntime();
   private final int users = settings.users();
-  private final PrototypePhaseController phases = new PrototypePhaseController(
+  private final PhaseController phases = new PhaseController(
       users,
       settings.authenticationSetupTimeout(),
       settings.steadyStateDuration(),
@@ -59,7 +59,7 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
     var prototype = scenario("AppReg phase measurement prototype")
       .exitBlockOnFail().on(
         feed(prototypeUsers)
-          .exec(AuthenticationStage.authenticate(users)))
+          .exec(AuthenticationStage.authenticate()))
       .exec(exitHereIfFailed())
       .exec(session -> {
         var phase = phases.registerAuthenticatedSession();

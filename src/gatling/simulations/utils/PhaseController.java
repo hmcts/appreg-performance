@@ -4,8 +4,8 @@ import java.time.Duration;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
-/** Coordinates the read-only prototype's population-wide acceptance window. */
-public final class PrototypePhaseController {
+/** Coordinates a population-wide authentication, measurement and completion window. */
+public final class PhaseController {
   public enum Phase {
     AUTHENTICATION_RAMP_UP,
     MEASURED_STEADY_STATE,
@@ -27,7 +27,7 @@ public final class PrototypePhaseController {
   private long measuredStartedNanos;
   private boolean started;
 
-  public PrototypePhaseController(
+  public PhaseController(
       int targetUsers,
       Duration setupTimeout,
       Duration steadyStateDuration,
@@ -35,21 +35,21 @@ public final class PrototypePhaseController {
     this(targetUsers, setupTimeout, steadyStateDuration, completionGrace, System::nanoTime);
   }
 
-  PrototypePhaseController(
+  PhaseController(
       int targetUsers,
       Duration setupTimeout,
       Duration steadyStateDuration,
       Duration completionGrace,
       LongSupplier nanoTime) {
-    if (targetUsers < 1) throw new IllegalArgumentException("Prototype target users must be positive");
+    if (targetUsers < 1) throw new IllegalArgumentException("Phase target users must be positive");
     if (setupTimeout.isZero() || setupTimeout.isNegative()) {
-      throw new IllegalArgumentException("Prototype setup timeout must be positive");
+      throw new IllegalArgumentException("Phase setup timeout must be positive");
     }
     if (steadyStateDuration.isZero() || steadyStateDuration.isNegative()) {
-      throw new IllegalArgumentException("Prototype steady-state duration must be positive");
+      throw new IllegalArgumentException("Phase steady-state duration must be positive");
     }
     if (completionGrace.isNegative()) {
-      throw new IllegalArgumentException("Prototype completion grace must not be negative");
+      throw new IllegalArgumentException("Phase completion grace must not be negative");
     }
     this.targetUsers = targetUsers;
     this.setupTimeoutNanos = setupTimeout.toNanos();
@@ -59,7 +59,7 @@ public final class PrototypePhaseController {
   }
 
   public synchronized void start() {
-    if (started) throw new IllegalStateException("Prototype phase controller has already started");
+    if (started) throw new IllegalStateException("Phase controller has already started");
     started = true;
     setupStartedNanos = nanoTime.getAsLong();
   }
@@ -95,11 +95,11 @@ public final class PrototypePhaseController {
 
   public synchronized boolean sessionCompleted() {
     if (currentPhase() != Phase.RAMP_DOWN) {
-      throw new IllegalStateException("Prototype session completed before ramp-down");
+      throw new IllegalStateException("Session completed before ramp-down");
     }
     completedUsers++;
     if (completedUsers > authenticatedUsers) {
-      throw new IllegalStateException("More prototype sessions completed than authenticated");
+      throw new IllegalStateException("More sessions completed than authenticated");
     }
     long elapsedAfterSteadyState = nanoTime.getAsLong() - measuredStartedNanos - steadyStateNanos;
     boolean withinGrace = elapsedAfterSteadyState <= completionGraceNanos;
@@ -132,12 +132,12 @@ public final class PrototypePhaseController {
   }
 
   private void requireStarted() {
-    if (!started) throw new IllegalStateException("Prototype phase controller has not started");
+    if (!started) throw new IllegalStateException("Phase controller has not started");
   }
 
   static void selfCheck() {
     var time = new AtomicLong();
-    var controller = new PrototypePhaseController(
+    var controller = new PhaseController(
         2, Duration.ofSeconds(10), Duration.ofSeconds(30), Duration.ofSeconds(5), time::get);
     controller.start();
     require(controller.currentPhase() == Phase.AUTHENTICATION_RAMP_UP, "initial ramp-up phase");
@@ -154,7 +154,7 @@ public final class PrototypePhaseController {
     require(controller.completedUsers() == 2, "completed session count");
 
     time.set(0);
-    var late = new PrototypePhaseController(
+    var late = new PhaseController(
         1, Duration.ofSeconds(10), Duration.ofSeconds(30), Duration.ofSeconds(5), time::get);
     late.start();
     late.registerAuthenticatedSession();
@@ -163,7 +163,7 @@ public final class PrototypePhaseController {
     require(late.lateCompletions() == 1, "late completion count");
 
     time.set(0);
-    var failed = new PrototypePhaseController(
+    var failed = new PhaseController(
         2, Duration.ofSeconds(10), Duration.ofSeconds(30), Duration.ZERO, time::get);
     failed.start();
     failed.registerAuthenticatedSession();
@@ -173,6 +173,6 @@ public final class PrototypePhaseController {
   }
 
   private static void require(boolean condition, String description) {
-    if (!condition) throw new IllegalStateException("Prototype phase self-check failed: " + description);
+    if (!condition) throw new IllegalStateException("Phase self-check failed: " + description);
   }
 }

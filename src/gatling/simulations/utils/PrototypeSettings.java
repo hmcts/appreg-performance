@@ -105,7 +105,7 @@ public record PrototypeSettings(
     expectInvalid(() -> new PrototypeSettings(2, 30, 1, 15, 0, 60));
     expectInvalid(() -> new PrototypeSettings(2, 30, 1, 15, 60, -1));
     expectInvalid(() -> new PrototypeSettings(500, 30, 0.1, 15, 60, 60));
-    PrototypePhaseController.selfCheck();
+    PhaseController.selfCheck();
     System.out.println("Prototype settings self-check passed");
   }
 

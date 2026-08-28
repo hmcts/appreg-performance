@@ -5,7 +5,7 @@ requests directly to AppReg; it does not drive a browser.
 
 See [OVERVIEW.md](OVERVIEW.md) for the current architecture, implemented
 journeys, applicable non-functional requirements and coverage gaps,
-authentication gate, workload scheduling and Jenkins execution flow.
+phase lifecycle, workload scheduling and Jenkins execution flow.
 
 ## Prerequisites
 
@@ -108,8 +108,7 @@ environment and data scope have been explicitly approved.
 | `RUN_MODE` | Select `framework-proof`, `application-diagnostic`, `prototype` or `performance` |
 | `MAX_USERS` | Cap users for `application-diagnostic` or `prototype` |
 | `RUN_DURATION_MINUTES` | Cap duration for `application-diagnostic` |
-| `STEADY_STATE_MINUTES` | Set the measured steady-state duration for `prototype`; defaults to 30 minutes |
-| `WORKLOAD_RELEASE_INTERVAL_SECONDS` | Delay between authenticated sessions starting workload actions |
+| `STEADY_STATE_MINUTES` | Set the measured steady-state duration for `prototype` and `performance`; defaults to 30 minutes |
 | `RESET_DATABASE` | Optionally restore the masked Test baseline before seeding; ignored by `prototype` |
 
 Current modes:
@@ -119,10 +118,10 @@ Current modes:
 | `framework-proof` | Seed data and run the proof set explicitly listed in `Jenkinsfile_CNP` |
 | `application-diagnostic` | Seed data and run a bounded deterministic workload using the `performance` profile scaled to the requested users and minutes |
 | `prototype` | Run the read-only phase-measurement prototype without resetting or seeding the database |
-| `performance` | Seed data and run the fixed 500-user, 70-action-per-user deterministic workload |
+| `performance` | Seed isolated ramp-up and measured data, then run the phase-based workload with 500 users and a configurable measured period |
 
 For `application-diagnostic`, users must be between 1 and 500, duration must be
-positive, and users multiplied by minutes must not exceed 35,000.
+from 1 to 70 minutes, and users multiplied by minutes must not exceed 35,000.
 
 The `prototype` mode authenticates users progressively. Each user immediately
 starts a read-only search workload using the same Gatling session and cookies;
@@ -154,15 +153,39 @@ The last four prototype properties are internal controls rather than Jenkins
 parameters. Their shown values are the defaults. The authentication setup
 timeout must be long enough to contain the configured user-injection ramp.
 
+The workload modes use the same lifecycle with the mixed workload. Each user
+authenticates once and immediately starts its assigned actions. Before the
+authenticated-session target is reached, actions appear below the
+`AppReg_Ramp_Up` group and consume only `build/workload-data/ramp-up` feeders.
+The same sessions continue into the measured window using the separately
+reserved `build/workload-data/measured` feeders. There is no shared gate,
+workload release, spare account or final authentication retry.
+
+The workload's internal phase controls are parameterised and logged:
+
+| System property | Default | Purpose |
+| --- | --- | --- |
+| `appRegWorkloadAuthenticationSetupTimeoutMinutes` | `15` | Deadline for reaching the authenticated-session target |
+| `appRegWorkloadActionPaceSeconds` | `60` | Minimum interval between action starts; values below 60 are rejected |
+| `appRegWorkloadRampDownGraceSeconds` | `60` | Time allowed for an in-flight final action to complete |
+
+Jenkins supplies these from internal environment defaults named
+`WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES`, `WORKLOAD_ACTION_PACE_SECONDS`
+and `WORKLOAD_RAMP_DOWN_GRACE_SECONDS`. They are not user-facing build
+parameters.
+
 Validate its defaults, boundaries and phase transitions without authenticating
 or sending HTTP traffic:
 
 ```bash
-./gradlew prototypeSelfCheck gatlingClasses
+./gradlew prototypeSelfCheck workloadSelfCheck gatlingClasses
 ```
 
 The prototype is read-only and does not seed data. Other CNP modes seed data;
-database reset remains optional and runs before their seed stage.
+database reset remains optional and runs before their seed stage. Workload seed
+construction checks the exact ramp-up and measured feeder sizes before Gatling
+starts, so a short allocation fails before authentication rather than reusing a
+mutable record.
 
 The `framework-proof` mode does not currently execute every proof class present
 in the source tree. See [OVERVIEW.md](OVERVIEW.md) for the exact current list.

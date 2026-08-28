@@ -3,37 +3,44 @@ package utils;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
-/** Runtime configuration, exact action plan and feeder allocation expectations for a workload. */
+/** Runtime configuration and isolated deterministic plans for ramp-up and measured workload actions. */
 public record WorkloadProfile(
     String name,
     int concurrentUsers,
     int durationMinutes,
     int actionsPerUser,
     int loginRampUpSeconds,
+    int authenticationSetupTimeoutMinutes,
+    double actionPaceSeconds,
+    int rampDownGraceSeconds,
     Map<WorkloadAction, Integer> scheduledActionCounts,
     List<WorkloadAction> actionPlan,
-    int updateApplicationCount,
-    int addApplicationCount,
-    int resultApplicationCount,
-    int resultMultipleCount,
-    int updateResultCount,
-    int updateListCount,
-    int closeListCount,
-    int bulkOfficialsCount,
-    int bulkFeesCount,
-    int bulkUploadCount) {
+    int rampActionsPerUser,
+    Map<WorkloadAction, Integer> rampScheduledActionCounts,
+    List<WorkloadAction> rampActionPlan) {
 
   private static final int MAX_TEST_ACCOUNTS = 500;
+  private static final int MAX_DURATION_MINUTES = 1_440;
   private static final double LOGIN_INTERVAL_SECONDS = 1.0;
+  private static final double MINIMUM_ACTION_PACE_SECONDS = 60.0;
+  private static final double MAXIMUM_ACTION_PACE_SECONDS = 3_600.0;
+  private static final int DEFAULT_AUTHENTICATION_SETUP_TIMEOUT_MINUTES = 15;
+  private static final double DEFAULT_ACTION_PACE_SECONDS = 60.0;
+  private static final int DEFAULT_RAMP_DOWN_GRACE_SECONDS = 60;
   private static final String MAX_USERS_PROPERTY = "appRegMaxUsers";
   private static final String DURATION_MINUTES_PROPERTY = "appRegDurationMinutes";
-  private static final String WORKLOAD_RELEASE_INTERVAL_SECONDS_PROPERTY = "appRegWorkloadReleaseIntervalSeconds";
+  private static final String SETUP_TIMEOUT_MINUTES_PROPERTY =
+      "appRegWorkloadAuthenticationSetupTimeoutMinutes";
+  private static final String ACTION_PACE_SECONDS_PROPERTY = "appRegWorkloadActionPaceSeconds";
+  private static final String RAMP_DOWN_GRACE_SECONDS_PROPERTY =
+      "appRegWorkloadRampDownGraceSeconds";
 
   public WorkloadProfile {
     if ("smoke".equals(name)) {
@@ -42,46 +49,46 @@ public record WorkloadProfile(
     if (concurrentUsers < 1 || concurrentUsers > MAX_TEST_ACCOUNTS) {
       throw new IllegalArgumentException("Workload concurrent users must be between 1 and " + MAX_TEST_ACCOUNTS);
     }
-    if (durationMinutes < 1 || durationMinutes > 75) {
-      throw new IllegalArgumentException("Workload duration must be between 1 and 75 minutes");
+    requireMinutes("Workload duration", durationMinutes);
+    requireMinutes("Workload authentication setup timeout", authenticationSetupTimeoutMinutes);
+    requireActionPace(actionPaceSeconds);
+    if (rampDownGraceSeconds < 0 || rampDownGraceSeconds > 3_600) {
+      throw new IllegalArgumentException("Workload ramp-down grace must be between 0 and 3600 seconds");
     }
     if (actionsPerUser != durationMinutes) {
-      throw new IllegalArgumentException("Workload currently requires one planned action per user per minute");
+      throw new IllegalArgumentException("Workload currently reserves one measured action per user per minute");
     }
     if (loginRampUpSeconds < minimumLoginRampUpSeconds(concurrentUsers)) {
       throw new IllegalArgumentException(
           "Workload login ramp must allow one login every " + LOGIN_INTERVAL_SECONDS + " seconds");
     }
+    if (loginRampUpSeconds > authenticationSetupTimeoutMinutes * 60L) {
+      throw new IllegalArgumentException("Workload authentication setup timeout must cover the login injection ramp");
+    }
+    int expectedRampActionsPerUser = maximumActionsPerUser(
+        authenticationSetupTimeoutMinutes, actionPaceSeconds);
+    if (rampActionsPerUser != expectedRampActionsPerUser) {
+      throw new IllegalArgumentException("Workload ramp action capacity does not match the setup deadline and pace");
+    }
     scheduledActionCounts = Map.copyOf(scheduledActionCounts);
     actionPlan = List.copyOf(actionPlan);
-    int expectedActionCount = Math.multiplyExact(concurrentUsers, actionsPerUser);
-    if (actionPlan.size() != expectedActionCount) {
-      throw new IllegalArgumentException("Deterministic action plan has " + actionPlan.size()
-          + " slots; expected " + expectedActionCount);
-    }
-    for (WorkloadAction action : WorkloadAction.values()) {
-      int scheduledCount = scheduledActionCounts.getOrDefault(action, 0);
-      if (scheduledCount < 0) {
-        throw new IllegalArgumentException("Scheduled action count must not be negative: " + action.key());
-      }
-      if (actionPlan.stream().filter(action::equals).count() != scheduledCount) {
-        throw new IllegalArgumentException("Deterministic action plan does not match scheduled count for " + action.key());
-      }
-    }
-    requireCapacity(scheduledActionCounts, WorkloadAction.UPDATE_APPLICATION, updateApplicationCount);
-    requireCapacity(scheduledActionCounts, WorkloadAction.ADD_APPLICATION, addApplicationCount);
-    requireCapacity(scheduledActionCounts, WorkloadAction.RESULT_APPLICATION, resultApplicationCount);
-    requireCapacity(scheduledActionCounts, WorkloadAction.RESULT_MULTIPLE, resultMultipleCount);
-    requireCapacity(scheduledActionCounts, WorkloadAction.UPDATE_RESULT, updateResultCount);
-    requireCapacity(scheduledActionCounts, WorkloadAction.UPDATE_LIST, updateListCount);
-    requireCapacity(scheduledActionCounts, WorkloadAction.CLOSE_LIST, closeListCount);
-    requireCapacity(scheduledActionCounts, WorkloadAction.BULK_OFFICIALS, bulkOfficialsCount);
-    requireCapacity(scheduledActionCounts, WorkloadAction.BULK_FEES, bulkFeesCount);
-    requireCapacity(scheduledActionCounts, WorkloadAction.BULK_UPLOAD, bulkUploadCount);
+    rampScheduledActionCounts = Map.copyOf(rampScheduledActionCounts);
+    rampActionPlan = List.copyOf(rampActionPlan);
+    requirePlan(
+        "measured",
+        scheduledActionCounts,
+        actionPlan,
+        Math.multiplyExact(concurrentUsers, actionsPerUser));
+    requirePlan(
+        "ramp-up",
+        rampScheduledActionCounts,
+        rampActionPlan,
+        Math.multiplyExact(concurrentUsers, rampActionsPerUser));
   }
 
   public static WorkloadProfile fromRuntime() {
-    String name = System.getProperty("appRegWorkloadProfile", System.getenv().getOrDefault("WORKLOAD_PROFILE", "smoke"));
+    String name = System.getProperty(
+        "appRegWorkloadProfile", System.getenv().getOrDefault("WORKLOAD_PROFILE", "smoke"));
     if ("smoke".equals(name)) {
       throw new IllegalArgumentException("appRegWorkloadProfile=smoke is for one-user proofs, not a workload run");
     }
@@ -92,127 +99,125 @@ public record WorkloadProfile(
     int durationMinutes = cappedDuration(configuredDurationMinutes);
     int actionsPerUser = durationMinutes;
     int configuredLoginRampUpSeconds = positive(properties, name + ".login_ramp_up_seconds");
-    Map<WorkloadAction, Integer> scheduledCounts = cappedScheduledCounts(
-      scheduledCounts(properties, name), configuredUsers, configuredDurationMinutes, concurrentUsers, actionsPerUser);
-    List<WorkloadAction> actionPlan = buildActionPlan(scheduledCounts, Math.multiplyExact(concurrentUsers, actionsPerUser));
+    int loginRampUpSeconds = Math.min(
+        configuredLoginRampUpSeconds, minimumLoginRampUpSeconds(concurrentUsers));
+    int setupTimeoutMinutes = integerProperty(
+        SETUP_TIMEOUT_MINUTES_PROPERTY, DEFAULT_AUTHENTICATION_SETUP_TIMEOUT_MINUTES);
+    double actionPaceSeconds = doubleProperty(ACTION_PACE_SECONDS_PROPERTY, DEFAULT_ACTION_PACE_SECONDS);
+    int rampDownGraceSeconds = integerProperty(
+        RAMP_DOWN_GRACE_SECONDS_PROPERTY, DEFAULT_RAMP_DOWN_GRACE_SECONDS);
+    Map<WorkloadAction, Integer> configuredCounts = scheduledCounts(properties, name);
+    int configuredActionCount = Math.multiplyExact(configuredUsers, configuredDurationMinutes);
+    int measuredActionCount = Math.multiplyExact(concurrentUsers, actionsPerUser);
+    Map<WorkloadAction, Integer> measuredCounts = scaledScheduledCounts(
+        configuredCounts, configuredActionCount, measuredActionCount);
+    int rampActionsPerUser = maximumActionsPerUser(setupTimeoutMinutes, actionPaceSeconds);
+    int maximumRampActionCount = Math.multiplyExact(concurrentUsers, rampActionsPerUser);
+    Map<WorkloadAction, Integer> rampCounts = scaledScheduledCounts(
+        configuredCounts, configuredActionCount, maximumRampActionCount);
     return new WorkloadProfile(
         name,
         concurrentUsers,
         durationMinutes,
         actionsPerUser,
-        Math.min(configuredLoginRampUpSeconds, minimumLoginRampUpSeconds(concurrentUsers)),
-        scheduledCounts,
-        actionPlan,
-        nonNegative(properties, name + ".update_application"),
-        nonNegative(properties, name + ".add_application"),
-        nonNegative(properties, name + ".result_application"),
-        nonNegative(properties, name + ".result_multiple"),
-        nonNegative(properties, name + ".update_result"),
-        nonNegative(properties, name + ".update_list"),
-        nonNegative(properties, name + ".close_list"),
-        nonNegative(properties, name + ".bulk_officials"),
-        nonNegative(properties, name + ".bulk_fees"),
-        nonNegative(properties, name + ".bulk_upload"));
+        loginRampUpSeconds,
+        setupTimeoutMinutes,
+        actionPaceSeconds,
+        rampDownGraceSeconds,
+        measuredCounts,
+        buildActionPlan(measuredCounts, measuredActionCount),
+        rampActionsPerUser,
+        rampCounts,
+        buildActionPlan(rampCounts, maximumRampActionCount));
   }
 
   public static int minimumLoginRampUpSeconds(int concurrentUsers) {
     return (int) Math.ceil(concurrentUsers * LOGIN_INTERVAL_SECONDS);
   }
 
-  public static double workloadReleaseIntervalSeconds() {
-    String value = System.getProperty(
-        WORKLOAD_RELEASE_INTERVAL_SECONDS_PROPERTY,
-        System.getenv().getOrDefault("WORKLOAD_RELEASE_INTERVAL_SECONDS", "1.5"));
-    try {
-      double interval = Double.parseDouble(value);
-      if (interval <= 0) throw new IllegalArgumentException();
-      return interval;
-    } catch (IllegalArgumentException exception) {
-      throw new IllegalArgumentException(
-          WORKLOAD_RELEASE_INTERVAL_SECONDS_PROPERTY + " must be a positive number", exception);
-    }
-  }
-
-  private static int cappedUsers(int configuredUsers) {
-    String requestedValue = System.getProperty(MAX_USERS_PROPERTY);
-    if (requestedValue == null) return configuredUsers;
-    final int requestedUsers;
-    try {
-      requestedUsers = Integer.parseInt(requestedValue);
-    } catch (NumberFormatException exception) {
-      throw new IllegalArgumentException(MAX_USERS_PROPERTY + " must be a positive integer", exception);
-    }
-    if (requestedUsers < 1) {
-      throw new IllegalArgumentException(MAX_USERS_PROPERTY + " must be at least 1");
-    }
-    return Math.min(requestedUsers, configuredUsers);
-  }
-
-  private static int cappedDuration(int configuredDurationMinutes) {
-    String requestedValue = System.getProperty(DURATION_MINUTES_PROPERTY);
-    if (requestedValue == null) return configuredDurationMinutes;
-    try {
-      int requestedMinutes = Integer.parseInt(requestedValue);
-      if (requestedMinutes < 1) throw new NumberFormatException();
-      return Math.min(requestedMinutes, configuredDurationMinutes);
-    } catch (NumberFormatException exception) {
-      throw new IllegalArgumentException(DURATION_MINUTES_PROPERTY + " must be a positive integer", exception);
-    }
-  }
-
-  private static Map<WorkloadAction, Integer> cappedScheduledCounts(
-      Map<WorkloadAction, Integer> configuredCounts, int configuredUsers, int configuredActionsPerUser,
-      int cappedUsers, int actionsPerUser) {
-    int cappedActionCount = Math.multiplyExact(cappedUsers, actionsPerUser);
-    int configuredActionCount = Math.multiplyExact(configuredUsers, configuredActionsPerUser);
-    if (cappedActionCount == configuredActionCount) return configuredCounts;
-
-    Map<WorkloadAction, Integer> counts = new EnumMap<>(WorkloadAction.class);
-    Map<WorkloadAction, Long> remainders = new EnumMap<>(WorkloadAction.class);
-    int allocated = 0;
-    for (WorkloadAction action : WorkloadAction.values()) {
-      long scaled = (long) configuredCounts.get(action) * cappedActionCount;
-      counts.put(action, (int) (scaled / configuredActionCount));
-      remainders.put(action, scaled % configuredActionCount);
-      allocated += counts.get(action);
-    }
-    List<WorkloadAction> byRemainder = new ArrayList<>(List.of(WorkloadAction.values()));
-    byRemainder.sort((left, right) -> Long.compare(remainders.get(right), remainders.get(left)));
-    for (int index = 0; allocated < cappedActionCount; index++, allocated++) {
-      WorkloadAction action = byRemainder.get(index);
-      counts.put(action, counts.get(action) + 1);
-    }
-    return counts;
-  }
-
-  /** Returns the fixed action for a dedicated account and its zero-based iteration. */
+  /** Returns the fixed measured action for a dedicated account and its zero-based iteration. */
   public WorkloadAction actionFor(int accountOffset, int iteration) {
-    if (accountOffset < 0 || accountOffset >= concurrentUsers) {
-      throw new IllegalArgumentException("Account offset is outside the configured workload: " + accountOffset);
-    }
-    if (iteration < 0 || iteration >= actionsPerUser) {
-      throw new IllegalArgumentException("Action iteration is outside the configured workload: " + iteration);
-    }
-    return actionPlan.get(accountOffset * actionsPerUser + iteration);
+    return actionFor(actionPlan, actionsPerUser, accountOffset, iteration, "measured");
+  }
+
+  /** Returns the reserved ramp-up action for a dedicated account and its zero-based iteration. */
+  public WorkloadAction rampActionFor(int accountOffset, int iteration) {
+    return actionFor(rampActionPlan, rampActionsPerUser, accountOffset, iteration, "ramp-up");
   }
 
   public int scheduledActionCount(WorkloadAction action) {
     return scheduledActionCounts.getOrDefault(action, 0);
   }
 
-  private static void requireCapacity(
-      Map<WorkloadAction, Integer> scheduledActionCounts, WorkloadAction action, int allocationCount) {
-    int scheduledCount = scheduledActionCounts.getOrDefault(action, 0);
-    if (allocationCount < scheduledCount) {
-      throw new IllegalArgumentException("Allocated data for " + action.key() + " is " + allocationCount
-          + "; deterministic schedule requires " + scheduledCount);
-    }
+  public int rampScheduledActionCount(WorkloadAction action) {
+    return rampScheduledActionCounts.getOrDefault(action, 0);
   }
 
-  private static Map<WorkloadAction, Integer> scheduledCounts(Properties properties, String name) {
+  public int maximumRampActionCount() {
+    return Math.multiplyExact(concurrentUsers, rampActionsPerUser);
+  }
+
+  public Duration loginRampUpDuration() {
+    return Duration.ofSeconds(loginRampUpSeconds);
+  }
+
+  public Duration authenticationSetupTimeout() {
+    return Duration.ofMinutes(authenticationSetupTimeoutMinutes);
+  }
+
+  public Duration steadyStateDuration() {
+    return Duration.ofMinutes(durationMinutes);
+  }
+
+  public Duration actionPace() {
+    return durationFromSeconds(actionPaceSeconds);
+  }
+
+  public Duration maximumSimulationDuration() {
+    return authenticationSetupTimeout()
+        .plus(steadyStateDuration())
+        .plusSeconds(rampDownGraceSeconds);
+  }
+
+  private static WorkloadAction actionFor(
+      List<WorkloadAction> plan,
+      int actionsPerUser,
+      int accountOffset,
+      int iteration,
+      String phase) {
+    int users = plan.size() / actionsPerUser;
+    if (accountOffset < 0 || accountOffset >= users) {
+      throw new IllegalArgumentException("Account offset is outside the configured workload: " + accountOffset);
+    }
+    if (iteration < 0 || iteration >= actionsPerUser) {
+      throw new IllegalArgumentException(
+          "Action iteration is outside the configured " + phase + " workload: " + iteration);
+    }
+    return plan.get(accountOffset * actionsPerUser + iteration);
+  }
+
+  private static Map<WorkloadAction, Integer> scaledScheduledCounts(
+      Map<WorkloadAction, Integer> configuredCounts,
+      int configuredActionCount,
+      int targetActionCount) {
+    if (configuredCounts.values().stream().mapToInt(Integer::intValue).sum() != configuredActionCount) {
+      throw new IllegalArgumentException(
+          "Configured scheduled action counts do not total " + configuredActionCount);
+    }
     Map<WorkloadAction, Integer> counts = new EnumMap<>(WorkloadAction.class);
+    Map<WorkloadAction, Long> remainders = new EnumMap<>(WorkloadAction.class);
+    int allocated = 0;
     for (WorkloadAction action : WorkloadAction.values()) {
-      counts.put(action, nonNegative(properties, name + ".scheduled_" + action.key()));
+      long scaled = (long) configuredCounts.getOrDefault(action, 0) * targetActionCount;
+      counts.put(action, (int) (scaled / configuredActionCount));
+      remainders.put(action, scaled % configuredActionCount);
+      allocated += counts.get(action);
+    }
+    List<WorkloadAction> byRemainder = new ArrayList<>(List.of(WorkloadAction.values()));
+    byRemainder.sort((left, right) -> Long.compare(remainders.get(right), remainders.get(left)));
+    for (int index = 0; allocated < targetActionCount; index++, allocated++) {
+      WorkloadAction action = byRemainder.get(index);
+      counts.put(action, counts.get(action) + 1);
     }
     return counts;
   }
@@ -237,19 +242,67 @@ public record WorkloadProfile(
       WorkloadAction selected = null;
       long largestDeficit = Long.MIN_VALUE;
       for (WorkloadAction candidate : WorkloadAction.values()) {
-        int requested = counts.get(candidate);
+        int requested = counts.getOrDefault(candidate, 0);
         if (allocated.get(candidate) == requested) continue;
-        long deficit = (long) (slot + 1) * requested - (long) allocated.get(candidate) * expectedActionCount;
+        long deficit = (long) (slot + 1) * requested
+            - (long) allocated.get(candidate) * expectedActionCount;
         if (selected == null || deficit > largestDeficit) {
           selected = candidate;
           largestDeficit = deficit;
         }
       }
-      if (selected == null) throw new IllegalArgumentException("No action was available for schedule slot " + slot);
+      if (selected == null) {
+        throw new IllegalArgumentException("No action was available for schedule slot " + slot);
+      }
       allocated.put(selected, allocated.get(selected) + 1);
       plan.add(selected);
     }
     return plan;
+  }
+
+  private static void requirePlan(
+      String phase,
+      Map<WorkloadAction, Integer> counts,
+      List<WorkloadAction> plan,
+      int expectedActionCount) {
+    if (plan.size() != expectedActionCount) {
+      throw new IllegalArgumentException("Deterministic " + phase + " action plan has " + plan.size()
+          + " slots; expected " + expectedActionCount);
+    }
+    for (WorkloadAction action : WorkloadAction.values()) {
+      int scheduledCount = counts.getOrDefault(action, 0);
+      if (scheduledCount < 0) {
+        throw new IllegalArgumentException("Scheduled action count must not be negative: " + action.key());
+      }
+      if (plan.stream().filter(action::equals).count() != scheduledCount) {
+        throw new IllegalArgumentException(
+            "Deterministic " + phase + " action plan does not match " + action.key());
+      }
+    }
+  }
+
+  private static int maximumActionsPerUser(int setupTimeoutMinutes, double actionPaceSeconds) {
+    requireMinutes("Workload authentication setup timeout", setupTimeoutMinutes);
+    requireActionPace(actionPaceSeconds);
+    return (int) Math.ceil(setupTimeoutMinutes * 60.0 / actionPaceSeconds);
+  }
+
+  private static Duration durationFromSeconds(double seconds) {
+    return Duration.ofMillis(Math.max(1L, (long) Math.ceil(seconds * 1_000.0)));
+  }
+
+  private static void requireMinutes(String name, int value) {
+    if (value < 1 || value > MAX_DURATION_MINUTES) {
+      throw new IllegalArgumentException(name + " must be between 1 and " + MAX_DURATION_MINUTES + " minutes");
+    }
+  }
+
+  private static void requireActionPace(double value) {
+    if (!Double.isFinite(value)
+        || value < MINIMUM_ACTION_PACE_SECONDS
+        || value > MAXIMUM_ACTION_PACE_SECONDS) {
+      throw new IllegalArgumentException("Workload action pace must be between 60 and 3600 seconds");
+    }
   }
 
   private static Properties loadProperties() {
@@ -263,13 +316,44 @@ public record WorkloadProfile(
       properties.load(reader);
       return properties;
     } catch (IOException exception) {
-      throw new IllegalArgumentException("Could not read workload allocation profile: " + profilePath.toAbsolutePath(), exception);
+      throw new IllegalArgumentException(
+          "Could not read workload allocation profile: " + profilePath.toAbsolutePath(), exception);
     }
+  }
+
+  private static int cappedUsers(int configuredUsers) {
+    String requestedValue = System.getProperty(MAX_USERS_PROPERTY);
+    if (requestedValue == null) return configuredUsers;
+    int requestedUsers = parseInteger(MAX_USERS_PROPERTY, requestedValue);
+    if (requestedUsers < 1) {
+      throw new IllegalArgumentException(MAX_USERS_PROPERTY + " must be at least 1");
+    }
+    return Math.min(requestedUsers, configuredUsers);
+  }
+
+  private static int cappedDuration(int configuredDurationMinutes) {
+    String requestedValue = System.getProperty(DURATION_MINUTES_PROPERTY);
+    if (requestedValue == null) return configuredDurationMinutes;
+    int requestedMinutes = parseInteger(DURATION_MINUTES_PROPERTY, requestedValue);
+    if (requestedMinutes < 1) {
+      throw new IllegalArgumentException(DURATION_MINUTES_PROPERTY + " must be a positive integer");
+    }
+    return Math.min(requestedMinutes, configuredDurationMinutes);
+  }
+
+  private static Map<WorkloadAction, Integer> scheduledCounts(Properties properties, String name) {
+    Map<WorkloadAction, Integer> counts = new EnumMap<>(WorkloadAction.class);
+    for (WorkloadAction action : WorkloadAction.values()) {
+      counts.put(action, nonNegative(properties, name + ".scheduled_" + action.key()));
+    }
+    return counts;
   }
 
   private static int positive(Properties properties, String key) {
     int value = nonNegative(properties, key);
-    if (value < 1) throw new IllegalArgumentException("Workload allocation profile value must be positive: " + key);
+    if (value < 1) {
+      throw new IllegalArgumentException("Workload allocation profile value must be positive: " + key);
+    }
     return value;
   }
 
@@ -278,12 +362,62 @@ public record WorkloadProfile(
     if (value == null) {
       throw new IllegalArgumentException("Workload allocation profile is missing " + key);
     }
+    int parsed = parseInteger(key, value);
+    if (parsed < 0) {
+      throw new IllegalArgumentException("Workload allocation profile value must not be negative: " + key);
+    }
+    return parsed;
+  }
+
+  private static int integerProperty(String name, int defaultValue) {
+    String value = System.getProperty(name);
+    return value == null ? defaultValue : parseInteger(name, value);
+  }
+
+  private static double doubleProperty(String name, double defaultValue) {
+    String value = System.getProperty(name);
+    if (value == null) return defaultValue;
     try {
-      int parsed = Integer.parseInt(value);
-      if (parsed < 0) throw new NumberFormatException();
-      return parsed;
+      return Double.parseDouble(value);
     } catch (NumberFormatException exception) {
-      throw new IllegalArgumentException("Workload allocation profile value must be a non-negative integer: " + key);
+      throw new IllegalArgumentException(name + " must be a number", exception);
+    }
+  }
+
+  private static int parseInteger(String name, String value) {
+    try {
+      return Integer.parseInt(value);
+    } catch (NumberFormatException exception) {
+      throw new IllegalArgumentException(name + " must be an integer", exception);
+    }
+  }
+
+  /** Small dependency-free check for ramp capacity and deterministic scaling. */
+  public static void main(String[] args) {
+    if (maximumActionsPerUser(15, 60) != 15 || maximumActionsPerUser(15, 120) != 8) {
+      throw new IllegalStateException("Workload ramp capacity calculation failed");
+    }
+    Map<WorkloadAction, Integer> configured = new EnumMap<>(WorkloadAction.class);
+    for (WorkloadAction action : WorkloadAction.values()) configured.put(action, 0);
+    configured.put(WorkloadAction.UPDATE_APPLICATION, 3);
+    configured.put(WorkloadAction.OTHER_OPERATIONS, 1);
+    Map<WorkloadAction, Integer> scaled = scaledScheduledCounts(configured, 4, 8);
+    if (scaled.get(WorkloadAction.UPDATE_APPLICATION) != 6
+        || scaled.get(WorkloadAction.OTHER_OPERATIONS) != 2
+        || buildActionPlan(scaled, 8).size() != 8) {
+      throw new IllegalStateException("Workload deterministic scaling failed");
+    }
+    expectInvalid(() -> maximumActionsPerUser(15, 59));
+    expectInvalid(() -> maximumActionsPerUser(0, 60));
+    System.out.println("Workload profile self-check passed");
+  }
+
+  private static void expectInvalid(Runnable action) {
+    try {
+      action.run();
+      throw new IllegalStateException("Expected invalid workload configuration to be rejected");
+    } catch (IllegalArgumentException expected) {
+      // Intentionally empty: each invalid boundary must reject construction.
     }
   }
 }
