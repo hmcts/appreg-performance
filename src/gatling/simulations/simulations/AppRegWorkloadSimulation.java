@@ -125,6 +125,8 @@ public class AppRegWorkloadSimulation extends Simulation {
         .set(MEASURED_ITERATION_SESSION_KEY, 0)))
       .asLongAs(session -> acceptsActions(phases.currentPhase())).on(
         exec(pace(profile.actionPace()))
+          // Capture the phase after pacing, immediately before choosing the action. The stored
+          // value deliberately keeps an in-flight action in the phase in which it started.
           .exec(this::assignNextAction)
           .doIf(session -> Phase.AUTHENTICATION_RAMP_UP.name().equals(
               session.getString(ACTION_PHASE_SESSION_KEY))).then(
@@ -191,6 +193,8 @@ public class AppRegWorkloadSimulation extends Simulation {
   private Session assignNextAction(Session session) {
     Phase phase = phases.currentPhase();
     session = session.set(ACTION_PHASE_SESSION_KEY, phase.name());
+    // Each phase has its own iteration counter and action plan. Ramp-up work can therefore never
+    // advance the measured plan or consume data reserved for a measured transaction.
     if (phase == Phase.AUTHENTICATION_RAMP_UP) {
       int iteration = session.getInt(RAMP_ITERATION_SESSION_KEY);
       WorkloadAction action = profile.rampActionFor(session.getInt("accountOffset"), iteration);
@@ -237,6 +241,8 @@ public class AppRegWorkloadSimulation extends Simulation {
   private FeederBuilder.FileBased<String> feeder(
       String phase, String action, WorkloadAction scheduledAction) {
     String path = Path.of(feederDirectory, phase, action + ".csv").toString();
+    // Queue semantics make every mutable row single-use. Requiring the exact planned size at
+    // startup turns missing or accidentally shared data into an immediate configuration failure.
     FeederBuilder.FileBased<String> feeder = csv(path).queue();
     int requiredRows = "ramp-up".equals(phase)
         ? profile.rampScheduledActionCount(scheduledAction)

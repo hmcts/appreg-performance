@@ -198,6 +198,8 @@ def dbSeedCommand = '''
         echo "No deterministic ramp-up or measured count for $1" >&2
         exit 1
       fi
+      # Seed both phase allocations in one database pass; they are split into non-overlapping
+      # feeder files after generation.
       # Keep one canonical row for a proof or a rounded-zero low-volume action.
       count=$((ramp_count + measured_count + proof_reserve))
       if [ "$count" -lt 1 ]; then count=1; fi
@@ -553,7 +555,9 @@ withNightlyPipeline(type, product, component) {
                                 fi
                                 data_start_row=2
                                 if [ "$RUN_PROOF_SMOKES" = "true" ]; then data_start_row=3; fi
-                                # Ramp-up and measured actions must never consume the same mutable row.
+                                # Row 1 is the CSV header and an optional proof row comes next. The
+                                # measured slice begins immediately after the ramp-up slice, which is
+                                # the isolation guarantee for mutable test data.
                                 awk -F, -v start="$data_start_row" -v count="$ramp_count" \
                                   'NR == 1 || (NR >= start && NR < start + count)' \
                                   "build/performance-data/$feeder.csv" > "build/workload-data/ramp-up/$feeder.csv"

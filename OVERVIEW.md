@@ -112,7 +112,7 @@ The repository contains no Scala test source or Scala Gradle plugin.
   setup and workload simulations.
 - `src/gatling/simulations/utils/` contains shared HTTP configuration,
   authentication, diagnostics, workload planning and coordination.
-- `data/seed/` contains canonical and scalable PostgreSQL seed scripts plus the
+- `data/seed/` contains the selective PostgreSQL test-data generator and the
   workload allocation profiles.
 - `db/postgres/reload_data.sql` contains the guarded masked-database reset.
 

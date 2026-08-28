@@ -77,6 +77,8 @@ public final class PhaseController {
       throw new IllegalStateException("More authenticated sessions were registered than requested");
     }
     if (authenticatedUsers == targetUsers) {
+      // The common measured clock starts only when the final requested session is ready. Earlier
+      // sessions keep doing ramp-up work, so slow SSO does not shorten the measured window.
       measuredStartedNanos = nanoTime.getAsLong();
       phase = Phase.MEASURED_STEADY_STATE;
     }

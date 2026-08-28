@@ -111,6 +111,9 @@ public record WorkloadProfile(
     int measuredActionCount = Math.multiplyExact(concurrentUsers, actionsPerUser);
     Map<WorkloadAction, Integer> measuredCounts = scaledScheduledCounts(
         configuredCounts, configuredActionCount, measuredActionCount);
+    // Ramp-up users start work as soon as they authenticate. Reserve enough data for the
+    // conservative case where every user could work for the whole setup window; unused rows are
+    // harmless and are kept separate from the rows reserved for measurement.
     int rampActionsPerUser = maximumActionsPerUser(setupTimeoutMinutes, actionPaceSeconds);
     int maximumRampActionCount = Math.multiplyExact(concurrentUsers, rampActionsPerUser);
     Map<WorkloadAction, Integer> rampCounts = scaledScheduledCounts(
@@ -284,6 +287,8 @@ public record WorkloadProfile(
   private static int maximumActionsPerUser(int setupTimeoutMinutes, double actionPaceSeconds) {
     requireMinutes("Workload authentication setup timeout", setupTimeoutMinutes);
     requireActionPace(actionPaceSeconds);
+    // The first action can start immediately after login. Ceil therefore covers every action that
+    // can start before the setup deadline, including a final partial pace interval.
     return (int) Math.ceil(setupTimeoutMinutes * 60.0 / actionPaceSeconds);
   }
 

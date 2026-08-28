@@ -3,7 +3,6 @@ package simulations;
 import io.gatling.javaapi.core.Assertion;
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.OpenInjectionStep;
-import io.gatling.javaapi.core.PauseType;
 import io.gatling.javaapi.core.ScenarioBuilder;
 import io.gatling.javaapi.core.Simulation;
 import java.time.Duration;
@@ -20,16 +19,10 @@ import static utils.AppRegHttp.protocol;
 
 public class AppRegSimulation extends Simulation {
   private final String testType = System.getenv().getOrDefault("TEST_TYPE", "perftest");
-  private final String environment = switch (testType) {
-    case "perftest", "pipeline" -> "perftest";
-    default -> "**INVALID**";
-  };
   private final String debugMode = System.getProperty("debug", "off");
-  private final String env = System.getProperty("env", environment);
   private final String authMode = System.getProperty("authMode", System.getenv().getOrDefault("AUTH_MODE", "none"));
 
   private final PerformanceProfile profile = PerformanceProfile.fromRuntime();
-  private final PauseType pauseOption = "off".equals(debugMode) ? constantPauses : disabledPauses;
   private final int requiredAccountCount = profile.concurrentUsers();
   private final Iterator<Map<String, Object>> ssoUserFeeder = "sso-login".equals(authMode)
     ? SsoAuthentication.users(requiredAccountCount) : List.<Map<String, Object>>of().iterator();
@@ -42,11 +35,10 @@ public class AppRegSimulation extends Simulation {
       default -> throw new IllegalArgumentException("authMode must be none or sso-login");
     };
     ScenarioBuilder applicationsListScenario = scenario("AppReg applications list")
-      .exitBlockOnFail().on(exec(session -> session.set("env", env))
-        .exec(authentication)
+      .exitBlockOnFail().on(exec(authentication)
         .exec(AppRegScenario.applicationsList("sso-login".equals(authMode))));
 
-    setUp(applicationsListScenario.injectOpen(simulationProfile()).pauses(pauseOption))
+    setUp(applicationsListScenario.injectOpen(simulationProfile()))
       .protocols(httpProtocol)
       .assertions(assertions());
   }
@@ -70,7 +62,6 @@ public class AppRegSimulation extends Simulation {
   @Override
   public void before() {
     System.out.println("Test Type: " + testType);
-    System.out.println("Test Environment: " + env);
     System.out.println("Debug Mode: " + debugMode);
     System.out.println("Authentication Mode: " + authMode);
     System.out.println("Profile: " + profile);
