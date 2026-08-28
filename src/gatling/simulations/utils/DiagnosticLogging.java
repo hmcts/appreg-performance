@@ -51,6 +51,20 @@ public final class DiagnosticLogging {
     };
   }
 
+  /** Logs only the shape of an unexpected Entra configuration page, never its values. */
+  public static BiFunction<Response, Session, Response> logIfMissingEntraConfiguration(
+      String requestName) {
+    return (response, session) -> {
+      int status = response.status().code();
+      if (status != 200) {
+        log(requestName, response, session);
+      } else if (!hasRequiredEntraConfiguration(response.body().string())) {
+        logHtmlContinuation(requestName, response, session);
+      }
+      return response;
+    };
+  }
+
   private static void log(String requestName, Response response, Session session) {
     int status = response.status().code();
     System.err.printf(
@@ -67,13 +81,21 @@ public final class DiagnosticLogging {
     String body = response.body().string();
     System.err.printf(
         "APPREG_HTTP_DIAGNOSTIC request=%s status=%d continuationPage=true hasLocation=%s "
-            + "title=%s hasUrlPost=%s hasUrlLogin=%s hasUrlResume=%s hasUrlRefresh=%s "
+            + "contentType=%s bodyLength=%d title=%s hasSessionId=%s hasContext=%s hasFlowToken=%s "
+            + "hasCanary=%s hasCredentialTypeUrl=%s hasUrlPost=%s hasUrlLogin=%s hasUrlResume=%s hasUrlRefresh=%s "
             + "hasUrlCancel=%s hasAppRegCallback=%s kmsiEnabled=%s postType=%s errorCode=%s "
             + "user=%s accountOffset=%s authState=%s%n",
         requestName,
         response.status().code(),
         response.headers().contains("Location"),
+        shortValue(response.headers().get("Content-Type")),
+        body.length(),
         shortValue(extract(body, TITLE_PATTERN)),
+        body.contains("\"sessionId\""),
+        body.contains("\"sCtx\""),
+        body.contains("\"sFT\""),
+        body.contains("\"canary\""),
+        body.contains("\"urlGetCredentialType\""),
         body.contains("\"urlPost\":"),
         body.contains("\"urlLogin\":"),
         body.contains("\"urlResume\":"),
@@ -86,6 +108,15 @@ public final class DiagnosticLogging {
         sessionValue(session, "username"),
         sessionValue(session, "accountOffset"),
         authState(session));
+  }
+
+  private static boolean hasRequiredEntraConfiguration(String body) {
+    return body.contains("\"sessionId\"")
+        && body.contains("\"sCtx\"")
+        && body.contains("\"sFT\"")
+        && body.contains("\"canary\"")
+        && body.contains("\"urlGetCredentialType\"")
+        && body.contains("\"urlPost\"");
   }
 
   private static String authState(Session session) {
@@ -108,6 +139,7 @@ public final class DiagnosticLogging {
   }
 
   private static String shortValue(String value) {
+    if (value == null) return "-";
     return value.length() > 80 ? value.substring(0, 80) : value;
   }
 

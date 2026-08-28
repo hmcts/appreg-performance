@@ -94,22 +94,30 @@ public final class SsoAuthentication {
         .transformResponse(DiagnosticLogging.logIfStatusNotIn("AppReg SSO login redirect", Set.of(302)))
         .check(status().is(302)).check(header("Retry-After").optional().saveAs("retryAfter"))
         .check(header("Location").saveAs("entraAuthorizeUrl")))
-        // The first Entra page is often just a bootstrap shell. We scrape the JS config for the
-        // real continuation URL and then continue from there.
+        // Entra can return either the complete login configuration or a bootstrap shell whose
+        // urlPost must first be loaded. Capture both shapes and select the next step below.
         .exec(http("Entra authorize").get("#{entraAuthorizeUrl}")
           .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Accept-Language", BROWSER_HEADERS.get("Accept-Language"), "Upgrade-Insecure-Requests", "1", "Referer", Environment.BASE_URL + "/login"))
           .check(status().is(200))
-          .check(regex("(?s).*?\\\"urlPost\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraAuthorizeReloadUrl")))
+          .check(regex("(?s).*?\\\"sessionId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraSessionId"))
+          .check(regex("(?s).*?\\\"sCtx\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraContext"))
+          .check(regex("(?s).*?\\\"sFT\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraFlowToken"))
+          .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraCanary"))
+          .check(regex("(?s).*?\\\"urlGetCredentialType\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraCredentialTypeUrl"))
+          .check(regex("(?s).*?\\\"urlPost\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraAuthorizePostUrl")))
+        .exec(SsoAuthentication::prepareEntraAuthorizeContinuation)
         .exec(SsoAuthentication::normalizeEntraUrls)
-        // This page carries the live Entra state tokens used by credential discovery and login.
-        .exec(http("Entra authorize reload").get("#{entraAuthorizeReloadUrl}")
-          .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Accept-Language", BROWSER_HEADERS.get("Accept-Language"), "Upgrade-Insecure-Requests", "1", "Referer", "#{entraAuthorizeUrl}"))
-          .check(status().is(200)).check(regex("(?s).*?\\\"sessionId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraSessionId"))
-          .check(regex("(?s).*?\\\"sCtx\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraContext"))
-          .check(regex("(?s).*?\\\"sFT\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraFlowToken"))
-          .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraCanary"))
-          .check(regex("(?s).*?\\\"urlGetCredentialType\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraCredentialTypeUrl"))
-          .check(regex("(?s).*?\\\"urlPost\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraLoginUrl")))
+        .doIf(SsoAuthentication::needsEntraAuthorizeReload).then(
+          // The bootstrap variant needs one GET before it exposes the live login state.
+          exec(http("Entra authorize reload").get("#{entraAuthorizeReloadUrl}")
+            .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Accept-Language", BROWSER_HEADERS.get("Accept-Language"), "Upgrade-Insecure-Requests", "1", "Referer", "#{entraAuthorizeUrl}"))
+            .transformResponse(DiagnosticLogging.logIfMissingEntraConfiguration("Entra authorize reload"))
+            .check(status().is(200)).check(regex("(?s).*?\\\"sessionId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraSessionId"))
+            .check(regex("(?s).*?\\\"sCtx\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraContext"))
+            .check(regex("(?s).*?\\\"sFT\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraFlowToken"))
+            .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraCanary"))
+            .check(regex("(?s).*?\\\"urlGetCredentialType\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraCredentialTypeUrl"))
+            .check(regex("(?s).*?\\\"urlPost\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraLoginUrl"))))
         .exec(SsoAuthentication::normalizeEntraUrls)
         .exec(http("Entra credential discovery").post("#{entraCredentialTypeUrl}")
           .headers(Map.of("Accept", "application/json, text/javascript, */*; q=0.01", "Content-Type", "application/json; charset=UTF-8", "Origin", MICROSOFT_LOGIN_BASE_URL, "Referer", "#{entraAuthorizeUrl}", "canary", "#{entraCanary}", "hpgrequestid", "#{entraSessionId}"))
@@ -226,6 +234,30 @@ public final class SsoAuthentication {
       && session.contains("entraPostLoginContext")
       && session.contains("entraPostLoginFlowToken")
       && session.contains("entraPostLoginCanary");
+  }
+
+  private static Session prepareEntraAuthorizeContinuation(Session session) {
+    String postUrl = session.getString("entraAuthorizePostUrl");
+    session = session.remove("entraAuthorizePostUrl");
+    if (hasInitialLoginConfiguration(session)) {
+      if (!session.contains("entraCredentialTypeUrl")) {
+        session = session.set(
+            "entraCredentialTypeUrl", MICROSOFT_LOGIN_BASE_URL + "/common/GetCredentialType?mkt=en-GB");
+      }
+      return session.set("entraLoginUrl", postUrl);
+    }
+    return session.set("entraAuthorizeReloadUrl", postUrl);
+  }
+
+  private static boolean needsEntraAuthorizeReload(Session session) {
+    return session.contains("entraAuthorizeReloadUrl");
+  }
+
+  private static boolean hasInitialLoginConfiguration(Session session) {
+    return session.contains("entraSessionId")
+        && session.contains("entraContext")
+        && session.contains("entraFlowToken")
+        && session.contains("entraCanary");
   }
 
   private static Session normalizeEntraUrls(Session session) {

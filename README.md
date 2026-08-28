@@ -71,6 +71,13 @@ a different formatted account name. `APPREG_ACCOUNT_START_INDEX` changes the
 first index.
 
 `APPREG_USER_AGENT` or `-DappRegUserAgent` overrides the HTTP User-Agent.
+Entra may return the complete login configuration immediately or require a
+bootstrap reload, depending on the client. The authentication chain supports
+both page shapes. When an Entra configuration page is missing required
+continuation fields, the test logs only its shape and field presence; it does
+not log the response body or token values.
+Set `APPREG_SSO_DIAGNOSTICS=true` to include the same sanitized summary for
+other HTML continuation steps.
 
 Passwords are read from the environment and are not written to feeders, reports
 or logs.
