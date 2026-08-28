@@ -41,16 +41,19 @@ public final class UpdateApplicationScenario {
           .check(status().saveAs(STATUS_SESSION_KEY))
           .check(status().is(200)))
         .exec(logFailure("Update Application", "Get application list"))
+        .exitHereIfFailed()
         .exec(http("Get application entry")
           .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200))
-          .check(jsonPath("$.applicationCode").saveAs("applicationCode")))
+          .check(jsonPath("$.applicationCode").exists().saveAs("applicationCode")))
+        .exitHereIfFailed()
         .exec(http("Get application-code details")
           .get("/application-codes/#{applicationCode}")
           .queryParam("date", "#{applicationUpdateDate}")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
           .check(status().is(200)))
+        .exitHereIfFailed()
         .exec(http("Update application")
           .put("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
@@ -60,6 +63,7 @@ public final class UpdateApplicationScenario {
             {"applicationCode":"#{applicationCode}","applicant":{"person":{"name":{"firstName":"Gatling","middleName":"Update","lastName":"Applicant #{applicationUpdateId}"},"contactDetails":{"addressLine1":"23 Performance Road","addressLine3":"Liverpool","addressLine4":"England","addressLine5":"Swansea","postcode":"SW1A 2AA","phone":"020 7946 0000","mobile":"07854 555555","email":"updated#{applicationUpdateId}@example.com"}}},"respondent":{"person":{"name":{"firstName":"Gatling","middleName":"Update","lastName":"Respondent #{applicationUpdateId}"},"dateOfBirth":"1970-01-01","contactDetails":{"addressLine1":"The House","addressLine2":"31 Test Close","addressLine3":"Galway","addressLine4":"Shropshire","addressLine5":"Tinmus","postcode":"SW1B 2BB","phone":"020 7946 0000","mobile":"07123 456789","email":"updated-respondent#{applicationUpdateId}@example.com"}}},"numberOfRespondents":null,"wordingFields":[],"feeStatuses":[{"paymentReference":"UPD-#{applicationUpdateId}","paymentStatus":"PAID","statusDate":"#{applicationUpdateDate}"}],"hasOffsiteFee":true,"caseReference":"UPD-#{applicationUpdateId}","accountNumber":"UPD-#{applicationUpdateId}","notes":"Gatling update #{applicationUpdateId}","officials":[]}
             """))
           .check(status().is(200)))
+        .exitHereIfFailed()
     );
   }
 }
