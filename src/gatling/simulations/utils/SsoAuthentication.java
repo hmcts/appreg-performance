@@ -2,7 +2,10 @@ package utils;
 
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.Session;
+import io.gatling.javaapi.http.HttpRequestActionBuilder;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.IntStream;
@@ -13,7 +16,6 @@ import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.regex;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.header;
-import static io.gatling.javaapi.http.HttpDsl.headerRegex;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 
@@ -68,8 +70,9 @@ public final class SsoAuthentication {
       .iterator();
   }
 
-  /** Candidate spare identities for an in-process target authentication stage. */
+  /** Candidate spare identities for an in-process authentication gate. */
   public static Iterator<Map<String, Object>> spareCandidates(int primaryAccountCount, int spareAccountCount) {
+    if (spareAccountCount < 0) throw new IllegalArgumentException("The spare account count must not be negative");
     if (primaryAccountCount + spareAccountCount > MAX_TEST_ACCOUNTS) {
       throw new IllegalArgumentException("The authentication target and spare accounts must not exceed " + MAX_TEST_ACCOUNTS);
     }
@@ -85,52 +88,130 @@ public final class SsoAuthentication {
 
   public static ChainBuilder login() {
     String password = requiredEnvironmentVariable("APPREG_TEST_USER_PASSWORD", "TEST_USERS_PASSWORD");
-    String tenantId = requiredEnvironmentVariable("APPREG_TENANT_ID", "TENANT_ID");
     return group("AppReg_000_SSO_Login").on(
+      // AppReg starts the flow with a 302 to Microsoft Entra.
       exec(http("AppReg SSO login redirect").get("/sso/login").headers(BROWSER_HEADERS).disableFollowRedirect()
         .transformResponse(DiagnosticLogging.logIfStatusNotIn("AppReg SSO login redirect", Set.of(302)))
         .check(status().is(302)).check(header("Retry-After").optional().saveAs("retryAfter"))
-        .check(headerRegex("Location", "(.+)").saveAs("entraAuthorizeUrl")).silent())
+        .check(header("Location").saveAs("entraAuthorizeUrl")))
+        // The first Entra page is often just a bootstrap shell. We scrape the JS config for the
+        // real continuation URL and then continue from there.
         .exec(http("Entra authorize").get("#{entraAuthorizeUrl}")
           .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Accept-Language", BROWSER_HEADERS.get("Accept-Language"), "Upgrade-Insecure-Requests", "1", "Referer", Environment.BASE_URL + "/login"))
+          .check(status().is(200))
+          .check(regex("(?s).*?\\\"urlPost\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraAuthorizeReloadUrl")))
+        .exec(SsoAuthentication::normalizeEntraUrls)
+        // This page carries the live Entra state tokens used by credential discovery and login.
+        .exec(http("Entra authorize reload").get("#{entraAuthorizeReloadUrl}")
+          .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Accept-Language", BROWSER_HEADERS.get("Accept-Language"), "Upgrade-Insecure-Requests", "1", "Referer", "#{entraAuthorizeUrl}"))
           .check(status().is(200)).check(regex("(?s).*?\\\"sessionId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraSessionId"))
           .check(regex("(?s).*?\\\"sCtx\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraContext"))
           .check(regex("(?s).*?\\\"sFT\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraFlowToken"))
-          .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraCanary")).silent())
-        .exec(http("Entra credential discovery").post(MICROSOFT_LOGIN_BASE_URL + "/common/GetCredentialType?mkt=en-GB")
+          .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraCanary"))
+          .check(regex("(?s).*?\\\"urlGetCredentialType\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraCredentialTypeUrl"))
+          .check(regex("(?s).*?\\\"urlPost\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").saveAs("entraLoginUrl")))
+        .exec(SsoAuthentication::normalizeEntraUrls)
+        .exec(http("Entra credential discovery").post("#{entraCredentialTypeUrl}")
           .headers(Map.of("Accept", "application/json, text/javascript, */*; q=0.01", "Content-Type", "application/json; charset=UTF-8", "Origin", MICROSOFT_LOGIN_BASE_URL, "Referer", "#{entraAuthorizeUrl}", "canary", "#{entraCanary}", "hpgrequestid", "#{entraSessionId}"))
-          .body(StringBody(CREDENTIAL_DISCOVERY_BODY)).asJson().check(status().is(200)).silent())
-        .exec(http("Entra username and password").post(MICROSOFT_LOGIN_BASE_URL + "/" + tenantId + "/login")
+          .body(StringBody(CREDENTIAL_DISCOVERY_BODY)).asJson().check(status().is(200)))
+        // A successful password submit does not always yield KMSI directly. Locally, Entra can
+        // respond with a BssoInterrupt page that needs the same credentials form posted again.
+        .exec(http("Entra username and password").post("#{entraLoginUrl}")
+          .transformResponse(DiagnosticLogging.logIfHtmlContinuationPage("Entra username and password"))
           .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Content-Type", "application/x-www-form-urlencoded", "Origin", MICROSOFT_LOGIN_BASE_URL, "Referer", "#{entraAuthorizeUrl}"))
           .formParam("i13", "0").formParam("login", "#{username}").formParam("loginfmt", "#{username}").formParam("type", "11").formParam("LoginOptions", "3").formParam("lrt", "").formParam("lrtPartition", "").formParam("hisRegion", "").formParam("hisScaleUnit", "").formParam("passwd", password).formParam("ps", "2").formParam("psRNGCDefaultType", "").formParam("psRNGCEntropy", "").formParam("psRNGCSLK", "").formParam("canary", "#{entraCanary}").formParam("ctx", "#{entraContext}").formParam("hpgrequestid", "#{entraSessionId}").formParam("flowToken", "#{entraFlowToken}").formParam("PPSX", "").formParam("NewUser", "1").formParam("FoundMSAs", "").formParam("fspost", "0").formParam("i21", "0").formParam("CookieDisclosure", "0").formParam("IsFidoSupported", "1").formParam("isSignupPost", "0").formParam("DfpArtifact", "").formParam("i19", "3306")
           .check(status().is(200))
-          .check(regex("(?s).*?\\\"sessionId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraSessionId"))
-          .check(regex("(?s).*?\\\"sCtx\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraContext"))
-          .check(regex("(?s).*?\\\"sFT\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraFlowToken"))
-          .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraCanary")).silent())
+          .check(regex("(?s).*?\\\"sessionId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraPostLoginSessionId"))
+          .check(regex("(?s).*?\\\"sCtx\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraPostLoginContext"))
+          .check(regex("(?s).*?\\\"sFT\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraPostLoginFlowToken"))
+          .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraPostLoginCanary"))
+          .check(regex("(?s).*?\\\"urlPost\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraPasswordReloadUrl")))
+        .exec(SsoAuthentication::normalizeEntraUrls)
+        .doIf(SsoAuthentication::needsPostPasswordReload).then(
+          // Replay the same password form against Entra's reload endpoint to obtain the
+          // post-login continuation tokens needed for KMSI.
+          exec(withPasswordForm(http("Entra password reload").post("#{entraPasswordReloadUrl}")
+            .transformResponse(DiagnosticLogging.logIfHtmlContinuationPage("Entra password reload"))
+            .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Content-Type", "application/x-www-form-urlencoded", "Origin", MICROSOFT_LOGIN_BASE_URL, "Referer", "#{entraLoginUrl}")), password)
+            .check(status().is(200))
+            .check(regex("(?s).*?\\\"sessionId\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraPostLoginSessionId"))
+            .check(regex("(?s).*?\\\"sCtx\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraPostLoginContext"))
+            .check(regex("(?s).*?\\\"sFT\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraPostLoginFlowToken"))
+            .check(regex("(?s).*?\\\"canary\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraPostLoginCanary"))))
+        .exec(SsoAuthentication::promotePostLoginContinuation)
         .doIf(SsoAuthentication::hasKmsiContinuation).then(
-          exec(http("Entra KMSI").post(MICROSOFT_LOGIN_BASE_URL + "/kmsi")
+          // If Entra asks "Stay signed in?", submit the KMSI form. Some runs return a normal
+          // redirect, others return another BssoInterrupt HTML page with a urlPost reload.
+          exec(withKmsiForm(http("Entra KMSI").post(MICROSOFT_LOGIN_BASE_URL + "/kmsi")
           .transformResponse(DiagnosticLogging.logIfStatusNotIn("Entra KMSI", Set.of(200, 302)))
-          .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Content-Type", "application/x-www-form-urlencoded", "Origin", MICROSOFT_LOGIN_BASE_URL, "Referer", MICROSOFT_LOGIN_BASE_URL + "/" + tenantId + "/login"))
+          .transformResponse(DiagnosticLogging.logIfHtmlContinuationPage("Entra KMSI"))
+          .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Content-Type", "application/x-www-form-urlencoded", "Origin", MICROSOFT_LOGIN_BASE_URL, "Referer", "#{entraLoginUrl}"))
           .disableFollowRedirect()
-          .formParam("LoginOptions", "3").formParam("type", "28").formParam("ctx", "#{entraContext}").formParam("hpgrequestid", "#{entraSessionId}").formParam("flowToken", "#{entraFlowToken}").formParam("canary", "#{entraCanary}").formParam("i19", "7178").check(status().in(200, 302))
-          .check(headerRegex("Location", "(.+)").optional().saveAs("entraKmsiRedirectUrl1")).silent())
+          .check(status().in(200, 302))
+          .check(header("Location").optional().saveAs("entraKmsiRedirectUrl1"))
+          .check(regex("(?s).*?\\\"urlPost\\\"\\s*:\\s*\\\"([^\\\"]+)\\\".*").optional().saveAs("entraKmsiReloadUrl"))))
+          .exec(SsoAuthentication::normalizeEntraUrls)
+          .doIf(session -> session.contains("entraKmsiReloadUrl") && !session.contains("entraKmsiRedirectUrl1")).then(
+            // The reload POST completes the Entra side of the handshake and yields the callback.
+            exec(withKmsiForm(http("Entra KMSI reload").post("#{entraKmsiReloadUrl}")
+              .transformResponse(DiagnosticLogging.logIfStatusNotIn("Entra KMSI reload", Set.of(200, 302)))
+              .transformResponse(DiagnosticLogging.logIfHtmlContinuationPage("Entra KMSI reload"))
+              .headers(Map.of("Accept", BROWSER_HEADERS.get("Accept"), "Content-Type", "application/x-www-form-urlencoded", "Origin", MICROSOFT_LOGIN_BASE_URL, "Referer", MICROSOFT_LOGIN_BASE_URL + "/kmsi"))
+              .disableFollowRedirect()
+              .check(status().in(200, 302))
+              .check(header("Location").optional().saveAs("entraKmsiRedirectUrl1")))))
           .doIf(session -> session.contains("entraKmsiRedirectUrl1")).then(
+            // These redirects land back on AppReg's callback and then the authenticated home page.
             exec(http("Entra KMSI Redirect 1").get("#{entraKmsiRedirectUrl1}")
               .transformResponse(DiagnosticLogging.logIfStatusNotIn("Entra KMSI Redirect 1", Set.of(200, 302)))
               .disableFollowRedirect()
               .headers(BROWSER_HEADERS)
               .check(status().in(200, 302))
-              .check(headerRegex("Location", "(.+)").optional().saveAs("entraKmsiRedirectUrl2")).silent()))
+              .check(header("Location").optional().saveAs("entraKmsiRedirectUrl2"))))
           .doIf(session -> session.contains("entraKmsiRedirectUrl2")).then(
             exec(http("Entra KMSI Redirect 2").get("#{entraKmsiRedirectUrl2}")
               .transformResponse(DiagnosticLogging.logIfStatusNotIn("Entra KMSI Redirect 2", Set.of(200, 302)))
               .disableFollowRedirect()
               .headers(BROWSER_HEADERS)
-              .check(status().in(200, 302)).silent())))
-        .exec(http("AppReg authenticated home").get("/").headers(BROWSER_HEADERS).check(status().is(200)).silent())
-        .exec(http("AppReg session check").get("/sso/me").header("Accept", "application/json").check(status().is(200)).check(jsonPath("$.authenticated").is("true")).silent())
+              .check(status().in(200, 302)))))
+        .exec(http("AppReg authenticated home").get("/").headers(BROWSER_HEADERS).check(status().is(200)))
+        .exec(http("AppReg session check").get("/sso/me")
+          .transformResponse(DiagnosticLogging.logIfStatusAtLeast("AppReg session check", 400))
+          .header("Accept", "application/json")
+          .check(status().is(200))
+          .check(jsonPath("$.authenticated").is("true")))
     );
+  }
+
+  private static Session promotePostLoginContinuation(Session session) {
+    // Drop the pre-login state and promote whichever continuation tokens were returned by the
+    // latest successful Entra step so downstream requests only read from one set of keys.
+    session = session.remove("entraSessionId")
+        .remove("entraContext")
+        .remove("entraFlowToken")
+        .remove("entraCanary");
+
+    if (session.contains("entraPostLoginSessionId")) {
+      session = session.set("entraSessionId", session.getString("entraPostLoginSessionId"));
+    }
+    if (session.contains("entraPostLoginContext")) {
+      session = session.set("entraContext", session.getString("entraPostLoginContext"));
+    }
+    if (session.contains("entraPostLoginFlowToken")) {
+      session = session.set("entraFlowToken", session.getString("entraPostLoginFlowToken"));
+    }
+    if (session.contains("entraPostLoginCanary")) {
+      session = session.set("entraCanary", session.getString("entraPostLoginCanary"));
+    }
+
+    return session.remove("entraPostLoginSessionId")
+        .remove("entraPostLoginContext")
+        .remove("entraPostLoginFlowToken")
+        .remove("entraPostLoginCanary");
+  }
+
+  private static boolean needsPostPasswordReload(Session session) {
+    return !hasPostLoginContinuation(session) && session.contains("entraPasswordReloadUrl");
   }
 
   private static boolean hasKmsiContinuation(Session session) {
@@ -138,5 +219,97 @@ public final class SsoAuthentication {
       && session.contains("entraContext")
       && session.contains("entraFlowToken")
       && session.contains("entraCanary");
+  }
+
+  private static boolean hasPostLoginContinuation(Session session) {
+    return session.contains("entraPostLoginSessionId")
+      && session.contains("entraPostLoginContext")
+      && session.contains("entraPostLoginFlowToken")
+      && session.contains("entraPostLoginCanary");
+  }
+
+  private static Session normalizeEntraUrls(Session session) {
+    List<String> urlKeys = new ArrayList<>(List.of(
+        "entraAuthorizeReloadUrl",
+        "entraCredentialTypeUrl",
+        "entraLoginUrl",
+        "entraPasswordReloadUrl",
+        "entraKmsiReloadUrl"));
+    for (String key : urlKeys) {
+      if (!session.contains(key)) continue;
+      session = session.set(key, normalizeEntraUrl(session.getString(key)));
+    }
+    return session;
+  }
+
+  private static String normalizeEntraUrl(String value) {
+    String decoded = decodeJavascriptString(value);
+    return decoded.startsWith("/") ? MICROSOFT_LOGIN_BASE_URL + decoded : decoded;
+  }
+
+  private static String decodeJavascriptString(String value) {
+    StringBuilder decoded = new StringBuilder(value.length());
+    for (int index = 0; index < value.length(); index++) {
+      char current = value.charAt(index);
+      if (current == '\\' && index + 1 < value.length()) {
+        char next = value.charAt(index + 1);
+        if (next == 'u' && index + 5 < value.length()) {
+          decoded.append((char) Integer.parseInt(value.substring(index + 2, index + 6), 16));
+          index += 5;
+          continue;
+        }
+        if (next == '/') {
+          decoded.append('/');
+          index++;
+          continue;
+        }
+      }
+      decoded.append(current);
+    }
+    return decoded.toString();
+  }
+
+  private static HttpRequestActionBuilder withPasswordForm(
+      HttpRequestActionBuilder request, String password) {
+    return request
+      .formParam("i13", "0")
+      .formParam("login", "#{username}")
+      .formParam("loginfmt", "#{username}")
+      .formParam("type", "11")
+      .formParam("LoginOptions", "3")
+      .formParam("lrt", "")
+      .formParam("lrtPartition", "")
+      .formParam("hisRegion", "")
+      .formParam("hisScaleUnit", "")
+      .formParam("passwd", password)
+      .formParam("ps", "2")
+      .formParam("psRNGCDefaultType", "")
+      .formParam("psRNGCEntropy", "")
+      .formParam("psRNGCSLK", "")
+      .formParam("canary", "#{entraCanary}")
+      .formParam("ctx", "#{entraContext}")
+      .formParam("hpgrequestid", "#{entraSessionId}")
+      .formParam("flowToken", "#{entraFlowToken}")
+      .formParam("PPSX", "")
+      .formParam("NewUser", "1")
+      .formParam("FoundMSAs", "")
+      .formParam("fspost", "0")
+      .formParam("i21", "0")
+      .formParam("CookieDisclosure", "0")
+      .formParam("IsFidoSupported", "1")
+      .formParam("isSignupPost", "0")
+      .formParam("DfpArtifact", "")
+      .formParam("i19", "3306");
+  }
+
+  private static HttpRequestActionBuilder withKmsiForm(HttpRequestActionBuilder request) {
+    return request
+      .formParam("LoginOptions", "3")
+      .formParam("type", "28")
+      .formParam("ctx", "#{entraContext}")
+      .formParam("hpgrequestid", "#{entraSessionId}")
+      .formParam("flowToken", "#{entraFlowToken}")
+      .formParam("canary", "#{entraCanary}")
+      .formParam("i19", "7178");
   }
 }

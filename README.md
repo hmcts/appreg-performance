@@ -1,0 +1,160 @@
+# AppReg Gatling performance tests
+
+Java 21 Gatling tests for the HMCTS Applications Register. The suite sends HTTP
+requests directly to AppReg; it does not drive a browser.
+
+See [OVERVIEW.md](OVERVIEW.md) for the current architecture, implemented
+journeys, authentication gate, workload scheduling and Jenkins execution flow.
+
+## Prerequisites
+
+- Java 21
+- Git
+- Network access to the target AppReg environment and Gradle dependencies
+- Dedicated test accounts for authenticated runs
+- Approved, isolated test data for any destructive simulation
+
+The Gradle wrapper downloads the required Gradle and Gatling dependencies.
+
+## Compile
+
+From the repository root:
+
+```bash
+./gradlew gatlingClasses
+```
+
+## Basic local run
+
+The default Gradle target runs `simulations.AppRegSimulation`. This loads the
+Applications List HTML and JavaScript. Authentication defaults to `none`.
+
+```bash
+./gradlew gatlingRun -Ddebug=on
+```
+
+`-Ddebug=on` runs one virtual user with pauses disabled.
+
+The local smoke wrapper runs the read-only authenticated Application List search
+proof:
+
+```bash
+./scripts/run-smoketest.sh
+```
+
+Read its supported options before changing the defaults:
+
+```bash
+./scripts/run-smoketest.sh --help
+```
+
+The wrapper loads `.env.local` when present. It can also accept an explicit
+configuration file, simulation class, search value or target URL. It does not
+load the AppReg API test configuration unless requested.
+
+## Target and authentication configuration
+
+`TEST_URL` is the AppReg application origin, without an application path:
+
+```bash
+TEST_URL='https://appreg.test.apps.hmcts.net'
+```
+
+Authenticated simulations require:
+
+- `APPREG_TEST_ACCOUNT_TEMPLATE` or `TEST_USER_EMAIL`
+- `APPREG_TEST_USER_PASSWORD` or `TEST_USERS_PASSWORD`
+- `APPREG_TENANT_ID` or `TENANT_ID`
+
+A multi-user account template must contain `{index}`. Each virtual user receives
+a different formatted account name. `APPREG_ACCOUNT_START_INDEX` changes the
+first index.
+
+`APPREG_USER_AGENT` or `-DappRegUserAgent` overrides the HTTP User-Agent.
+
+Passwords are read from the environment and are not written to feeders, reports
+or logs.
+
+## Running a specific simulation
+
+Use Gatling's simulation selector:
+
+```bash
+./gradlew gatlingRun \
+  --simulation simulations.ApplicationListSearchProofSimulation
+```
+
+Seed-dependent proof simulations also require the allocation environment
+variables named in their source classes. Jenkins normally creates and exports
+those values during its seed stage.
+
+Do not run a simulation that changes persistent data until the target
+environment and data scope have been explicitly approved.
+
+## Jenkins CNP pipeline
+
+`Jenkinsfile_CNP` exposes these parameters:
+
+| Parameter | Purpose |
+| --- | --- |
+| `RUN_MODE` | Select `framework-proof`, `application-diagnostic` or `performance` |
+| `MAX_USERS` | Cap users for `application-diagnostic` |
+| `RUN_DURATION_MINUTES` | Cap duration for `application-diagnostic` |
+| `WORKLOAD_RELEASE_INTERVAL_SECONDS` | Delay between authenticated sessions starting workload actions |
+| `RESET_DATABASE` | Optionally restore the masked Test baseline before seeding |
+
+Current modes:
+
+| Mode | Execution |
+| --- | --- |
+| `framework-proof` | Seed data and run the proof set explicitly listed in `Jenkinsfile_CNP` |
+| `application-diagnostic` | Seed data and run a bounded deterministic workload using the `performance` profile scaled to the requested users and minutes |
+| `performance` | Seed data and run the fixed 500-user, 70-action-per-user deterministic workload |
+
+For `application-diagnostic`, users must be between 1 and 500, duration must be
+positive, and users multiplied by minutes must not exceed 35,000.
+
+Every mode seeds data. Database reset is optional and runs before seeding.
+
+The `framework-proof` mode does not currently execute every proof class present
+in the source tree. See [OVERVIEW.md](OVERVIEW.md) for the exact current list.
+
+## Reports and diagnostics
+
+Gatling writes HTML reports below `build/reports/gatling/`. Jenkins archives the
+report directories and publishes a Gatling HTML index even when execution fails.
+
+Selected failures emit sanitised diagnostic lines. Passwords, access tokens,
+cookies and raw response bodies must not be logged.
+
+## Recording browser journeys
+
+See [recording_readme.md](recording_readme.md) for the local Gatling Recorder
+procedure.
+
+Recorder output is source evidence, not executable performance-test code. Keep
+only the requests needed for the business action, capture server-generated
+values in the Gatling session, provide controlled test inputs and add meaningful
+response checks.
+
+Never commit raw recordings, credentials, cookies, tokens, private keys,
+captured personal data or response bodies.
+
+## Development checks
+
+After changing Gatling source:
+
+```bash
+./gradlew gatlingClasses
+```
+
+Run the smallest relevant one-user proof before adding or changing a workload
+action. All proof and workload simulations currently require 100% successful
+requests.
+
+## Safety
+
+- Treat every action that changes persistent data as destructive.
+- Use dedicated test accounts and isolated data.
+- Do not allow virtual users to share mutable records unintentionally.
+- Never run these workloads against production.

@@ -8,7 +8,7 @@ Raw recordings are not performance tests. They must be cleaned up, parameterised
 
 - Java 21 is installed and available as `java`.
 - An approved AppReg environment and dedicated test account are available.
-- Gatling Recorder has been configured with a local certificate authority (CA), as described in `README.adoc`.
+- Gatling Recorder has been configured with a local certificate authority (CA) using the paths below.
 - The following paths exist locally:
 
   ```text
