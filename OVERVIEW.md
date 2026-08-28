@@ -38,9 +38,12 @@ requirements is:
   including while that user is in think time;
 - all 500 sessions must remain active throughout a measured steady-state period;
 - the steady-state duration will be configurable and will default to 30 minutes;
-- authentication, setup and warm-up are outside measured business-operation
-  timings, but a failure to establish 500 authenticated sessions prevents an
-  `NFR004` pass;
+- authentication, setup and pre-target ramp-up workload are outside measured
+  business-operation timings, but their functional failures remain failures and
+  failure to establish 500 authenticated sessions prevents an `NFR004` pass;
+- users begin work as soon as their individual login succeeds; reaching the
+  authenticated-session target changes the classification of their subsequent
+  actions without releasing, restarting or reauthenticating the population;
 - the p95 duration of each complete named business-action group must be below
   the applicable `NFR006` or `NFR007` limit;
 - measured business requests must be 100% successful; and
@@ -67,9 +70,8 @@ Current framework coverage is limited:
 
 The acceptance boundary is the complete named Gatling group, including the
 supporting requests that form that business action. Authentication, unrelated
-setup and warm-up traffic are excluded. The phase-specific prototype must
-confirm that Gatling reports and asserts the intended elapsed group duration
-before these classifications become executable assertions.
+setup and pre-target ramp-up traffic are excluded. The phase-specific prototype
+confirms that Gatling reports and asserts the intended elapsed group duration.
 
 | Workload action | Gatling group | Classification | p95 limit |
 | --- | --- | --- | --- |
@@ -185,7 +187,7 @@ workload actions; it does not protect or roll back the earlier seed operation.
 | `BulkUpdateFeesProofSimulation` | Update fee details on three seeded Applications | Changes data | Yes |
 | `BulkApplicationUploadProofSimulation` | Upload Applications into a seeded empty list | Creates data | Yes |
 | `ResultMultipleApplicationsSetupSimulation` | Create a list and three Applications for manual setup | Creates data | No |
-| `PhaseMeasurementPrototypeSimulation` | Authenticate, warm up and measure Application List search using explicit population-wide phase boundaries | Read-only | `prototype` only |
+| `PhaseMeasurementPrototypeSimulation` | Authenticate users progressively, start each read-only search workload after login, and continue the same sessions through a common measured window | Read-only | `prototype` only |
 | `AppRegWorkloadSimulation` | Execute the deterministic mixed workload | Creates and changes data | Workload modes |
 
 All executable proof simulations assert 100% successful requests. Proofs that
@@ -287,16 +289,26 @@ The seeded-mode execution order is:
 ### `prototype`
 
 - Does not reset or seed the database.
-- Authenticates `MAX_USERS` progressively at one user per second.
-- Retains each user's Gatling session and cookies across all phases.
-- Holds the population at common authentication, warm-up and ramp-down
-  boundaries.
-- Runs one unmeasured Application List search warm-up.
-- Repeats the measured `AppReg_030_Application_List_Search` group once per
-  minute for the configurable steady-state duration.
+- Authenticates `MAX_USERS` progressively, defaulting to one user per second.
+- Starts each user's read-only search workload immediately after that user's
+  login succeeds; there is no population-wide gate or workload release.
+- Retains each user's Gatling session, cookies and action cadence throughout the
+  run.
+- Records searches under `Prototype_Ramp_Up_Application_List_Search` until the
+  requested authenticated-session count is reached.
+- Opens one common measured window when the target is reached. Subsequent
+  paced searches use `AppReg_030_Application_List_Search` without restarting
+  the users.
+- Defaults to a 15-minute authentication setup deadline, 30-minute measured
+  window, 60-second action pace and 60-second completion grace. These internal
+  controls are configurable with the system properties documented in
+  `README.md` and are logged before authentication starts.
+- Stops starting actions at the common measured deadline.
 - Uses elapsed group duration and asserts that measured requests are 100%
   successful and p95 is less than five seconds.
-- Prints prominent phase banners once per population transition.
+- Requires 100% success globally so authentication and ramp-up failures still
+  fail the run.
+- Prints prominent configuration and phase banners once per transition.
 
 ### `performance`
 

@@ -124,11 +124,17 @@ Current modes:
 For `application-diagnostic`, users must be between 1 and 500, duration must be
 positive, and users multiplied by minutes must not exceed 35,000.
 
-The `prototype` mode authenticates the requested users progressively, holds the
-same sessions at explicit phase boundaries, performs an unmeasured warm-up
-search and then repeats the measured search for `STEADY_STATE_MINUTES`. Its p95
-elapsed group duration must be less than five seconds and all requests must
-succeed. Phase changes are printed as prominent `PROTOTYPE PHASE` banners.
+The `prototype` mode authenticates users progressively. Each user immediately
+starts a read-only search workload using the same Gatling session and cookies;
+there is no wait-for-all gate or later workload release. Searches remain under
+an unmeasured ramp-up group until the requested authenticated-session count is
+reached. The same paced sessions then continue under the measured group for the
+common `STEADY_STATE_MINUTES` window.
+
+The measured search group's p95 elapsed duration must be less than five seconds
+and all requests, including authentication and ramp-up traffic, must succeed.
+Effective configuration and phase changes are printed as prominent prototype
+banners.
 
 Run the prototype locally with the group-duration metric enabled:
 
@@ -136,11 +142,20 @@ Run the prototype locally with the group-duration metric enabled:
 ./gradlew gatlingRun \
   -DappRegPrototypeUsers=2 \
   -DappRegPrototypeSteadyStateMinutes=1 \
+  -DappRegPrototypeAuthenticationRatePerSecond=1 \
+  -DappRegPrototypeAuthenticationSetupTimeoutMinutes=15 \
+  -DappRegPrototypeActionPaceSeconds=60 \
+  -DappRegPrototypeRampDownGraceSeconds=60 \
   -Dgatling.charting.useGroupDurationMetric=true \
   --simulation simulations.PhaseMeasurementPrototypeSimulation
 ```
 
-Validate its configuration without authenticating or sending HTTP traffic:
+The last four prototype properties are internal controls rather than Jenkins
+parameters. Their shown values are the defaults. The authentication setup
+timeout must be long enough to contain the configured user-injection ramp.
+
+Validate its defaults, boundaries and phase transitions without authenticating
+or sending HTTP traffic:
 
 ```bash
 ./gradlew prototypeSelfCheck gatlingClasses
