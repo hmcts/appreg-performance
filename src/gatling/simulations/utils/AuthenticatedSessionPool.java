@@ -5,7 +5,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Retains authenticated AppReg cookie material in memory for the read-only pool prototype. */
+/** Retains authenticated AppReg cookie material in memory for round-robin actor assignment. */
 public final class AuthenticatedSessionPool {
   private final int capacity;
   private final List<SessionMaterial> sessions = new ArrayList<>();

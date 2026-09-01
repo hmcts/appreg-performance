@@ -4,6 +4,7 @@ import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.FeederBuilder;
 import io.gatling.javaapi.core.Session;
 import io.gatling.javaapi.core.Simulation;
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -21,6 +22,10 @@ import scenarios.UpdateApplicationListScenario;
 import scenarios.UpdateApplicationResultScenario;
 import scenarios.UpdateApplicationScenario;
 import utils.AuthenticationStage;
+import utils.AuthenticatedSessionPool;
+import utils.DiagnosticLogging;
+import utils.Environment;
+import utils.Headers;
 import utils.PhaseController;
 import utils.PhaseController.Phase;
 import utils.SsoAuthentication;
@@ -28,6 +33,7 @@ import utils.WorkloadAction;
 import utils.WorkloadProfile;
 
 import static io.gatling.javaapi.core.CoreDsl.csv;
+import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
 import static io.gatling.javaapi.core.CoreDsl.doIf;
 import static io.gatling.javaapi.core.CoreDsl.doSwitch;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -36,26 +42,39 @@ import static io.gatling.javaapi.core.CoreDsl.exitHereIfFailed;
 import static io.gatling.javaapi.core.CoreDsl.feed;
 import static io.gatling.javaapi.core.CoreDsl.global;
 import static io.gatling.javaapi.core.CoreDsl.group;
+import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.core.CoreDsl.onCase;
 import static io.gatling.javaapi.core.CoreDsl.pace;
+import static io.gatling.javaapi.core.CoreDsl.pause;
 import static io.gatling.javaapi.core.CoreDsl.rampUsers;
 import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
+import static io.gatling.javaapi.http.HttpDsl.Cookie;
+import static io.gatling.javaapi.http.HttpDsl.addCookie;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
+import static io.gatling.javaapi.http.HttpDsl.http;
+import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.AppRegHttp.protocol;
 import static utils.Headers.XSRF_TOKEN_COOKIE;
 
 /**
- * Phase-based, feeder-backed AppReg workload. Each user authenticates once, starts work
- * immediately and keeps the same Gatling session through the common measured window.
+ * Phase-based, feeder-backed AppReg workload. A smaller authenticated session pool is assigned
+ * round-robin to separately paced workload actors for the common measured window.
  */
 public class AppRegWorkloadSimulation extends Simulation {
   private static final String RAMP_UP_GROUP = "AppReg_Ramp_Up";
   private static final String ACTION_PHASE_SESSION_KEY = "workloadActionPhase";
+  private static final String ACTOR_INDEX_SESSION_KEY = "workloadActorIndex";
+  private static final String CAPTURED_SESSION_COOKIE_KEY = "workloadCapturedSessionCookie";
+  private static final String CAPTURED_XSRF_TOKEN_KEY = "workloadCapturedXsrfToken";
   private static final String RAMP_ITERATION_SESSION_KEY = "workloadRampIteration";
   private static final String MEASURED_ITERATION_SESSION_KEY = "workloadMeasuredIteration";
+  private static final Duration POOL_WAIT_POLL_INTERVAL = Duration.ofMillis(100);
+  private static final URI APPREG_ORIGIN = URI.create(Environment.BASE_URL);
 
   private final WorkloadProfile profile = WorkloadProfile.fromRuntime();
+  private final AuthenticatedSessionPool sessionPool =
+      new AuthenticatedSessionPool(profile.sessionPoolSize());
   private final PhaseController phases = new PhaseController(
       profile.concurrentUsers(),
       profile.authenticationSetupTimeout(),
@@ -64,11 +83,13 @@ public class AppRegWorkloadSimulation extends Simulation {
   private final String feederDirectory = Path.of(System.getProperty(
       "appRegPerformanceDataDirectory", "build/workload-data")).toAbsolutePath().toString();
   private final AtomicBoolean measuredPhaseLogged = new AtomicBoolean();
+  private final AtomicBoolean poolReadyLogged = new AtomicBoolean();
   private final AtomicBoolean rampDownPhaseLogged = new AtomicBoolean();
   private final AtomicBoolean setupFailureLogged = new AtomicBoolean();
   private final AtomicBoolean completionFailureLogged = new AtomicBoolean();
   private final AtomicInteger rampActionsStarted = new AtomicInteger();
   private final AtomicInteger measuredActionsStarted = new AtomicInteger();
+  private final AtomicInteger nextActorIndex = new AtomicInteger();
 
   private final FeederBuilder.FileBased<String> rampUpdateApplicationFeeder =
       feeder("ramp-up", "update-application", WorkloadAction.UPDATE_APPLICATION);
@@ -113,14 +134,64 @@ public class AppRegWorkloadSimulation extends Simulation {
       feeder("measured", "bulk-upload", WorkloadAction.BULK_UPLOAD);
 
   public AppRegWorkloadSimulation() {
-    var users = SsoAuthentication.users(profile.concurrentUsers());
-    var workload = scenario("AppReg phase-based workload")
+    var poolAccounts = SsoAuthentication.users(profile.sessionPoolSize());
+    var authenticators = scenario("AppReg workload session-pool authentication")
       .exitBlockOnFail().on(
-        feed(users)
+        feed(poolAccounts)
           .exec(AuthenticationStage.authenticate())
-          .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken"))))
+          .exec(getCookieValue(CookieKey(Headers.APPREG_SESSION_COOKIE)
+            .saveAs(CAPTURED_SESSION_COOKIE_KEY)))
+          .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE)
+            .saveAs(CAPTURED_XSRF_TOKEN_KEY)))
+          .exec(session -> {
+            sessionPool.add(
+                session.getString(CAPTURED_SESSION_COOKIE_KEY),
+                session.getString(CAPTURED_XSRF_TOKEN_KEY));
+            if (sessionPool.ready()) {
+              logPhaseOnce(
+                  poolReadyLogged,
+                  "SESSION POOL READY",
+                  profile.sessionPoolSize() + " authenticated sessions; assigning "
+                      + profile.concurrentUsers() + " workload actors");
+            }
+            return session
+                .remove(CAPTURED_SESSION_COOKIE_KEY)
+                .remove(CAPTURED_XSRF_TOKEN_KEY);
+          }));
+
+    var workload = scenario("AppReg pooled-session phase-based workload")
+      .exec(session -> {
+        int actorIndex = nextActorIndex.getAndIncrement();
+        return session
+            .set(ACTOR_INDEX_SESSION_KEY, actorIndex)
+            // Existing deterministic plans and diagnostics use accountOffset; it now identifies
+            // the workload actor rather than an SSO account.
+            .set("accountOffset", actorIndex);
+      })
+      .asLongAs(session -> !sessionPool.ready()
+          && phases.currentPhase() == Phase.AUTHENTICATION_RAMP_UP).on(
+            pause(POOL_WAIT_POLL_INTERVAL))
+      .exec(session -> sessionPool.ready() ? session : session.markAsFailed())
       .exec(exitHereIfFailed())
-      .exec(session -> registerAuthenticatedSession(session
+      .exec(addCookie(Cookie(
+          Headers.APPREG_SESSION_COOKIE,
+          session -> sessionPool.sessionForActor(
+            session.getInt(ACTOR_INDEX_SESSION_KEY)).sessionCookieValue())
+        .withDomain(APPREG_ORIGIN.getHost())
+        .withPath("/")
+        .withSecure("https".equalsIgnoreCase(APPREG_ORIGIN.getScheme()))))
+      .exec(addCookie(Cookie(
+          XSRF_TOKEN_COOKIE,
+          session -> sessionPool.sessionForActor(
+            session.getInt(ACTOR_INDEX_SESSION_KEY)).xsrfTokenValue())
+        .withDomain(APPREG_ORIGIN.getHost())
+        .withPath("/")
+        .withSecure("https".equalsIgnoreCase(APPREG_ORIGIN.getScheme()))))
+      .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
+      .exec(pooledSessionCheck())
+      .exec(exitHereIfFailed())
+      .pause(session -> profile.actionSpreadForActor(session.getInt(ACTOR_INDEX_SESSION_KEY)))
+      .exec(session -> registerReadyActor(session
         .set(RAMP_ITERATION_SESSION_KEY, 0)
         .set(MEASURED_ITERATION_SESSION_KEY, 0)))
       .asLongAs(session -> acceptsActions(phases.currentPhase())).on(
@@ -136,10 +207,12 @@ public class AppRegWorkloadSimulation extends Simulation {
           .exec(exitHereIfFailed()))
       .exec(this::completeSession);
 
-    // One finite population is intentional: replacing completed users would require account and
-    // mutable-data reuse. The measured window, rather than closed injection, defines concurrency.
-    setUp(workload.injectOpen(
-        rampUsers(profile.concurrentUsers()).during(profile.loginRampUpDuration())))
+    // One finite actor population is intentional: replacing completed actors would require
+    // mutable-data reuse. The measured window, rather than injection, defines concurrency.
+    setUp(
+        authenticators.injectOpen(
+          rampUsers(profile.sessionPoolSize()).during(profile.authenticationRampUpDuration())),
+        workload.injectOpen(atOnceUsers(profile.concurrentUsers())))
       .protocols(protocol())
       .maxDuration(profile.maximumSimulationDuration())
       .assertions(global().successfulRequests().percent().gte(100.0));
@@ -150,9 +223,10 @@ public class AppRegWorkloadSimulation extends Simulation {
     phases.start();
     logConfiguration();
     logPhase(
-        "AUTHENTICATION AND WORKLOAD RAMP-UP",
-        profile.concurrentUsers() + " users injected over "
-            + seconds(profile.loginRampUpSeconds()) + "; each starts work after login");
+        "SESSION POOL AUTHENTICATION",
+        profile.sessionPoolSize() + " SSO journeys over "
+            + seconds(profile.authenticationRampUpSeconds()) + "; "
+            + profile.concurrentUsers() + " workload actors waiting");
   }
 
   @Override
@@ -160,31 +234,35 @@ public class AppRegWorkloadSimulation extends Simulation {
     Phase finalPhase = phases.currentPhase();
     if (finalPhase == Phase.RAMP_DOWN
         && phases.targetReached()
-        && phases.completedUsers() == profile.concurrentUsers()
+        && sessionPool.size() == profile.sessionPoolSize()
+        && phases.completedActors() == profile.concurrentUsers()
         && phases.lateCompletions() == 0) {
       logPhase(
           "EXECUTION COMPLETE",
-          phases.authenticatedUsers() + " authenticated and " + phases.completedUsers()
-              + " completed sessions; " + rampActionsStarted.get() + " ramp-up and "
+          sessionPool.size() + " authenticated sessions supported " + phases.completedActors()
+              + " completed actors; " + rampActionsStarted.get() + " ramp-up and "
               + measuredActionsStarted.get() + " measured actions started");
       return;
     }
     logPhase(
         "INCOMPLETE",
-        phases.authenticatedUsers() + " of " + profile.concurrentUsers()
-            + " sessions authenticated; " + phases.completedUsers() + " completed; "
+        sessionPool.size() + " of " + profile.sessionPoolSize()
+            + " sessions authenticated; " + phases.readyActors() + " of "
+            + profile.concurrentUsers() + " actors validated; " + phases.completedActors()
+            + " completed; "
             + phases.lateCompletions() + " exceeded the completion grace; final phase "
             + finalPhase);
     throw new IllegalStateException("Workload did not complete its measured steady state");
   }
 
-  private Session registerAuthenticatedSession(Session session) {
-    Phase phase = phases.registerAuthenticatedSession();
+  private Session registerReadyActor(Session session) {
+    Phase phase = phases.registerReadyActor();
     if (phase == Phase.MEASURED_STEADY_STATE) {
       logPhaseOnce(
           measuredPhaseLogged,
           "MEASURED STEADY STATE",
-          profile.concurrentUsers() + " active sessions continuing work for "
+          profile.concurrentUsers() + " active actors using " + profile.sessionPoolSize()
+              + " authenticated sessions for "
               + minutes(profile.durationMinutes()));
     }
     return session;
@@ -197,7 +275,8 @@ public class AppRegWorkloadSimulation extends Simulation {
     // advance the measured plan or consume data reserved for a measured transaction.
     if (phase == Phase.AUTHENTICATION_RAMP_UP) {
       int iteration = session.getInt(RAMP_ITERATION_SESSION_KEY);
-      WorkloadAction action = profile.rampActionFor(session.getInt("accountOffset"), iteration);
+      WorkloadAction action = profile.rampActionFor(
+          session.getInt(ACTOR_INDEX_SESSION_KEY), iteration);
       rampActionsStarted.incrementAndGet();
       return session
           .set("plannedAction", action.key())
@@ -205,7 +284,8 @@ public class AppRegWorkloadSimulation extends Simulation {
     }
     if (phase == Phase.MEASURED_STEADY_STATE) {
       int iteration = session.getInt(MEASURED_ITERATION_SESSION_KEY);
-      WorkloadAction action = profile.actionFor(session.getInt("accountOffset"), iteration);
+      WorkloadAction action = profile.actionFor(
+          session.getInt(ACTOR_INDEX_SESSION_KEY), iteration);
       measuredActionsStarted.incrementAndGet();
       return session
           .set("plannedAction", action.key())
@@ -221,7 +301,7 @@ public class AppRegWorkloadSimulation extends Simulation {
           rampDownPhaseLogged,
           "RAMP-DOWN",
           "measured window closed; no new actions will start");
-      if (phases.sessionCompleted()) return session;
+      if (phases.actorCompleted()) return session;
       logPhaseOnce(
           completionFailureLogged,
           "RAMP-DOWN FAILED",
@@ -232,8 +312,9 @@ public class AppRegWorkloadSimulation extends Simulation {
     logPhaseOnce(
         setupFailureLogged,
         "SETUP FAILED",
-        phases.authenticatedUsers() + " of " + profile.concurrentUsers()
-            + " sessions authenticated before the "
+        sessionPool.size() + " of " + profile.sessionPoolSize()
+            + " sessions authenticated and " + phases.readyActors() + " of "
+            + profile.concurrentUsers() + " actors validated before the "
             + minutes(profile.authenticationSetupTimeoutMinutes()) + " deadline");
     return session.markAsFailed();
   }
@@ -253,6 +334,16 @@ public class AppRegWorkloadSimulation extends Simulation {
               + " requires exactly " + requiredRows + " for " + phase + " " + action);
     }
     return feeder;
+  }
+
+  private ChainBuilder pooledSessionCheck() {
+    return exec(http("AppReg pooled workload session check")
+      .get("/sso/me")
+      .transformResponse(DiagnosticLogging.logIfStatusAtLeast(
+        "AppReg pooled workload session check", 400))
+      .header("Accept", "application/json")
+      .check(status().is(200))
+      .check(jsonPath("$.authenticated").is("true")));
   }
 
   private ChainBuilder workloadAction(boolean rampUp) {
@@ -355,17 +446,25 @@ public class AppRegWorkloadSimulation extends Simulation {
   private void logConfiguration() {
     System.out.println("========== WORKLOAD CONFIGURATION ==========");
     System.out.println("Profile: " + profile.name());
-    System.out.println("Users: " + profile.concurrentUsers());
-    System.out.println("Login injection ramp: " + seconds(profile.loginRampUpSeconds()));
+    System.out.println("Concurrent-access actors: " + profile.concurrentUsers());
+    System.out.println("Authenticated session pool: " + profile.sessionPoolSize());
+    System.out.println("SSO journeys: " + profile.sessionPoolSize());
+    System.out.println("Actors per authenticated session: "
+        + format((double) profile.concurrentUsers() / profile.sessionPoolSize()));
+    System.out.println("Session authentication ramp: "
+        + seconds(profile.authenticationRampUpSeconds()));
     System.out.println("Authentication setup deadline: "
         + minutes(profile.authenticationSetupTimeoutMinutes()));
     System.out.println("Measured steady state: " + minutes(profile.durationMinutes()));
     System.out.println("Action pace: " + seconds(profile.actionPaceSeconds()));
+    System.out.println("Initial actor action spread: " + seconds(profile.actionSpreadSeconds()));
+    System.out.println("Action spread policy: stable actor-index offsets; 0 seconds means intentional burst");
     System.out.println("Ramp-down grace: " + seconds(profile.rampDownGraceSeconds()));
     System.out.println("Maximum ramp-up action capacity: " + profile.maximumRampActionCount());
     System.out.println("Ramp-up allocation totals: " + profile.rampScheduledActionCounts());
     System.out.println("Measured allocation totals: " + profile.scheduledActionCounts());
     System.out.println("Allocated feeder directory: " + feederDirectory);
+    System.out.println("Evidence boundary: concurrent access, not distinct users or sessions");
     System.out.println("============================================");
   }
 

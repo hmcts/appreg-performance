@@ -13,35 +13,35 @@ public final class PhaseController {
     SETUP_FAILED
   }
 
-  private final int targetUsers;
+  private final int targetActors;
   private final long setupTimeoutNanos;
   private final long steadyStateNanos;
   private final long completionGraceNanos;
   private final LongSupplier nanoTime;
 
   private Phase phase = Phase.AUTHENTICATION_RAMP_UP;
-  private int authenticatedUsers;
-  private int completedUsers;
+  private int readyActors;
+  private int completedActors;
   private int lateCompletions;
   private long setupStartedNanos;
   private long measuredStartedNanos;
   private boolean started;
 
   public PhaseController(
-      int targetUsers,
+      int targetActors,
       Duration setupTimeout,
       Duration steadyStateDuration,
       Duration completionGrace) {
-    this(targetUsers, setupTimeout, steadyStateDuration, completionGrace, System::nanoTime);
+    this(targetActors, setupTimeout, steadyStateDuration, completionGrace, System::nanoTime);
   }
 
   PhaseController(
-      int targetUsers,
+      int targetActors,
       Duration setupTimeout,
       Duration steadyStateDuration,
       Duration completionGrace,
       LongSupplier nanoTime) {
-    if (targetUsers < 1) throw new IllegalArgumentException("Phase target users must be positive");
+    if (targetActors < 1) throw new IllegalArgumentException("Phase target actors must be positive");
     if (setupTimeout.isZero() || setupTimeout.isNegative()) {
       throw new IllegalArgumentException("Phase setup timeout must be positive");
     }
@@ -51,7 +51,7 @@ public final class PhaseController {
     if (completionGrace.isNegative()) {
       throw new IllegalArgumentException("Phase completion grace must not be negative");
     }
-    this.targetUsers = targetUsers;
+    this.targetActors = targetActors;
     this.setupTimeoutNanos = setupTimeout.toNanos();
     this.steadyStateNanos = steadyStateDuration.toNanos();
     this.completionGraceNanos = completionGrace.toNanos();
@@ -65,20 +65,21 @@ public final class PhaseController {
   }
 
   /**
-   * Registers one retained Gatling session. The single lock is intentional: registration happens
-   * once per user, with a ceiling of 500 users; use lock-free state only if that ceiling changes.
+   * Registers one workload actor after its assigned session has been validated. The single lock is
+   * intentional: registration happens once per actor, with a ceiling of 500 actors; use lock-free
+   * state only if that ceiling changes.
    */
-  public synchronized Phase registerAuthenticatedSession() {
+  public synchronized Phase registerReadyActor() {
     requireStarted();
     advanceExpiredPhase();
     if (phase != Phase.AUTHENTICATION_RAMP_UP) return phase;
-    authenticatedUsers++;
-    if (authenticatedUsers > targetUsers) {
-      throw new IllegalStateException("More authenticated sessions were registered than requested");
+    readyActors++;
+    if (readyActors > targetActors) {
+      throw new IllegalStateException("More ready actors were registered than requested");
     }
-    if (authenticatedUsers == targetUsers) {
-      // The common measured clock starts only when the final requested session is ready. Earlier
-      // sessions keep doing ramp-up work, so slow SSO does not shorten the measured window.
+    if (readyActors == targetActors) {
+      // The common measured clock starts only when the final requested actor is ready. Earlier
+      // actors keep doing ramp-up work, so slow setup does not shorten the measured window.
       measuredStartedNanos = nanoTime.getAsLong();
       phase = Phase.MEASURED_STEADY_STATE;
     }
@@ -91,17 +92,17 @@ public final class PhaseController {
     return phase;
   }
 
-  public synchronized int authenticatedUsers() {
-    return authenticatedUsers;
+  public synchronized int readyActors() {
+    return readyActors;
   }
 
-  public synchronized boolean sessionCompleted() {
+  public synchronized boolean actorCompleted() {
     if (currentPhase() != Phase.RAMP_DOWN) {
-      throw new IllegalStateException("Session completed before ramp-down");
+      throw new IllegalStateException("Actor completed before ramp-down");
     }
-    completedUsers++;
-    if (completedUsers > authenticatedUsers) {
-      throw new IllegalStateException("More sessions completed than authenticated");
+    completedActors++;
+    if (completedActors > readyActors) {
+      throw new IllegalStateException("More actors completed than became ready");
     }
     long elapsedAfterSteadyState = nanoTime.getAsLong() - measuredStartedNanos - steadyStateNanos;
     boolean withinGrace = elapsedAfterSteadyState <= completionGraceNanos;
@@ -109,8 +110,8 @@ public final class PhaseController {
     return withinGrace;
   }
 
-  public synchronized int completedUsers() {
-    return completedUsers;
+  public synchronized int completedActors() {
+    return completedActors;
   }
 
   public synchronized int lateCompletions() {
@@ -118,7 +119,7 @@ public final class PhaseController {
   }
 
   public synchronized boolean targetReached() {
-    return authenticatedUsers == targetUsers
+    return readyActors == targetActors
         && (phase == Phase.MEASURED_STEADY_STATE || phase == Phase.RAMP_DOWN);
   }
 
@@ -143,32 +144,32 @@ public final class PhaseController {
         2, Duration.ofSeconds(10), Duration.ofSeconds(30), Duration.ofSeconds(5), time::get);
     controller.start();
     require(controller.currentPhase() == Phase.AUTHENTICATION_RAMP_UP, "initial ramp-up phase");
-    require(controller.registerAuthenticatedSession() == Phase.AUTHENTICATION_RAMP_UP, "first user ramp-up");
+    require(controller.registerReadyActor() == Phase.AUTHENTICATION_RAMP_UP, "first actor ramp-up");
     time.set(Duration.ofSeconds(1).toNanos());
-    require(controller.registerAuthenticatedSession() == Phase.MEASURED_STEADY_STATE, "target transition");
+    require(controller.registerReadyActor() == Phase.MEASURED_STEADY_STATE, "target transition");
     require(controller.targetReached(), "target reached");
     time.addAndGet(Duration.ofSeconds(29).toNanos());
     require(controller.currentPhase() == Phase.MEASURED_STEADY_STATE, "measured window remains open");
     time.addAndGet(Duration.ofSeconds(1).toNanos());
     require(controller.currentPhase() == Phase.RAMP_DOWN, "measured deadline transition");
-    require(controller.sessionCompleted(), "first completion within grace");
-    require(controller.sessionCompleted(), "second completion within grace");
-    require(controller.completedUsers() == 2, "completed session count");
+    require(controller.actorCompleted(), "first completion within grace");
+    require(controller.actorCompleted(), "second completion within grace");
+    require(controller.completedActors() == 2, "completed actor count");
 
     time.set(0);
     var late = new PhaseController(
         1, Duration.ofSeconds(10), Duration.ofSeconds(30), Duration.ofSeconds(5), time::get);
     late.start();
-    late.registerAuthenticatedSession();
+    late.registerReadyActor();
     time.set(Duration.ofSeconds(36).toNanos());
-    require(!late.sessionCompleted(), "completion after grace");
+    require(!late.actorCompleted(), "completion after grace");
     require(late.lateCompletions() == 1, "late completion count");
 
     time.set(0);
     var failed = new PhaseController(
         2, Duration.ofSeconds(10), Duration.ofSeconds(30), Duration.ZERO, time::get);
     failed.start();
-    failed.registerAuthenticatedSession();
+    failed.registerReadyActor();
     time.set(Duration.ofSeconds(10).toNanos());
     require(failed.currentPhase() == Phase.SETUP_FAILED, "setup deadline transition");
     require(!failed.targetReached(), "failed setup must not reach target");

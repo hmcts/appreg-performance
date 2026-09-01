@@ -14,11 +14,13 @@ import java.util.Properties;
 public record WorkloadProfile(
     String name,
     int concurrentUsers,
+    int sessionPoolSize,
     int durationMinutes,
     int actionsPerUser,
-    int loginRampUpSeconds,
+    int authenticationRampUpSeconds,
     int authenticationSetupTimeoutMinutes,
     double actionPaceSeconds,
+    double actionSpreadSeconds,
     int rampDownGraceSeconds,
     Map<WorkloadAction, Integer> scheduledActionCounts,
     List<WorkloadAction> actionPlan,
@@ -33,12 +35,15 @@ public record WorkloadProfile(
   private static final double MAXIMUM_ACTION_PACE_SECONDS = 3_600.0;
   private static final int DEFAULT_AUTHENTICATION_SETUP_TIMEOUT_MINUTES = 15;
   private static final double DEFAULT_ACTION_PACE_SECONDS = 60.0;
+  private static final double DEFAULT_ACTION_SPREAD_SECONDS = 60.0;
   private static final int DEFAULT_RAMP_DOWN_GRACE_SECONDS = 60;
   private static final String MAX_USERS_PROPERTY = "appRegMaxUsers";
   private static final String DURATION_MINUTES_PROPERTY = "appRegDurationMinutes";
+  private static final String SESSION_POOL_SIZE_PROPERTY = "appRegWorkloadSessionPoolSize";
   private static final String SETUP_TIMEOUT_MINUTES_PROPERTY =
       "appRegWorkloadAuthenticationSetupTimeoutMinutes";
   private static final String ACTION_PACE_SECONDS_PROPERTY = "appRegWorkloadActionPaceSeconds";
+  private static final String ACTION_SPREAD_SECONDS_PROPERTY = "appRegWorkloadActionSpreadSeconds";
   private static final String RAMP_DOWN_GRACE_SECONDS_PROPERTY =
       "appRegWorkloadRampDownGraceSeconds";
 
@@ -49,21 +54,26 @@ public record WorkloadProfile(
     if (concurrentUsers < 1 || concurrentUsers > MAX_TEST_ACCOUNTS) {
       throw new IllegalArgumentException("Workload concurrent users must be between 1 and " + MAX_TEST_ACCOUNTS);
     }
+    if (sessionPoolSize < 1 || sessionPoolSize > concurrentUsers) {
+      throw new IllegalArgumentException("Workload session-pool size must be between 1 and the actor count");
+    }
     requireMinutes("Workload duration", durationMinutes);
     requireMinutes("Workload authentication setup timeout", authenticationSetupTimeoutMinutes);
     requireActionPace(actionPaceSeconds);
+    requireActionSpread(actionSpreadSeconds);
     if (rampDownGraceSeconds < 0 || rampDownGraceSeconds > 3_600) {
       throw new IllegalArgumentException("Workload ramp-down grace must be between 0 and 3600 seconds");
     }
     if (actionsPerUser != durationMinutes) {
       throw new IllegalArgumentException("Workload currently reserves one measured action per user per minute");
     }
-    if (loginRampUpSeconds < minimumLoginRampUpSeconds(concurrentUsers)) {
+    if (authenticationRampUpSeconds < minimumAuthenticationRampUpSeconds(sessionPoolSize)) {
       throw new IllegalArgumentException(
           "Workload login ramp must allow one login every " + LOGIN_INTERVAL_SECONDS + " seconds");
     }
-    if (loginRampUpSeconds > authenticationSetupTimeoutMinutes * 60L) {
-      throw new IllegalArgumentException("Workload authentication setup timeout must cover the login injection ramp");
+    if (authenticationRampUpSeconds + actionSpreadSeconds >= authenticationSetupTimeoutMinutes * 60.0) {
+      throw new IllegalArgumentException(
+          "Workload authentication and actor spread must finish before the setup timeout");
     }
     int expectedRampActionsPerUser = maximumActionsPerUser(
         authenticationSetupTimeoutMinutes, actionPaceSeconds);
@@ -95,15 +105,18 @@ public record WorkloadProfile(
     Properties properties = loadProperties();
     int configuredUsers = positive(properties, name + ".concurrent_users");
     int concurrentUsers = cappedUsers(configuredUsers);
+    int sessionPoolSize = integerProperty(SESSION_POOL_SIZE_PROPERTY, concurrentUsers);
     int configuredDurationMinutes = positive(properties, name + ".duration_minutes");
     int durationMinutes = cappedDuration(configuredDurationMinutes);
     int actionsPerUser = durationMinutes;
     int configuredLoginRampUpSeconds = positive(properties, name + ".login_ramp_up_seconds");
-    int loginRampUpSeconds = Math.min(
-        configuredLoginRampUpSeconds, minimumLoginRampUpSeconds(concurrentUsers));
+    int authenticationRampUpSeconds = Math.min(
+        configuredLoginRampUpSeconds, minimumAuthenticationRampUpSeconds(sessionPoolSize));
     int setupTimeoutMinutes = integerProperty(
         SETUP_TIMEOUT_MINUTES_PROPERTY, DEFAULT_AUTHENTICATION_SETUP_TIMEOUT_MINUTES);
     double actionPaceSeconds = doubleProperty(ACTION_PACE_SECONDS_PROPERTY, DEFAULT_ACTION_PACE_SECONDS);
+    double actionSpreadSeconds = doubleProperty(
+        ACTION_SPREAD_SECONDS_PROPERTY, DEFAULT_ACTION_SPREAD_SECONDS);
     int rampDownGraceSeconds = integerProperty(
         RAMP_DOWN_GRACE_SECONDS_PROPERTY, DEFAULT_RAMP_DOWN_GRACE_SECONDS);
     Map<WorkloadAction, Integer> configuredCounts = scheduledCounts(properties, name);
@@ -111,9 +124,9 @@ public record WorkloadProfile(
     int measuredActionCount = Math.multiplyExact(concurrentUsers, actionsPerUser);
     Map<WorkloadAction, Integer> measuredCounts = scaledScheduledCounts(
         configuredCounts, configuredActionCount, measuredActionCount);
-    // Ramp-up users start work as soon as they authenticate. Reserve enough data for the
-    // conservative case where every user could work for the whole setup window; unused rows are
-    // harmless and are kept separate from the rows reserved for measurement.
+    // Actors can start work before the final offset elapses. Reserve enough data for the
+    // conservative case where every actor could work for the whole setup window; unused rows are
+    // harmless and remain separate from the rows reserved for measurement.
     int rampActionsPerUser = maximumActionsPerUser(setupTimeoutMinutes, actionPaceSeconds);
     int maximumRampActionCount = Math.multiplyExact(concurrentUsers, rampActionsPerUser);
     Map<WorkloadAction, Integer> rampCounts = scaledScheduledCounts(
@@ -121,11 +134,13 @@ public record WorkloadProfile(
     return new WorkloadProfile(
         name,
         concurrentUsers,
+        sessionPoolSize,
         durationMinutes,
         actionsPerUser,
-        loginRampUpSeconds,
+        authenticationRampUpSeconds,
         setupTimeoutMinutes,
         actionPaceSeconds,
+        actionSpreadSeconds,
         rampDownGraceSeconds,
         measuredCounts,
         buildActionPlan(measuredCounts, measuredActionCount),
@@ -134,18 +149,18 @@ public record WorkloadProfile(
         buildActionPlan(rampCounts, maximumRampActionCount));
   }
 
-  public static int minimumLoginRampUpSeconds(int concurrentUsers) {
-    return (int) Math.ceil(concurrentUsers * LOGIN_INTERVAL_SECONDS);
+  public static int minimumAuthenticationRampUpSeconds(int sessions) {
+    return (int) Math.ceil(sessions * LOGIN_INTERVAL_SECONDS);
   }
 
-  /** Returns the fixed measured action for a dedicated account and its zero-based iteration. */
-  public WorkloadAction actionFor(int accountOffset, int iteration) {
-    return actionFor(actionPlan, actionsPerUser, accountOffset, iteration, "measured");
+  /** Returns the fixed measured action for a workload actor and its zero-based iteration. */
+  public WorkloadAction actionFor(int actorIndex, int iteration) {
+    return actionFor(actionPlan, actionsPerUser, actorIndex, iteration, "measured");
   }
 
-  /** Returns the reserved ramp-up action for a dedicated account and its zero-based iteration. */
-  public WorkloadAction rampActionFor(int accountOffset, int iteration) {
-    return actionFor(rampActionPlan, rampActionsPerUser, accountOffset, iteration, "ramp-up");
+  /** Returns the reserved ramp-up action for a workload actor and its zero-based iteration. */
+  public WorkloadAction rampActionFor(int actorIndex, int iteration) {
+    return actionFor(rampActionPlan, rampActionsPerUser, actorIndex, iteration, "ramp-up");
   }
 
   public int scheduledActionCount(WorkloadAction action) {
@@ -160,8 +175,8 @@ public record WorkloadProfile(
     return Math.multiplyExact(concurrentUsers, rampActionsPerUser);
   }
 
-  public Duration loginRampUpDuration() {
-    return Duration.ofSeconds(loginRampUpSeconds);
+  public Duration authenticationRampUpDuration() {
+    return Duration.ofSeconds(authenticationRampUpSeconds);
   }
 
   public Duration authenticationSetupTimeout() {
@@ -176,6 +191,15 @@ public record WorkloadProfile(
     return durationFromSeconds(actionPaceSeconds);
   }
 
+  /** Gives every actor a stable offset across the configured interval; zero requests a burst. */
+  public Duration actionSpreadForActor(int actorIndex) {
+    if (actorIndex < 0 || actorIndex >= concurrentUsers) {
+      throw new IllegalArgumentException("Actor index is outside the configured workload: " + actorIndex);
+    }
+    double offsetSeconds = actionSpreadSeconds * actorIndex / concurrentUsers;
+    return offsetSeconds == 0.0 ? Duration.ZERO : durationFromSeconds(offsetSeconds);
+  }
+
   public Duration maximumSimulationDuration() {
     return authenticationSetupTimeout()
         .plus(steadyStateDuration())
@@ -185,18 +209,18 @@ public record WorkloadProfile(
   private static WorkloadAction actionFor(
       List<WorkloadAction> plan,
       int actionsPerUser,
-      int accountOffset,
+      int actorIndex,
       int iteration,
       String phase) {
     int users = plan.size() / actionsPerUser;
-    if (accountOffset < 0 || accountOffset >= users) {
-      throw new IllegalArgumentException("Account offset is outside the configured workload: " + accountOffset);
+    if (actorIndex < 0 || actorIndex >= users) {
+      throw new IllegalArgumentException("Actor index is outside the configured workload: " + actorIndex);
     }
     if (iteration < 0 || iteration >= actionsPerUser) {
       throw new IllegalArgumentException(
           "Action iteration is outside the configured " + phase + " workload: " + iteration);
     }
-    return plan.get(accountOffset * actionsPerUser + iteration);
+    return plan.get(actorIndex * actionsPerUser + iteration);
   }
 
   private static Map<WorkloadAction, Integer> scaledScheduledCounts(
@@ -310,6 +334,12 @@ public record WorkloadProfile(
     }
   }
 
+  private static void requireActionSpread(double value) {
+    if (!Double.isFinite(value) || value < 0 || value > MAXIMUM_ACTION_PACE_SECONDS) {
+      throw new IllegalArgumentException("Workload action spread must be between 0 and 3600 seconds");
+    }
+  }
+
   private static Properties loadProperties() {
     Path profilePath = Path.of(System.getProperty(
         "appRegWorkloadProfileFile", "data/seed/workload/allocation-profile.properties"));
@@ -414,7 +444,56 @@ public record WorkloadProfile(
     }
     expectInvalid(() -> maximumActionsPerUser(15, 59));
     expectInvalid(() -> maximumActionsPerUser(0, 60));
+    if (!durationFromSeconds(60.0 * 9 / 10).equals(Duration.ofSeconds(54))) {
+      throw new IllegalStateException("Workload action spread calculation failed");
+    }
+    Map<WorkloadAction, Integer> measuredCounts = zeroCounts();
+    measuredCounts.put(WorkloadAction.UPDATE_APPLICATION, 2);
+    Map<WorkloadAction, Integer> rampCounts = zeroCounts();
+    rampCounts.put(WorkloadAction.UPDATE_APPLICATION, 30);
+    var pooled = new WorkloadProfile(
+        "validation",
+        2,
+        1,
+        1,
+        1,
+        1,
+        15,
+        60,
+        60,
+        60,
+        measuredCounts,
+        buildActionPlan(measuredCounts, 2),
+        15,
+        rampCounts,
+        buildActionPlan(rampCounts, 30));
+    if (!pooled.actionSpreadForActor(0).isZero()
+        || !pooled.actionSpreadForActor(1).equals(Duration.ofSeconds(30))) {
+      throw new IllegalStateException("Workload actor offsets are not stable");
+    }
+    expectInvalid(() -> new WorkloadProfile(
+        "validation",
+        2,
+        3,
+        1,
+        1,
+        3,
+        15,
+        60,
+        60,
+        60,
+        measuredCounts,
+        buildActionPlan(measuredCounts, 2),
+        15,
+        rampCounts,
+        buildActionPlan(rampCounts, 30)));
     System.out.println("Workload profile self-check passed");
+  }
+
+  private static Map<WorkloadAction, Integer> zeroCounts() {
+    Map<WorkloadAction, Integer> counts = new EnumMap<>(WorkloadAction.class);
+    for (WorkloadAction action : WorkloadAction.values()) counts.put(action, 0);
+    return counts;
   }
 
   private static void expectInvalid(Runnable action) {

@@ -10,7 +10,7 @@ Applications Register at the HTTP layer. It provides:
 
 - a basic Applications List smoke journey;
 - focused one-user proofs for individual business actions;
-- an isolated read-only prototype for proving phase-specific measurement;
+- a prototype mode with a read-only pooling control and seeded mixed-action experiment;
 - a deterministic multi-user workload;
 - AppReg and Microsoft Entra authentication replay;
 - PostgreSQL-backed test-data allocation; and
@@ -45,7 +45,8 @@ requirements is:
   failure to establish the configured pool or validate 500 actors prevents an
   `NFR004` pass;
 - the session pool authenticates first; actors then receive pooled state
-  round-robin, validate `/sso/me`, and begin work without another SSO journey;
+  round-robin, validate `/sso/me`, complete their stable initial offsets, and
+  begin work without another SSO journey;
 - the p95 duration of each complete named business-action group must be below
   the applicable `NFR006` or `NFR007` limit;
 - measured business requests must be 100% successful; and
@@ -63,7 +64,7 @@ Current framework coverage is limited:
 | Requirement | Current coverage |
 | --- | --- |
 | `NFR001` | Not measured. |
-| `NFR004` | The read-only prototype implements the agreed actor/session-pool distinction, but has not yet passed its live pooled-session run. The performance mode still uses 500 independently authenticated sessions pending that evidence, and no degradation comparison has been agreed. |
+| `NFR004` | The read-only prototype has passed ten-actor runs with two, five and ten sessions, including a paced 15-minute two-session control. The prototype can now run the seeded mixed workload, but pooled writes and 500 actors still require staged evidence and no degradation comparison has been agreed. |
 | `NFR005` | Not measured. |
 | `NFR006` | Simple backend operations are exercised, but the two-second limit is not asserted. |
 | `NFR007` | The prototype asserts the five-second p95 limit for read-only search, but the full mixed workload and reporting operations do not yet have NFR assertions. |
@@ -149,24 +150,33 @@ a feeder.
 
 ### Workload phase lifecycle
 
-`AppRegWorkloadSimulation` authenticates and retains the same Gatling sessions
-that later perform workload actions:
+`AppRegWorkloadSimulation` now separates pool authentication from the Gatling
+actors that perform workload actions:
 
-1. One primary population is injected at the configured login rate.
-2. Every virtual user receives one dedicated identity and authenticates once.
-3. A successful user immediately starts its paced mixed workload with the same
-   Gatling session, cookies and XSRF state.
-4. Actions started before the authenticated-session target is reached are
+1. A configurable pool population is injected at one SSO journey per second.
+2. Every pool entry receives one dedicated identity and independent AppReg
+   session.
+3. Workload actors wait without sending HTTP traffic until the complete pool is
+   ready.
+4. Each actor receives pool cookies round-robin in its own Gatling cookie jar,
+   validates `/sso/me`, and waits for a stable index-based initial offset.
+5. The actor counts as ready only after that offset. It then starts its paced,
+   actor-specific deterministic plan; authentication state may be shared but
+   mutable feeder rows are not.
+6. Actions started before the ready-actor target is reached are
    nested under `AppReg_Ramp_Up` and consume ramp-up-only feeder rows.
-5. When the final required session authenticates, the common measured window
-   opens. Existing users retain their cadence; their next actions use the
+7. When the final required actor is ready, the common measured window
+   opens. Existing actors retain their cadence; their next actions use the
    measured groups and measured-only feeder rows.
-6. Failure to reach the target within the setup deadline fails the run.
-7. At the measured deadline, no new action starts and in-flight work must finish
+8. Failure to authenticate the pool and ready every actor within the setup
+   deadline fails the run.
+9. At the measured deadline, no new action starts and in-flight work must finish
    within the completion grace.
 
 There are no spare identities, authentication-retry population, shared gate or
-post-login workload release. `SsoAuthentication` accepts at most 500 accounts.
+post-login workload release. Setting the pool size equal to the actor count
+reproduces one independently authenticated session per actor.
+`SsoAuthentication` accepts at most 500 accounts.
 The Jenkins seed stage still runs before Gatling and is not rolled back if
 authentication later fails.
 
@@ -228,6 +238,12 @@ mix:
 - a maximum ramp-up plan bounded by the setup deadline and action pace; and
 - a measured plan bounded by the common steady-state duration.
 
+Actors also receive deterministic initial offsets distributed by actor index
+across `ACTION_SPREAD_SECONDS`, defaulting to 60 seconds. This reduces accidental
+cadence alignment while keeping runs repeatable; zero deliberately requests a
+burst. `ACTION_PACE_SECONDS`, also defaulting to 60 seconds, remains the minimum
+interval between action starts for each actor.
+
 The default 15-minute setup deadline and 60-second pace reserve at most 15
 ramp-up actions per user. The default 500-user, 30-minute performance run
 therefore reserves 7,500 ramp-up action slots and 15,000 measured action slots.
@@ -247,7 +263,8 @@ service-level objective or response-time pass/fail threshold.
 ## Test-data provisioning
 
 The CNP pipeline runs PostgreSQL seed logic before proof and workload modes. It
-is deliberately skipped by the read-only `prototype` mode. Where seeding runs,
+is deliberately skipped by `prototype/read-only` and used by
+`prototype/seeded-mixed`. Where seeding runs,
 it creates
 isolated synthetic records and writes:
 
@@ -262,20 +279,23 @@ file count. Mutable allocations are intended for one action only so virtual
 users do not update the same record.
 
 `RESET_DATABASE=true` runs the guarded masked-database restore before the seed
-stage. Reset is optional. The setting is ignored by `prototype`.
+stage. Reset is optional and ignored by `prototype/read-only`.
 
 ## CNP Jenkins execution
 
-`Jenkinsfile_CNP` exposes six parameters:
+`Jenkinsfile_CNP` exposes nine parameters:
 
 | Parameter | Behaviour |
 | --- | --- |
 | `RUN_MODE` | Selects `framework-proof`, `application-diagnostic`, `prototype` or `performance` |
+| `PROTOTYPE_WORKLOAD` | Selects the `read-only` control or `seeded-mixed` experiment for prototype mode |
 | `MAX_USERS` | Caps diagnostic users or prototype concurrent-access actors to `1..500` |
-| `SESSION_POOL_SIZE` | Configures authenticated sessions for `prototype`; defaults to 2 and must not exceed `MAX_USERS` |
+| `SESSION_POOL_SIZE` | Configures authenticated sessions for phase-based modes; blank means 2 for `prototype` and one session per actor for seeded workloads |
 | `RUN_DURATION_MINUTES` | Caps diagnostic duration |
 | `STEADY_STATE_MINUTES` | Configures the prototype and performance measured steady state; defaults to 30 minutes |
-| `RESET_DATABASE` | Optionally restores the masked Test baseline before seeding; ignored by `prototype` |
+| `ACTION_PACE_SECONDS` | Configures each actor's minimum action-start interval; defaults to 60 seconds |
+| `ACTION_SPREAD_SECONDS` | Configures deterministic initial actor offsets; defaults to 60 seconds and zero requests a burst |
+| `RESET_DATABASE` | Optionally restores the masked Test baseline before seeding; ignored by `prototype/read-only` |
 
 The seeded-mode execution order is:
 
@@ -303,32 +323,43 @@ The seeded-mode execution order is:
 - Requires `MAX_USERS` from 1 to 500.
 - Requires a duration from 1 to 70 minutes.
 - Rejects users multiplied by minutes above 35,000.
-- Runs the same phase-based `AppRegWorkloadSimulation` with separately allocated
-  ramp-up and measured data.
+- Runs the same pooled-session `AppRegWorkloadSimulation` with separately
+  allocated ramp-up and measured data.
+- Uses one authenticated session per actor when `SESSION_POOL_SIZE` is blank;
+  an explicit smaller value enables staged pooled-write diagnosis.
 
 ### `prototype`
 
-- Does not reset or seed the database.
+- Uses `PROTOTYPE_WORKLOAD=read-only` as the safe default control or
+  `PROTOTYPE_WORKLOAD=seeded-mixed` for the staged pooled-write experiment.
 - Authenticates only `SESSION_POOL_SIZE` sessions, defaulting to two at one SSO
   journey per second.
 - Starts `MAX_USERS` concurrent-access actors, defaulting to ten. They wait
   without HTTP traffic until the complete session pool is ready.
 - Assigns pool entries round-robin into separate Gatling actor cookie jars and
   verifies `/sso/me` for every actor without another SSO journey.
-- Begins each actor's read-only search workload as soon as its pooled session
-  validates.
-- Records searches under `Prototype_Ramp_Up_Application_List_Search` until the
-  requested actor count is ready.
-- Opens one common measured window when all actors are ready. Subsequent
-  paced searches use `AppReg_030_Application_List_Search` without restarting
-  the actors.
+- Gives every actor a stable initial offset across `ACTION_SPREAD_SECONDS` after
+  its pooled session validates.
+- In `read-only`, begins the search workload and records pre-target searches
+  under `Prototype_Ramp_Up_Application_List_Search`.
+- In `seeded-mixed`, seeds isolated ramp-up and measured allocations before SSO,
+  then runs each actor's deterministic mixed-action plan. Authentication state
+  may be shared; mutable feeder rows and actor plan positions are never shared.
+- Opens one common measured window when all actors are ready without restarting
+  them. Subsequent actions use measured groups; the read-only control uses
+  `AppReg_030_Application_List_Search`.
 - Defaults to a 15-minute authentication setup deadline, 30-minute measured
-  window, 60-second action pace and 60-second completion grace. These internal
-  controls are configurable with the system properties documented in
-  `README.md` and are logged before authentication starts.
+  window, 60-second action pace, 60-second action spread and 60-second
+  completion grace. These controls are configurable with the parameters and
+  system properties documented in `README.md` and are logged before
+  authentication starts.
 - Stops starting actions at the common measured deadline.
-- Uses elapsed group duration and asserts that measured requests are 100%
-  successful and p95 is less than five seconds.
+- In `read-only`, uses elapsed group duration and asserts that measured requests
+  are 100% successful and p95 is less than five seconds.
+- In `seeded-mixed`, requires 100% request success but does not yet assert the
+  per-operation NFR006/NFR007 thresholds; the run is pooling evidence first.
+- Applies bounded 502/504 recovery only to the read-only control. Seeded mixed
+  actions are never retried or excluded from Gatling results.
 - Requires 100% success globally so authentication and ramp-up failures still
   fail the run.
 - Reports actor count, authenticated pool size, SSO journeys and reuse ratio,
@@ -338,12 +369,14 @@ The seeded-mode execution order is:
 ### `performance`
 
 - Uses the `performance` profile's action mix.
-- Requests 500 users and authenticates at one account per second.
+- Requests 500 actors. A blank `SESSION_POOL_SIZE` authenticates 500 accounts as
+  the control; an explicit smaller pool enables staged session reuse.
 - Uses `STEADY_STATE_MINUTES`, defaulting to 30 and capped at the profile's
   70-minute envelope.
-- Defaults internally to a 15-minute authentication setup deadline, 60-second
-  action pace and 60-second completion grace; all effective values are logged.
-- Runs the single-population phase-based `AppRegWorkloadSimulation`.
+- Defaults to a 15-minute authentication setup deadline, 60-second action pace,
+  60-second initial action spread and 60-second completion grace; all effective
+  values are logged.
+- Runs the pooled-session phase-based `AppRegWorkloadSimulation`.
 
 The properties file also contains a ten-user, five-minute `validation` profile,
 but the current user-facing CNP modes do not select it.

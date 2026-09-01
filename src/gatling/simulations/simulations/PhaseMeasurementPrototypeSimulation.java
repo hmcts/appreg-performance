@@ -139,8 +139,9 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
         .withSecure("https".equalsIgnoreCase(APPREG_ORIGIN.getScheme()))))
       .exec(gatewayAwareSessionCheck())
       .exec(exitHereIfFailed())
+      .pause(session -> settings.actionSpreadForActor(session.getInt(ACTOR_INDEX_SESSION_KEY)))
       .exec(session -> {
-        var phase = phases.registerAuthenticatedSession();
+        var phase = phases.registerReadyActor();
         if (phase == Phase.MEASURED_STEADY_STATE) {
           logPhaseOnce(
               measuredPhaseLogged,
@@ -165,7 +166,7 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
               rampDownPhaseLogged,
               "RAMP-DOWN",
               "measured window closed; no new actions will start");
-          if (phases.sessionCompleted()) return session;
+          if (phases.actorCompleted()) return session;
           logPhaseOnce(
               completionFailureLogged,
               "RAMP-DOWN FAILED",
@@ -177,7 +178,7 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
             setupFailureLogged,
             "SETUP FAILED",
             sessionPool.size() + " of " + settings.sessionPoolSize()
-                + " sessions authenticated and " + phases.authenticatedUsers() + " of " + actors
+                + " sessions authenticated and " + phases.readyActors() + " of " + actors
                 + " actors validated before the "
                 + minutes(settings.authenticationSetupTimeoutMinutes()) + " deadline");
         return session.markAsFailed();
@@ -211,7 +212,7 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
     var executionComplete = finalPhase == Phase.RAMP_DOWN
         && sessionPool.size() == settings.sessionPoolSize()
         && phases.targetReached()
-        && phases.completedUsers() == actors
+        && phases.completedActors() == actors
         && phases.lateCompletions() == 0;
     var logicalResultsPass = logLogicalResults();
     if (executionComplete && logicalResultsPass) {
@@ -224,8 +225,8 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
     logPhase(
         "INCOMPLETE",
         sessionPool.size() + " of " + settings.sessionPoolSize() + " sessions authenticated; "
-            + phases.authenticatedUsers() + " of " + actors + " actors validated; "
-            + phases.completedUsers() + " completed; " + phases.lateCompletions()
+            + phases.readyActors() + " of " + actors + " actors validated; "
+            + phases.completedActors() + " completed; " + phases.lateCompletions()
             + " exceeded the completion grace; final phase " + finalPhase);
     if (!logicalResultsPass) {
       throw new IllegalStateException("Prototype logical NFR result failed");
@@ -451,6 +452,8 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
         + minutes(settings.authenticationSetupTimeoutMinutes()));
     System.out.println("Measured steady state: " + minutes(settings.steadyStateMinutes()));
     System.out.println("Action pace: " + seconds(settings.actionPaceSeconds()));
+    System.out.println("Initial actor action spread: " + seconds(settings.actionSpreadSeconds()));
+    System.out.println("Action spread policy: stable actor-index offsets; 0 seconds means intentional burst");
     System.out.println("Ramp-down grace: " + seconds(settings.rampDownGraceSeconds()));
     System.out.println("Gateway retry policy: " + settings.gatewayRetries()
         + " retries after HTTP 502/504; delay " + seconds(settings.gatewayRetryDelaySeconds()));
