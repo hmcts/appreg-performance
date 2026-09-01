@@ -10,7 +10,9 @@ public record PrototypeSettings(
     double authenticationRatePerSecond,
     int authenticationSetupTimeoutMinutes,
     double actionPaceSeconds,
-    int rampDownGraceSeconds) {
+    int rampDownGraceSeconds,
+    int gatewayRetries,
+    double gatewayRetryDelaySeconds) {
   private static final int DEFAULT_USERS = 10;
   private static final int DEFAULT_SESSION_POOL_SIZE = 2;
   private static final int MAX_USERS = 500;
@@ -19,6 +21,9 @@ public record PrototypeSettings(
   private static final int DEFAULT_AUTHENTICATION_SETUP_TIMEOUT_MINUTES = 15;
   private static final double DEFAULT_ACTION_PACE_SECONDS = 60.0;
   private static final int DEFAULT_RAMP_DOWN_GRACE_SECONDS = 60;
+  private static final int DEFAULT_GATEWAY_RETRIES = 1;
+  private static final double DEFAULT_GATEWAY_RETRY_DELAY_SECONDS = 1.0;
+  private static final int MAX_GATEWAY_RETRIES = 5;
   private static final int MAX_DURATION_MINUTES = 24 * 60;
   private static final int MAX_INTERVAL_SECONDS = 60 * 60;
 
@@ -41,6 +46,15 @@ public record PrototypeSettings(
       throw new IllegalArgumentException(
           "Prototype ramp-down grace must be between 0 and " + MAX_INTERVAL_SECONDS + " seconds");
     }
+    if (gatewayRetries < 0 || gatewayRetries > MAX_GATEWAY_RETRIES) {
+      throw new IllegalArgumentException(
+          "Prototype gateway retries must be between 0 and " + MAX_GATEWAY_RETRIES);
+    }
+    requirePositiveFinite("Prototype gateway retry delay", gatewayRetryDelaySeconds);
+    if (gatewayRetryDelaySeconds > MAX_INTERVAL_SECONDS) {
+      throw new IllegalArgumentException(
+          "Prototype gateway retry delay must not exceed " + MAX_INTERVAL_SECONDS + " seconds");
+    }
     if (authenticationRampDuration(sessionPoolSize, authenticationRatePerSecond)
         .compareTo(Duration.ofMinutes(authenticationSetupTimeoutMinutes)) > 0) {
       throw new IllegalArgumentException(
@@ -60,7 +74,11 @@ public record PrototypeSettings(
             "appRegPrototypeAuthenticationSetupTimeoutMinutes",
             DEFAULT_AUTHENTICATION_SETUP_TIMEOUT_MINUTES),
         doubleProperty("appRegPrototypeActionPaceSeconds", DEFAULT_ACTION_PACE_SECONDS),
-        integerProperty("appRegPrototypeRampDownGraceSeconds", DEFAULT_RAMP_DOWN_GRACE_SECONDS));
+        integerProperty("appRegPrototypeRampDownGraceSeconds", DEFAULT_RAMP_DOWN_GRACE_SECONDS),
+        integerProperty("appRegPrototypeGatewayRetries", DEFAULT_GATEWAY_RETRIES),
+        doubleProperty(
+            "appRegPrototypeGatewayRetryDelaySeconds",
+            DEFAULT_GATEWAY_RETRY_DELAY_SECONDS));
   }
 
   public Duration authenticationRampDuration() {
@@ -79,6 +97,10 @@ public record PrototypeSettings(
     return durationFromSeconds(actionPaceSeconds);
   }
 
+  public Duration gatewayRetryDelay() {
+    return durationFromSeconds(gatewayRetryDelaySeconds);
+  }
+
   public Duration maximumSimulationDuration() {
     return authenticationSetupTimeout()
         .plus(steadyStateDuration())
@@ -94,7 +116,9 @@ public record PrototypeSettings(
         DEFAULT_AUTHENTICATION_RATE_PER_SECOND,
         DEFAULT_AUTHENTICATION_SETUP_TIMEOUT_MINUTES,
         DEFAULT_ACTION_PACE_SECONDS,
-        DEFAULT_RAMP_DOWN_GRACE_SECONDS);
+        DEFAULT_RAMP_DOWN_GRACE_SECONDS,
+        DEFAULT_GATEWAY_RETRIES,
+        DEFAULT_GATEWAY_RETRY_DELAY_SECONDS);
     if (defaults.users() != 10
         || defaults.sessionPoolSize() != 2
         || defaults.steadyStateMinutes() != 30
@@ -102,21 +126,26 @@ public record PrototypeSettings(
         || defaults.authenticationSetupTimeoutMinutes() != 15
         || defaults.actionPaceSeconds() != 60.0
         || defaults.rampDownGraceSeconds() != 60
+        || defaults.gatewayRetries() != 1
+        || defaults.gatewayRetryDelaySeconds() != 1.0
         || !defaults.authenticationRampDuration().equals(Duration.ofSeconds(2))) {
       throw new IllegalStateException("Prototype defaults changed unexpectedly");
     }
-    expectInvalid(() -> new PrototypeSettings(0, 1, 30, 1, 15, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(MAX_USERS + 1, 1, 30, 1, 15, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(10, 0, 30, 1, 15, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(10, 11, 30, 1, 15, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(10, 2, 0, 1, 15, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 0, 15, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 1, 0, 60, 60));
-    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 1, 15, 0, 60));
-    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 1, 15, 60, -1));
-    expectInvalid(() -> new PrototypeSettings(500, 500, 30, 0.1, 15, 60, 60));
+    expectInvalid(() -> new PrototypeSettings(0, 1, 30, 1, 15, 60, 60, 1, 1));
+    expectInvalid(() -> new PrototypeSettings(MAX_USERS + 1, 1, 30, 1, 15, 60, 60, 1, 1));
+    expectInvalid(() -> new PrototypeSettings(10, 0, 30, 1, 15, 60, 60, 1, 1));
+    expectInvalid(() -> new PrototypeSettings(10, 11, 30, 1, 15, 60, 60, 1, 1));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 0, 1, 15, 60, 60, 1, 1));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 0, 15, 60, 60, 1, 1));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 1, 0, 60, 60, 1, 1));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 1, 15, 0, 60, 1, 1));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 1, 15, 60, -1, 1, 1));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 1, 15, 60, 60, -1, 1));
+    expectInvalid(() -> new PrototypeSettings(10, 2, 30, 1, 15, 60, 60, 1, 0));
+    expectInvalid(() -> new PrototypeSettings(500, 500, 30, 0.1, 15, 60, 60, 1, 1));
     AuthenticatedSessionPool.selfCheck();
     PhaseController.selfCheck();
+    PrototypeGatewayRetryPolicy.selfCheck();
     System.out.println("Prototype settings self-check passed");
   }
 

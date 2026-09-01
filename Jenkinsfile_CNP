@@ -381,6 +381,8 @@ withNightlyPipeline(type, product, component) {
                     def prototypeSessionPoolSize = (params.SESSION_POOL_SIZE ?: '2').toString().trim()
                     def diagnosticMinutes = (params.RUN_DURATION_MINUTES ?: '5').toString().trim()
                     def steadyStateMinutes = (params.STEADY_STATE_MINUTES ?: '30').toString().trim()
+                    def prototypeGatewayRetries = (env.PROTOTYPE_GATEWAY_RETRIES ?: '1').toString().trim()
+                    def prototypeGatewayRetryDelaySeconds = (env.PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS ?: '1').toString().trim()
                     def workloadSetupTimeoutMinutes = (env.WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES ?: '15').toString().trim()
                     def workloadActionPaceSeconds = (env.WORKLOAD_ACTION_PACE_SECONDS ?: '60').toString().trim()
                     def workloadRampDownGraceSeconds = (env.WORKLOAD_RAMP_DOWN_GRACE_SECONDS ?: '60').toString().trim()
@@ -416,6 +418,15 @@ withNightlyPipeline(type, product, component) {
                             || prototypeSessionPoolSize.toInteger() < 1
                             || prototypeSessionPoolSize.toInteger() > diagnosticUsers.toInteger()) {
                             error 'prototype requires SESSION_POOL_SIZE to be an integer from 1 to MAX_USERS'
+                        }
+                        if (!(prototypeGatewayRetries ==~ /\d+/)
+                            || prototypeGatewayRetries.toInteger() > 5) {
+                            error 'PROTOTYPE_GATEWAY_RETRIES must be from 0 to 5'
+                        }
+                        if (!(prototypeGatewayRetryDelaySeconds ==~ /\d+/)
+                            || prototypeGatewayRetryDelaySeconds.toInteger() < 1
+                            || prototypeGatewayRetryDelaySeconds.toInteger() > 3600) {
+                            error 'PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS must be from 1 to 3600'
                         }
                     }
                     if (runMode == 'prototype' || runMode == 'performance') {
@@ -455,6 +466,8 @@ withNightlyPipeline(type, product, component) {
                     env.RUN_DURATION_MINUTES = selectedRun.minutes
                     env.STEADY_STATE_MINUTES = steadyStateMinutes
                     env.PROTOTYPE_SESSION_POOL_SIZE = prototypeSessionPoolSize
+                    env.PROTOTYPE_GATEWAY_RETRIES = prototypeGatewayRetries
+                    env.PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS = prototypeGatewayRetryDelaySeconds
                     env.WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES = workloadSetupTimeoutMinutes
                     env.WORKLOAD_ACTION_PACE_SECONDS = workloadActionPaceSeconds
                     env.WORKLOAD_RAMP_DOWN_GRACE_SECONDS = workloadRampDownGraceSeconds
@@ -500,6 +513,8 @@ withNightlyPipeline(type, product, component) {
                                 -DappRegPrototypeUsers="$MAX_USERS" \
                                 -DappRegPrototypeSessionPoolSize="$PROTOTYPE_SESSION_POOL_SIZE" \
                                 -DappRegPrototypeSteadyStateMinutes="$STEADY_STATE_MINUTES" \
+                                -DappRegPrototypeGatewayRetries="$PROTOTYPE_GATEWAY_RETRIES" \
+                                -DappRegPrototypeGatewayRetryDelaySeconds="$PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS" \
                                 -Dgatling.charting.useGroupDurationMetric=true \
                                 --simulation simulations.PhaseMeasurementPrototypeSimulation
                             fi

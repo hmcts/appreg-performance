@@ -2,6 +2,7 @@ package utils;
 
 import io.gatling.http.response.Response;
 import io.gatling.javaapi.core.Session;
+import java.time.Instant;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.Set;
@@ -68,7 +69,8 @@ public final class DiagnosticLogging {
   private static void log(String requestName, Response response, Session session) {
     int status = response.status().code();
     System.err.printf(
-        "APPREG_HTTP_DIAGNOSTIC request=%s status=%d retryAfter=%s user=%s accountOffset=%s authState=%s%n",
+        "APPREG_HTTP_DIAGNOSTIC timestamp=%s request=%s status=%d retryAfter=%s user=%s accountOffset=%s authState=%s%n",
+        Instant.now(),
         requestName,
         status,
         status == 429 ? response.headers().get("Retry-After") : "-",
@@ -80,11 +82,12 @@ public final class DiagnosticLogging {
   private static void logHtmlContinuation(String requestName, Response response, Session session) {
     String body = response.body().string();
     System.err.printf(
-        "APPREG_HTTP_DIAGNOSTIC request=%s status=%d continuationPage=true hasLocation=%s "
+        "APPREG_HTTP_DIAGNOSTIC timestamp=%s request=%s status=%d continuationPage=true hasLocation=%s "
             + "contentType=%s bodyLength=%d title=%s hasSessionId=%s hasContext=%s hasFlowToken=%s "
             + "hasCanary=%s hasCredentialTypeUrl=%s hasUrlPost=%s hasUrlLogin=%s hasUrlResume=%s hasUrlRefresh=%s "
             + "hasUrlCancel=%s hasAppRegCallback=%s kmsiEnabled=%s postType=%s errorCode=%s "
             + "user=%s accountOffset=%s authState=%s%n",
+        Instant.now(),
         requestName,
         response.status().code(),
         response.headers().contains("Location"),

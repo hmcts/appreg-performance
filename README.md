@@ -121,6 +121,27 @@ Current modes:
 | `prototype` | Authenticate a small session pool and run a larger read-only concurrent-access actor population without resetting or seeding |
 | `performance` | Seed isolated ramp-up and measured data, then run the phase-based workload with 500 users and a configurable measured period |
 
+The phase-based modes follow an attack, sustain and release load profile:
+
+```text
+Concurrent
+users
+  ^
+  |                 +--------------------+
+  |                /                      \
+  |               /                        \
+  |              /                          \
+  +-------------+----------------------------+----------> time
+                 Attack       Sustain         Release
+                 ramp-up      measured        ramp-down
+```
+
+The vertical position represents workload-ready actors, not SSO requests or
+distinct authenticated sessions. Authentication and setup occur during attack;
+only the sustain plateau contributes to response-time NFR measurements. During
+release, no new business action starts and any action already in flight is
+allowed to complete within the configured grace period.
+
 For `application-diagnostic`, users must be between 1 and 500, duration must be
 from 1 to 70 minutes, and users multiplied by minutes must not exceed 35,000.
 
@@ -133,11 +154,19 @@ ramp-up group until the requested actor count is ready. The same paced actors
 then continue under the measured group for the common
 `STEADY_STATE_MINUTES` window.
 
-The measured search group's p95 elapsed duration must be less than five seconds
-and all requests, including authentication and ramp-up traffic, must succeed.
-Effective configuration and phase changes are printed as prominent prototype
-banners. A ten-actor/two-session result is evidence of ten concurrent access
-actors, not ten distinct users or server-side sessions.
+The prototype's logical search-action p95 must be less than five seconds and all
+SSO requests must succeed. Prototype AppReg read-only GETs that receive HTTP
+502 or 504 are retried once after one second by default. A recovered gateway
+attempt and its delay remain visible as support evidence but are excluded from
+the logical action duration; exhausting
+the configured retries fails the run. Other statuses are never retried.
+
+The `PROTOTYPE LOGICAL RESULTS` console block is the authoritative prototype
+NFR verdict. Gatling's request charts still show every support attempt, so they
+remain useful for diagnosing gateway availability rather than judging the
+logical action after recovery. Effective configuration, retry events and phase
+changes are printed prominently. A ten-actor/two-session result is evidence of
+ten concurrent access actors, not ten distinct users or server-side sessions.
 
 Run the prototype locally with the group-duration metric enabled:
 
@@ -150,14 +179,18 @@ Run the prototype locally with the group-duration metric enabled:
   -DappRegPrototypeAuthenticationSetupTimeoutMinutes=15 \
   -DappRegPrototypeActionPaceSeconds=60 \
   -DappRegPrototypeRampDownGraceSeconds=60 \
+  -DappRegPrototypeGatewayRetries=1 \
+  -DappRegPrototypeGatewayRetryDelaySeconds=1 \
   -Dgatling.charting.useGroupDurationMetric=true \
   --simulation simulations.PhaseMeasurementPrototypeSimulation
 ```
 
-The authentication rate, setup timeout, action pace and completion grace are
-internal controls rather than Jenkins parameters. Their shown values are the
-defaults. The authentication setup timeout must be long enough to contain the
-configured session-pool injection ramp.
+The authentication rate, setup timeout, action pace, completion grace and
+gateway retry settings are internal controls rather than Jenkins parameters.
+Their shown values are the defaults. The authentication setup timeout must be
+long enough to contain the configured session-pool injection ramp. Jenkins may
+override the retry defaults with `PROTOTYPE_GATEWAY_RETRIES` and
+`PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS`; both effective values are logged.
 
 The workload modes use the same lifecycle with the mixed workload. Each user
 authenticates once and immediately starts its assigned actions. Before the
