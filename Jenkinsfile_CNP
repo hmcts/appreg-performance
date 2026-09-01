@@ -405,6 +405,8 @@ withNightlyPipeline(type, product, component) {
                     def prototypeGatewayRetryDelaySeconds = (env.PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS ?: '1').toString().trim()
                     def workloadSetupTimeoutMinutes = (env.WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES ?: '15').toString().trim()
                     def workloadRampDownGraceSeconds = (env.WORKLOAD_RAMP_DOWN_GRACE_SECONDS ?: '60').toString().trim()
+                    def workloadGatewayGetRetries = (env.WORKLOAD_GATEWAY_GET_RETRIES ?: '1').toString().trim()
+                    def workloadGatewayGetRetryDelaySeconds = (env.WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS ?: '1').toString().trim()
                     def prototypeIsSeeded = runMode == 'prototype' && prototypeWorkload == 'seeded-mixed'
                     def runModes = [
                         'application-diagnostic': [profile: 'performance', users: diagnosticUsers, minutes: diagnosticMinutes, proofs: false, prototype: false, workload: true, seed: true],
@@ -496,6 +498,14 @@ withNightlyPipeline(type, product, component) {
                             || workloadRampDownGraceSeconds.toInteger() > 3600) {
                             error 'WORKLOAD_RAMP_DOWN_GRACE_SECONDS must be from 0 to 3600'
                         }
+                        if (!(workloadGatewayGetRetries ==~ /\d+/)
+                            || workloadGatewayGetRetries.toInteger() > 5) {
+                            error 'WORKLOAD_GATEWAY_GET_RETRIES must be from 0 to 5'
+                        }
+                        if (!(workloadGatewayGetRetryDelaySeconds ==~ /\d+/)
+                            || workloadGatewayGetRetryDelaySeconds.toInteger() > 3600) {
+                            error 'WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS must be from 0 to 3600'
+                        }
                     }
                     env.RUN_DB_RESET = (selectedRun.seed && (params.RESET_DATABASE ?: false)).toString()
                     env.RUN_DB_SEED = selectedRun.seed.toString()
@@ -516,6 +526,8 @@ withNightlyPipeline(type, product, component) {
                     env.WORKLOAD_ACTION_PACE_SECONDS = actionPaceSeconds
                     env.WORKLOAD_ACTION_SPREAD_SECONDS = actionSpreadSeconds
                     env.WORKLOAD_RAMP_DOWN_GRACE_SECONDS = workloadRampDownGraceSeconds
+                    env.WORKLOAD_GATEWAY_GET_RETRIES = workloadGatewayGetRetries
+                    env.WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS = workloadGatewayGetRetryDelaySeconds
                     if (env.RUN_DB_RESET == 'true') {
                         sh dbResetCommand
                     }
@@ -641,6 +653,8 @@ withNightlyPipeline(type, product, component) {
                                 -DappRegWorkloadActionPaceSeconds="$WORKLOAD_ACTION_PACE_SECONDS" \
                                 -DappRegWorkloadActionSpreadSeconds="$WORKLOAD_ACTION_SPREAD_SECONDS" \
                                 -DappRegWorkloadRampDownGraceSeconds="$WORKLOAD_RAMP_DOWN_GRACE_SECONDS" \
+                                -DappRegGatewayGetRetries="$WORKLOAD_GATEWAY_GET_RETRIES" \
+                                -DappRegGatewayGetRetryDelaySeconds="$WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS" \
                                 -DappRegPerformanceDataDirectory="$PWD/build/workload-data" \
                                 --simulation simulations.AppRegWorkloadSimulation
                             fi

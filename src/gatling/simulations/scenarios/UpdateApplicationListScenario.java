@@ -3,6 +3,7 @@ package scenarios;
 import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
 import utils.Headers;
+import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -13,6 +14,7 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 import static java.util.Objects.requireNonNull;
 import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
 import static utils.ApplicationListFailureLogger.logFailure;
+import static utils.GatewayGetRetry.retryingGet;
 
 /** Replays the recorded UI flow for a simple update to an open Application List. */
 public final class UpdateApplicationListScenario {
@@ -26,7 +28,7 @@ public final class UpdateApplicationListScenario {
   private UpdateApplicationListScenario() {}
 
   public static ChainBuilder updateApplicationList() {
-    return group("AppReg_080_Application_List_Update").on(
+    return group(WorkloadAction.UPDATE_LIST.groupName()).on(
       loadApplicationList()
         .exec(updateValues())
         .exec(http("Update application list")
@@ -52,17 +54,18 @@ public final class UpdateApplicationListScenario {
   }
 
   static ChainBuilder loadApplicationList() {
-    return exec(http("Get application list details")
-      .get("/application-lists/#{applicationListId}")
-      .queryParam("pageNumber", "0")
-      .queryParam("pageSize", "10")
-      .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-      .check(status().saveAs(STATUS_SESSION_KEY))
-      .check(status().is(200))
-      .check(jsonPath("$.date").saveAs("applicationListDate"))
-      .check(jsonPath("$.time").saveAs("applicationListTime"))
-      .check(jsonPath("$.description").saveAs("applicationListDescription"))
-      .check(jsonPath("$.courtCode").saveAs("applicationListCourtLocationCode")))
+    return exec(retryingGet(
+      "Get application list details",
+      http("Get application list details")
+        .get("/application-lists/#{applicationListId}")
+        .queryParam("pageNumber", "0")
+        .queryParam("pageSize", "10")
+        .header("Accept", Headers.APPREG_API_MEDIA_TYPE),
+      status().saveAs(STATUS_SESSION_KEY),
+      jsonPath("$.date").saveAs("applicationListDate"),
+      jsonPath("$.time").saveAs("applicationListTime"),
+      jsonPath("$.description").saveAs("applicationListDescription"),
+      jsonPath("$.courtCode").saveAs("applicationListCourtLocationCode")))
       .exec(logFailure("Update Application List", "Get application list details"));
   }
 

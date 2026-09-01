@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 import utils.Environment;
 import utils.Headers;
+import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -17,6 +18,7 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
 import static utils.ApplicationListFailureLogger.logFailure;
 import static utils.Headers.COMMON_HEADER;
+import static utils.GatewayGetRetry.retryingGet;
 
 /**
  * Creates an application list using disposable data generated for each virtual user.
@@ -28,14 +30,15 @@ public final class ApplicationListCreateScenario {
   private ApplicationListCreateScenario() {}
 
   public static ChainBuilder createApplicationList() {
-    return group("AppReg_020_Application_List_Create").on(
+    return group(WorkloadAction.CREATE_LIST.groupName()).on(
       exec(session -> session
         .set("applicationListDate", LocalDate.now().toString())
         .set("applicationListDescription", "Gatling create-list proof " + UUID.randomUUID()))
-        .exec(http("Application lists page")
-          .get(Environment.APPLICATIONS_LIST_PATH)
-          .headers(COMMON_HEADER)
-          .check(status().is(200)))
+        .exec(retryingGet(
+          "Application lists page",
+          http("Application lists page")
+            .get(Environment.APPLICATIONS_LIST_PATH)
+            .headers(COMMON_HEADER)))
         .exec(getCookieValue(CookieKey(Headers.XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
         .exec(http("Create application list")
           .post("/application-lists")
@@ -45,13 +48,14 @@ public final class ApplicationListCreateScenario {
           .body(StringBody("{\"date\":\"#{applicationListDate}\",\"time\":\"12:00\",\"description\":\"#{applicationListDescription}\",\"status\":\"OPEN\",\"courtLocationCode\":\"" + COURT_LOCATION_CODE + "\"}"))
           .check(status().in(200, 201))
           .check(jsonPath("$.id").saveAs("applicationListId")))
-        .exec(http("Get created application list")
-          .get("/application-lists/#{applicationListId}")
-          .queryParam("pageNumber", "0")
-          .queryParam("pageSize", "10")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().saveAs(STATUS_SESSION_KEY))
-          .check(status().is(200)))
+        .exec(retryingGet(
+          "Get created application list",
+          http("Get created application list")
+            .get("/application-lists/#{applicationListId}")
+            .queryParam("pageNumber", "0")
+            .queryParam("pageSize", "10")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE),
+          status().saveAs(STATUS_SESSION_KEY)))
         .exec(logFailure("Create Application List", "Get created application list"))
     );
   }

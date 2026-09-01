@@ -244,8 +244,12 @@ authentication retry.
 
 Pooling shares authentication state, not test data: every actor retains its own
 plan index and every mutable feeder row remains queue-backed and single-use.
-HTTP 502/504 recovery remains read-only-prototype-only; seeded workload failures
-are not retried or removed from Gatling results.
+Reusable business-scenario GET requests retry HTTP 502/504 once by default.
+Each transient attempt and recovery is logged, and recovered attempt time plus
+the configured retry delay is excluded from the seeded workload's logical
+business-operation p95. POST, PUT and other non-GET requests are never retried;
+their failures remain normal functional failures. Exhausting a GET retry also
+fails the request and the workload.
 
 The workload's internal phase controls are parameterised and logged:
 
@@ -256,13 +260,25 @@ The workload's internal phase controls are parameterised and logged:
 | `appRegWorkloadActionPaceSeconds` | `60` | Minimum interval between action starts; values below 60 are rejected |
 | `appRegWorkloadActionSpreadSeconds` | `60` | Stable initial actor offsets; `0` requests an intentional burst |
 | `appRegWorkloadRampDownGraceSeconds` | `60` | Time allowed for an in-flight final action to complete |
+| `appRegGatewayGetRetries` | `1` | Retries allowed for a GET that returns HTTP 502/504; `0` disables recovery |
+| `appRegGatewayGetRetryDelaySeconds` | `1` | Delay before a safe GET retry |
 
 Jenkins supplies the pool, pace and spread from `SESSION_POOL_SIZE`,
 `ACTION_PACE_SECONDS` and `ACTION_SPREAD_SECONDS`. The setup deadline and
 completion grace remain internal environment defaults named
 `WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES` and
-`WORKLOAD_RAMP_DOWN_GRACE_SECONDS`. Every effective value is logged before
-traffic begins.
+`WORKLOAD_RAMP_DOWN_GRACE_SECONDS`. Jenkins can override the internal GET retry
+defaults with `WORKLOAD_GATEWAY_GET_RETRIES` and
+`WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS`. Every effective value is logged
+before traffic begins.
+
+At the end of a seeded workload, the eye-catching `WORKLOAD NFR SUMMARY` is the
+authoritative response-time verdict. It reports every scheduled action's
+completed sample count, logical p95, applicable `NFR006` or `NFR007` limit and
+PASS/FAIL result. Operations with no scheduled samples are explicitly `NOT
+MEASURED`. Gatling's HTML group timings deliberately retain the wall-clock
+effect of support retries and remain useful for diagnosing the raw journey;
+they are not the retry-adjusted NFR value.
 
 Validate its defaults, boundaries and phase transitions without authenticating
 or sending HTTP traffic:

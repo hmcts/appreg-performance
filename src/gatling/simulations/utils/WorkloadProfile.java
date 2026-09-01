@@ -429,6 +429,9 @@ public record WorkloadProfile(
 
   /** Small dependency-free check for ramp capacity and deterministic scaling. */
   public static void main(String[] args) {
+    GatewayRetryPolicy.selfCheck();
+    WorkloadAction.selfCheck();
+    WorkloadNfrMetrics.selfCheck();
     if (maximumActionsPerUser(15, 60) != 15 || maximumActionsPerUser(15, 120) != 8) {
       throw new IllegalStateException("Workload ramp capacity calculation failed");
     }

@@ -3,14 +3,14 @@ package scenarios;
 import io.gatling.javaapi.core.ChainBuilder;
 import utils.Environment;
 import utils.Headers;
-import utils.DiagnosticLogging;
+import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.headerRegex;
 import static io.gatling.javaapi.http.HttpDsl.http;
-import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.GatewayGetRetry.retryingGet;
 import static utils.Headers.COMMON_HEADER;
 
 /**
@@ -30,22 +30,23 @@ public final class SearchScenario {
   private SearchScenario() {}
 
   public static ChainBuilder searchApplicationLists() {
-    return group("AppReg_030_Application_List_Search").on(
-      exec(http("Application lists page")
-        .get(Environment.APPLICATIONS_LIST_PATH)
-        .headers(COMMON_HEADER)
-        .check(status().is(200)))
-        .exec(http("Search application lists by description")
-          .get("/application-lists")
-          .transformResponse(DiagnosticLogging.logIfStatusAtLeast("Search application lists by description", 400))
-          .queryParam("description", APPLICATION_LIST_DESCRIPTION)
-          .queryParam("pageNumber", FIRST_PAGE)
-          .queryParam("pageSize", PAGE_SIZE)
-          .queryParam("sort", SORT_ORDER)
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().is(200))
-          .check(headerRegex("Content-Type", ".*json.*"))
-          .check(jsonPath("$.content[0].id").optional().saveAs("applicationListId")))
+    return group(WorkloadAction.OTHER_OPERATIONS.groupName()).on(
+      exec(retryingGet(
+        "Application lists page",
+        http("Application lists page")
+          .get(Environment.APPLICATIONS_LIST_PATH)
+          .headers(COMMON_HEADER)))
+        .exec(retryingGet(
+          "Search application lists by description",
+          http("Search application lists by description")
+            .get("/application-lists")
+            .queryParam("description", APPLICATION_LIST_DESCRIPTION)
+            .queryParam("pageNumber", FIRST_PAGE)
+            .queryParam("pageSize", PAGE_SIZE)
+            .queryParam("sort", SORT_ORDER)
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE),
+          headerRegex("Content-Type", ".*json.*"),
+          jsonPath("$.content[0].id").optional().saveAs("applicationListId")))
     );
   }
 }

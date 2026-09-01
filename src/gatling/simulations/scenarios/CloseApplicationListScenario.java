@@ -2,6 +2,7 @@ package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
 import utils.Headers;
+import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -15,7 +16,7 @@ public final class CloseApplicationListScenario {
   private CloseApplicationListScenario() {}
 
   public static ChainBuilder closeApplicationList() {
-    return group("AppReg_090_Application_List_Close").on(
+    return group(WorkloadAction.CLOSE_LIST.groupName()).on(
       UpdateApplicationListScenario.loadApplicationList()
         .exec(UpdateApplicationListScenario.updateValues())
         .exec(http("Close application list")

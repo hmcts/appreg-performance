@@ -4,6 +4,7 @@ import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
 import java.util.concurrent.ThreadLocalRandom;
 import utils.Headers;
+import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -15,6 +16,7 @@ import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
 import static utils.ApplicationListFailureLogger.logFailure;
+import static utils.GatewayGetRetry.retryingGet;
 
 /**
  * Updates the Application List and entry identifiers stored in the Gatling session.
@@ -25,7 +27,7 @@ public final class UpdateApplicationScenario {
   private UpdateApplicationScenario() {}
 
   public static ChainBuilder updateApplication() {
-    return group("AppReg_040_Application_Update").on(
+    return group(WorkloadAction.UPDATE_APPLICATION.groupName()).on(
       exec(session -> {
         String updateId = String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000));
         return session
@@ -33,24 +35,27 @@ public final class UpdateApplicationScenario {
           .set("applicationUpdateDate", LocalDate.now().toString());
       })
         .exec(getCookieValue(CookieKey(Headers.XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
-        .exec(http("Get application list")
-          .get("/application-lists/#{applicationListId}")
-          .queryParam("pageNumber", "0")
-          .queryParam("pageSize", "10")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().saveAs(STATUS_SESSION_KEY))
-          .check(status().is(200)))
+        .exec(retryingGet(
+          "Get application list",
+          http("Get application list")
+            .get("/application-lists/#{applicationListId}")
+            .queryParam("pageNumber", "0")
+            .queryParam("pageSize", "10")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE),
+          status().saveAs(STATUS_SESSION_KEY)))
         .exec(logFailure("Update Application", "Get application list"))
-        .exec(http("Get application entry")
-          .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().is(200))
-          .check(jsonPath("$.applicationCode").saveAs("applicationCode")))
-        .exec(http("Get application-code details")
-          .get("/application-codes/#{applicationCode}")
-          .queryParam("date", "#{applicationUpdateDate}")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().is(200)))
+        .exec(retryingGet(
+          "Get application entry",
+          http("Get application entry")
+            .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE),
+          jsonPath("$.applicationCode").saveAs("applicationCode")))
+        .exec(retryingGet(
+          "Get application-code details",
+          http("Get application-code details")
+            .get("/application-codes/#{applicationCode}")
+            .queryParam("date", "#{applicationUpdateDate}")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE)))
         .exec(http("Update application")
           .put("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)

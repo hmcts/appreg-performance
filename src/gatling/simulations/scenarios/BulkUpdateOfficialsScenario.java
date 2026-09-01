@@ -2,6 +2,7 @@ package scenarios;
 
 import io.gatling.javaapi.core.ChainBuilder;
 import utils.Headers;
+import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -19,7 +20,7 @@ public final class BulkUpdateOfficialsScenario {
    * {@code entryIdThree}; final workloads will obtain these from allocated seeded data.
    */
   public static ChainBuilder bulkUpdateOfficials() {
-    return group("AppReg_065_Applications_Bulk_Officials").on(
+    return group(WorkloadAction.BULK_OFFICIALS.groupName()).on(
       exec(http("Preview bulk officials update")
         .post("/application-lists/#{applicationListId}/entries/bulk-action-preview")
         .header("Accept", Headers.APPREG_API_MEDIA_TYPE)

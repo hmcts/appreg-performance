@@ -23,13 +23,14 @@ import scenarios.UpdateApplicationResultScenario;
 import scenarios.UpdateApplicationScenario;
 import utils.AuthenticationStage;
 import utils.AuthenticatedSessionPool;
-import utils.DiagnosticLogging;
 import utils.Environment;
+import utils.GatewayGetRetry;
 import utils.Headers;
 import utils.PhaseController;
 import utils.PhaseController.Phase;
 import utils.SsoAuthentication;
 import utils.WorkloadAction;
+import utils.WorkloadNfrMetrics;
 import utils.WorkloadProfile;
 
 import static io.gatling.javaapi.core.CoreDsl.csv;
@@ -56,6 +57,7 @@ import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.AppRegHttp.protocol;
 import static utils.Headers.XSRF_TOKEN_COOKIE;
+import static utils.GatewayGetRetry.retryingGet;
 
 /**
  * Phase-based, feeder-backed AppReg workload. A smaller authenticated session pool is assigned
@@ -90,6 +92,7 @@ public class AppRegWorkloadSimulation extends Simulation {
   private final AtomicInteger rampActionsStarted = new AtomicInteger();
   private final AtomicInteger measuredActionsStarted = new AtomicInteger();
   private final AtomicInteger nextActorIndex = new AtomicInteger();
+  private final WorkloadNfrMetrics nfrMetrics = new WorkloadNfrMetrics();
 
   private final FeederBuilder.FileBased<String> rampUpdateApplicationFeeder =
       feeder("ramp-up", "update-application", WorkloadAction.UPDATE_APPLICATION);
@@ -220,6 +223,7 @@ public class AppRegWorkloadSimulation extends Simulation {
 
   @Override
   public void before() {
+    GatewayGetRetry.resetCounts();
     phases.start();
     logConfiguration();
     logPhase(
@@ -232,16 +236,19 @@ public class AppRegWorkloadSimulation extends Simulation {
   @Override
   public void after() {
     Phase finalPhase = phases.currentPhase();
-    if (finalPhase == Phase.RAMP_DOWN
+    boolean executionComplete = finalPhase == Phase.RAMP_DOWN
         && phases.targetReached()
         && sessionPool.size() == profile.sessionPoolSize()
         && phases.completedActors() == profile.concurrentUsers()
-        && phases.lateCompletions() == 0) {
+        && phases.lateCompletions() == 0;
+    boolean nfrPassed = logNfrSummary(executionComplete);
+    if (executionComplete && nfrPassed) {
       logPhase(
           "EXECUTION COMPLETE",
           sessionPool.size() + " authenticated sessions supported " + phases.completedActors()
               + " completed actors; " + rampActionsStarted.get() + " ramp-up and "
-              + measuredActionsStarted.get() + " measured actions started");
+              + measuredActionsStarted.get()
+              + " measured actions started; logical NFR assertions passed");
       return;
     }
     logPhase(
@@ -252,6 +259,9 @@ public class AppRegWorkloadSimulation extends Simulation {
             + " completed; "
             + phases.lateCompletions() + " exceeded the completion grace; final phase "
             + finalPhase);
+    if (!nfrPassed) {
+      throw new IllegalStateException("Workload logical NFR assertions failed");
+    }
     throw new IllegalStateException("Workload did not complete its measured steady state");
   }
 
@@ -337,13 +347,12 @@ public class AppRegWorkloadSimulation extends Simulation {
   }
 
   private ChainBuilder pooledSessionCheck() {
-    return exec(http("AppReg pooled workload session check")
-      .get("/sso/me")
-      .transformResponse(DiagnosticLogging.logIfStatusAtLeast(
-        "AppReg pooled workload session check", 400))
-      .header("Accept", "application/json")
-      .check(status().is(200))
-      .check(jsonPath("$.authenticated").is("true")));
+    return retryingGet(
+      "AppReg pooled workload session check",
+      http("AppReg pooled workload session check")
+        .get("/sso/me")
+        .header("Accept", "application/json"),
+      jsonPath("$.authenticated").is("true"));
   }
 
   private ChainBuilder workloadAction(boolean rampUp) {
@@ -352,14 +361,16 @@ public class AppRegWorkloadSimulation extends Simulation {
       onCase(WorkloadAction.ADD_APPLICATION.key()).then(addApplication(rampUp)),
       onCase(WorkloadAction.RESULT_MULTIPLE.key()).then(resultMultipleApplications(rampUp)),
       onCase(WorkloadAction.UPDATE_RESULT.key()).then(updateApplicationResult(rampUp)),
-      onCase(WorkloadAction.CREATE_LIST.key()).then(ApplicationListCreateScenario.createApplicationList()),
+      onCase(WorkloadAction.CREATE_LIST.key()).then(measuredAction(
+        rampUp, WorkloadAction.CREATE_LIST, ApplicationListCreateScenario.createApplicationList())),
       onCase(WorkloadAction.UPDATE_LIST.key()).then(updateApplicationList(rampUp)),
       onCase(WorkloadAction.CLOSE_LIST.key()).then(closeApplicationList(rampUp)),
       onCase(WorkloadAction.RESULT_APPLICATION.key()).then(resultApplication(rampUp)),
       onCase(WorkloadAction.BULK_OFFICIALS.key()).then(bulkUpdateOfficials(rampUp)),
       onCase(WorkloadAction.BULK_FEES.key()).then(bulkUpdateFees(rampUp)),
       onCase(WorkloadAction.BULK_UPLOAD.key()).then(bulkUpload(rampUp)),
-      onCase(WorkloadAction.OTHER_OPERATIONS.key()).then(SearchScenario.searchApplicationLists())
+      onCase(WorkloadAction.OTHER_OPERATIONS.key()).then(measuredAction(
+        rampUp, WorkloadAction.OTHER_OPERATIONS, SearchScenario.searchApplicationLists()))
     );
   }
 
@@ -368,13 +379,15 @@ public class AppRegWorkloadSimulation extends Simulation {
       .exec(session -> session
         .set("applicationListId", session.getString("application_list_id"))
         .set("applicationEntryId", session.getString("application_entry_id")))
-      .exec(UpdateApplicationScenario.updateApplication());
+      .exec(measuredAction(
+        rampUp, WorkloadAction.UPDATE_APPLICATION, UpdateApplicationScenario.updateApplication()));
   }
 
   private ChainBuilder addApplication(boolean rampUp) {
     return feed(rampUp ? rampAddApplicationFeeder : measuredAddApplicationFeeder)
       .exec(session -> session.set("applicationListId", session.getString("application_list_id")))
-      .exec(AddApplicationScenario.addApplication());
+      .exec(measuredAction(
+        rampUp, WorkloadAction.ADD_APPLICATION, AddApplicationScenario.addApplication()));
   }
 
   private ChainBuilder resultApplication(boolean rampUp) {
@@ -382,7 +395,8 @@ public class AppRegWorkloadSimulation extends Simulation {
       .exec(session -> session
         .set("applicationListId", session.getString("application_list_id"))
         .set("applicationEntryId", session.getString("application_entry_id")))
-      .exec(ResultApplicationScenario.resultApplication());
+      .exec(measuredAction(
+        rampUp, WorkloadAction.RESULT_APPLICATION, ResultApplicationScenario.resultApplication()));
   }
 
   private ChainBuilder resultMultipleApplications(boolean rampUp) {
@@ -392,7 +406,10 @@ public class AppRegWorkloadSimulation extends Simulation {
         .set("entryIdOne", session.getString("entry_id_one"))
         .set("entryIdTwo", session.getString("entry_id_two"))
         .set("entryIdThree", session.getString("entry_id_three")))
-      .exec(ResultMultipleApplicationsScenario.resultMultipleApplications());
+      .exec(measuredAction(
+        rampUp,
+        WorkloadAction.RESULT_MULTIPLE,
+        ResultMultipleApplicationsScenario.resultMultipleApplications()));
   }
 
   private ChainBuilder updateApplicationResult(boolean rampUp) {
@@ -400,13 +417,19 @@ public class AppRegWorkloadSimulation extends Simulation {
       .exec(session -> session
         .set("applicationListId", session.getString("application_list_id"))
         .set("applicationEntryId", session.getString("application_entry_id")))
-      .exec(UpdateApplicationResultScenario.updateApplicationResult());
+      .exec(measuredAction(
+        rampUp,
+        WorkloadAction.UPDATE_RESULT,
+        UpdateApplicationResultScenario.updateApplicationResult()));
   }
 
   private ChainBuilder updateApplicationList(boolean rampUp) {
     return feed(rampUp ? rampUpdateListFeeder : measuredUpdateListFeeder)
       .exec(session -> session.set("applicationListId", session.getString("application_list_id")))
-      .exec(UpdateApplicationListScenario.updateApplicationList());
+      .exec(measuredAction(
+        rampUp,
+        WorkloadAction.UPDATE_LIST,
+        UpdateApplicationListScenario.updateApplicationList()));
   }
 
   private ChainBuilder closeApplicationList(boolean rampUp) {
@@ -414,7 +437,8 @@ public class AppRegWorkloadSimulation extends Simulation {
       .exec(session -> session
         .set("applicationListId", session.getString("application_list_id"))
         .set("applicationEntryId", session.getString("application_entry_id")))
-      .exec(CloseApplicationListScenario.closeApplicationList());
+      .exec(measuredAction(
+        rampUp, WorkloadAction.CLOSE_LIST, CloseApplicationListScenario.closeApplicationList()));
   }
 
   private ChainBuilder bulkUpdateOfficials(boolean rampUp) {
@@ -424,7 +448,8 @@ public class AppRegWorkloadSimulation extends Simulation {
         .set("entryIdOne", session.getString("entry_id_one"))
         .set("entryIdTwo", session.getString("entry_id_two"))
         .set("entryIdThree", session.getString("entry_id_three")))
-      .exec(BulkUpdateOfficialsScenario.bulkUpdateOfficials());
+      .exec(measuredAction(
+        rampUp, WorkloadAction.BULK_OFFICIALS, BulkUpdateOfficialsScenario.bulkUpdateOfficials()));
   }
 
   private ChainBuilder bulkUpdateFees(boolean rampUp) {
@@ -434,13 +459,25 @@ public class AppRegWorkloadSimulation extends Simulation {
         .set("entryIdOne", session.getString("entry_id_one"))
         .set("entryIdTwo", session.getString("entry_id_two"))
         .set("entryIdThree", session.getString("entry_id_three")))
-      .exec(BulkUpdateFeesScenario.bulkUpdateFees());
+      .exec(measuredAction(
+        rampUp, WorkloadAction.BULK_FEES, BulkUpdateFeesScenario.bulkUpdateFees()));
   }
 
   private ChainBuilder bulkUpload(boolean rampUp) {
     return feed(rampUp ? rampBulkUploadFeeder : measuredBulkUploadFeeder)
       .exec(session -> session.set("applicationListId", session.getString("application_list_id")))
-      .exec(BulkApplicationUploadScenario.bulkUploadApplications());
+      .exec(measuredAction(
+        rampUp, WorkloadAction.BULK_UPLOAD, BulkApplicationUploadScenario.bulkUploadApplications()));
+  }
+
+  private ChainBuilder measuredAction(
+      boolean rampUp, WorkloadAction action, ChainBuilder businessAction) {
+    if (rampUp) return businessAction;
+    // The timer brackets the same chain as the named Gatling group. Safe GET retry attempts and
+    // their configured delay are subtracted by GatewayGetRetry before the logical p95 is asserted.
+    return exec(nfrMetrics::start)
+      .exec(businessAction)
+      .exec(session -> nfrMetrics.complete(action, session));
   }
 
   private void logConfiguration() {
@@ -460,12 +497,53 @@ public class AppRegWorkloadSimulation extends Simulation {
     System.out.println("Initial actor action spread: " + seconds(profile.actionSpreadSeconds()));
     System.out.println("Action spread policy: stable actor-index offsets; 0 seconds means intentional burst");
     System.out.println("Ramp-down grace: " + seconds(profile.rampDownGraceSeconds()));
+    System.out.println("Gateway GET retry policy: " + GatewayGetRetry.retries()
+        + " retries after HTTP 502/504; delay "
+        + seconds(GatewayGetRetry.retryDelaySeconds()));
+    System.out.println("Write retry policy: disabled for POST, PUT and other non-GET requests");
     System.out.println("Maximum ramp-up action capacity: " + profile.maximumRampActionCount());
     System.out.println("Ramp-up allocation totals: " + profile.rampScheduledActionCounts());
     System.out.println("Measured allocation totals: " + profile.scheduledActionCounts());
     System.out.println("Allocated feeder directory: " + feederDirectory);
     System.out.println("Evidence boundary: concurrent access, not distinct users or sessions");
     System.out.println("============================================");
+  }
+
+  private boolean logNfrSummary(boolean executionComplete) {
+    boolean passed = executionComplete && GatewayGetRetry.exhaustedFailures() == 0;
+    System.out.println("========== WORKLOAD NFR SUMMARY ==========");
+    System.out.println("Functional success: ASSERTED at 100% for the complete execution");
+    System.out.println("Transient GET gateway failures observed: "
+        + GatewayGetRetry.transientFailures());
+    System.out.println("Recovered GET operations: " + GatewayGetRetry.recoveredOperations());
+    System.out.println("Exhausted GET gateway failures: " + GatewayGetRetry.exhaustedFailures());
+    System.out.println("Logical timing excludes recovered GET attempts and their retry delay");
+    System.out.println("NFR001 availability: NOT MEASURED by this Gatling run");
+    System.out.println("NFR005 browser-only trivial operations: NOT MEASURED by this HTTP test");
+    for (var action : WorkloadAction.values()) {
+      int expected = profile.scheduledActionCount(action);
+      if (expected == 0) {
+        System.out.println(action.nfr() + " " + action.key()
+            + ": NOT MEASURED (no scheduled samples)");
+        continue;
+      }
+      int completed = nfrMetrics.completedActions(action);
+      long p95Millis = nfrMetrics.p95Millis(action);
+      boolean actionPassed = completed == expected && p95Millis < action.p95LimitMillis();
+      passed &= actionPassed;
+      System.out.println(action.nfr() + " " + action.key() + ": "
+          + (actionPassed ? "PASS" : "FAIL") + " | completed=" + completed + "/" + expected
+          + " | logical p95=" + p95Millis + " ms | limit < "
+          + action.p95LimitMillis() + " ms");
+    }
+    var nfr004 = profile.concurrentUsers() == 500
+        ? (passed ? "PASS" : "FAIL")
+        : "NOT MEASURED (configured actors: " + profile.concurrentUsers() + ")";
+    System.out.println("NFR004 500 concurrent actors: " + nfr004);
+    System.out.println("Overall asserted workload-operation verdict: "
+        + (passed ? "PASS" : "FAIL"));
+    System.out.println("==========================================");
+    return passed;
   }
 
   private static boolean acceptsActions(Phase phase) {

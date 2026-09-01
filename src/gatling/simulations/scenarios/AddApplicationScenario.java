@@ -4,6 +4,7 @@ import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
 import java.util.concurrent.ThreadLocalRandom;
 import utils.Headers;
+import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -12,6 +13,7 @@ import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static java.util.Objects.requireNonNull;
+import static utils.GatewayGetRetry.retryingGet;
 
 /**
  * Adds and completes an Application in the Application List stored in the Gatling session.
@@ -32,25 +34,27 @@ public final class AddApplicationScenario {
    * This allows a composed business flow to operate on more than one isolated Application.
    */
   public static ChainBuilder addApplication(String entryIdSessionKey) {
-    return group("AppReg_050_Application_Add").on(
+    return group(WorkloadAction.ADD_APPLICATION.groupName()).on(
       exec(session -> session
         .set("applicationAddId", String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000)))
         .set("applicationAddDate", LocalDate.now().toString()))
-        .exec(http("Search application codes")
-          .get("/application-codes")
-          .queryParam("code", APPLICATION_CODE)
-          .queryParam("title", APPLICATION_TITLE)
-          .queryParam("date", "#{applicationAddDate}")
-          .queryParam("pageNumber", "0")
-          .queryParam("pageSize", "10")
-          .queryParam("sort", "code,asc")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().is(200)))
-        .exec(http("Get application-code details")
-          .get("/application-codes/" + APPLICATION_CODE)
-          .queryParam("date", "#{applicationAddDate}")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().is(200)))
+        .exec(retryingGet(
+          "Search application codes",
+          http("Search application codes")
+            .get("/application-codes")
+            .queryParam("code", APPLICATION_CODE)
+            .queryParam("title", APPLICATION_TITLE)
+            .queryParam("date", "#{applicationAddDate}")
+            .queryParam("pageNumber", "0")
+            .queryParam("pageSize", "10")
+            .queryParam("sort", "code,asc")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE)))
+        .exec(retryingGet(
+          "Get application-code details",
+          http("Get application-code details")
+            .get("/application-codes/" + APPLICATION_CODE)
+            .queryParam("date", "#{applicationAddDate}")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE)))
         .exec(http("Add application")
           .post("/application-lists/#{applicationListId}/entries")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
@@ -59,23 +63,26 @@ public final class AddApplicationScenario {
           .body(StringBody(requireNonNull(applicationBody())))
           .check(status().in(200, 201))
           .check(jsonPath("$.id").saveAs(entryIdSessionKey)))
-        .exec(http("Get added application")
-          .get("/application-lists/#{applicationListId}/entries/#{" + entryIdSessionKey + "}")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().is(200))
-          .check(jsonPath("$.applicationCode").saveAs("applicationCode")))
-        .exec(http("Get result codes")
-          .get("/result-codes")
-          .queryParam("pageNumber", "0")
-          .queryParam("pageSize", "100")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().is(200)))
-        .exec(http("Get application results")
-          .get("/application-lists/#{applicationListId}/entries/#{" + entryIdSessionKey + "}/results")
-          .queryParam("pageNumber", "0")
-          .queryParam("pageSize", "100")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().is(200)))
+        .exec(retryingGet(
+          "Get added application",
+          http("Get added application")
+            .get("/application-lists/#{applicationListId}/entries/#{" + entryIdSessionKey + "}")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE),
+          jsonPath("$.applicationCode").saveAs("applicationCode")))
+        .exec(retryingGet(
+          "Get result codes",
+          http("Get result codes")
+            .get("/result-codes")
+            .queryParam("pageNumber", "0")
+            .queryParam("pageSize", "100")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE)))
+        .exec(retryingGet(
+          "Get application results",
+          http("Get application results")
+            .get("/application-lists/#{applicationListId}/entries/#{" + entryIdSessionKey + "}/results")
+            .queryParam("pageNumber", "0")
+            .queryParam("pageSize", "100")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE)))
         .exec(http("Complete application")
           .put("/application-lists/#{applicationListId}/entries/#{" + entryIdSessionKey + "}")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)

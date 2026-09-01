@@ -170,7 +170,7 @@ public record PrototypeSettings(
     expectInvalid(() -> new PrototypeSettings(500, 500, 30, 0.1, 15, 60, 60, 60, 1, 1));
     AuthenticatedSessionPool.selfCheck();
     PhaseController.selfCheck();
-    PrototypeGatewayRetryPolicy.selfCheck();
+    GatewayRetryPolicy.selfCheck();
     System.out.println("Prototype settings self-check passed");
   }
 

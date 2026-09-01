@@ -4,6 +4,7 @@ import io.gatling.javaapi.core.ChainBuilder;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import utils.Headers;
+import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
@@ -14,6 +15,7 @@ import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.ApplicationListFailureLogger.STATUS_SESSION_KEY;
 import static utils.ApplicationListFailureLogger.logFailure;
 import static java.util.Objects.requireNonNull;
+import static utils.GatewayGetRetry.retryingGet;
 
 /**
  * Replays the meaningful HTTP sequence from the Result selected UI journey for several Applications
@@ -27,26 +29,28 @@ public final class ResultMultipleApplicationsScenario {
   private ResultMultipleApplicationsScenario() {}
 
   public static ChainBuilder resultMultipleApplications() {
-    return group("AppReg_060_Applications_Bulk_Result").on(
+    return group(WorkloadAction.RESULT_MULTIPLE.groupName()).on(
       exec(session -> session.set(
         "bulkResultDate",
         LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy")))
         .set("bulkResultCodeDate", LocalDate.now().toString()))
-        .exec(http("Open application list")
-          .get("/application-lists/#{applicationListId}")
-          .queryParam("pageNumber", "0")
-          .queryParam("pageSize", "10")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().saveAs(STATUS_SESSION_KEY))
-          .check(status().is(200)))
+        .exec(retryingGet(
+          "Open application list",
+          http("Open application list")
+            .get("/application-lists/#{applicationListId}")
+            .queryParam("pageNumber", "0")
+            .queryParam("pageSize", "10")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE),
+          status().saveAs(STATUS_SESSION_KEY)))
         .exec(logFailure("Result Multiple Applications", "Open application list"))
-        .exec(http("Get application list entries")
-          .get("/application-lists/#{applicationListId}/entries")
-          .queryParam("pageNumber", "0")
-          .queryParam("pageSize", "10")
-          .queryParam("sort", "sequenceNumber,asc")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().is(200)))
+        .exec(retryingGet(
+          "Get application list entries",
+          http("Get application list entries")
+            .get("/application-lists/#{applicationListId}/entries")
+            .queryParam("pageNumber", "0")
+            .queryParam("pageSize", "10")
+            .queryParam("sort", "sequenceNumber,asc")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE)))
         .exec(http("Preview result for selected applications")
           .post("/application-lists/#{applicationListId}/entries/bulk-action-preview")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
@@ -54,17 +58,19 @@ public final class ResultMultipleApplicationsScenario {
           .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody(requireNonNull(selectionBody())))
           .check(status().is(200)))
-        .exec(http("Get result codes")
-          .get("/result-codes")
-          .queryParam("pageNumber", "0")
-          .queryParam("pageSize", "100")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().is(200)))
-        .exec(http("Get selected result-code details")
-          .get("/result-codes/" + RESULT_CODE)
-          .queryParam("date", "#{bulkResultCodeDate}")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-          .check(status().is(200)))
+        .exec(retryingGet(
+          "Get result codes",
+          http("Get result codes")
+            .get("/result-codes")
+            .queryParam("pageNumber", "0")
+            .queryParam("pageSize", "100")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE)))
+        .exec(retryingGet(
+          "Get selected result-code details",
+          http("Get selected result-code details")
+            .get("/result-codes/" + RESULT_CODE)
+            .queryParam("date", "#{bulkResultCodeDate}")
+            .header("Accept", Headers.APPREG_API_MEDIA_TYPE)))
         .exec(http("Apply result to selected applications")
           .post("/application-lists/#{applicationListId}/entries/results")
           .header("Accept", Headers.APPREG_API_MEDIA_TYPE)

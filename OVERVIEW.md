@@ -64,10 +64,10 @@ Current framework coverage is limited:
 | Requirement | Current coverage |
 | --- | --- |
 | `NFR001` | Not measured. |
-| `NFR004` | The read-only prototype has passed ten-actor runs with two, five and ten sessions, including a paced 15-minute two-session control. The prototype can now run the seeded mixed workload, but pooled writes and 500 actors still require staged evidence and no degradation comparison has been agreed. |
+| `NFR004` | The read-only prototype has passed ten-actor runs with two, five and ten sessions, including a paced 15-minute two-session control. A five-minute seeded mixed run has also passed with ten actors sharing two sessions. A matching one-session-per-actor control, intermediate pooled-write load and 500 actors remain outstanding, and no degradation comparison has been agreed. |
 | `NFR005` | Not measured. |
-| `NFR006` | Simple backend operations are exercised, but the two-second limit is not asserted. |
-| `NFR007` | The prototype asserts the five-second p95 limit for read-only search, but the full mixed workload and reporting operations do not yet have NFR assertions. |
+| `NFR006` | Each scheduled simple workload operation has a logical p95 assertion against the two-second limit. Staged load evidence remains outstanding. |
+| `NFR007` | Each scheduled complex workload operation has a logical p95 assertion against the five-second limit. The Activity Audit report is not currently part of the mixed workload, and staged load evidence remains outstanding. |
 
 ### Workload operation classification
 
@@ -131,6 +131,10 @@ The shared HTTP protocol:
 - sends the configured User-Agent;
 - infers HTML resources and marks inferred resources silent; and
 - shares the AppReg API media type and XSRF header conventions across actions.
+
+Reusable business-scenario GET requests may retry a gateway HTTP 502/504 under
+a bounded policy. POST, PUT and other non-GET requests are never retried.
+Retries are recorded as gateway evidence; an exhausted retry fails normally.
 
 `AppRegSimulation` loads `/applications-list`, checks the page title, extracts
 and loads the current main JavaScript asset, and optionally calls the
@@ -257,8 +261,12 @@ simulation requires every feeder row count to match its phase plan exactly and
 never reuses a mutable allocation. Unused worst-case ramp-up rows remain
 untouched if authentication completes before the deadline.
 
-The workload requires 100% successful requests. It has no response-time
-service-level objective or response-time pass/fail threshold.
+The workload requires 100% functional success. For every action with scheduled
+measured samples, it calculates the nearest-rank logical p95 across the complete
+business-action chain and applies the classified `NFR006` or `NFR007` limit.
+Recovered GET attempt time and retry delay are subtracted from the logical
+duration, while successful responses and intentional journey pauses remain.
+Operations with zero scheduled samples are reported as not measured.
 
 ## Test-data provisioning
 
@@ -356,10 +364,11 @@ The seeded-mode execution order is:
 - Stops starting actions at the common measured deadline.
 - In `read-only`, uses elapsed group duration and asserts that measured requests
   are 100% successful and p95 is less than five seconds.
-- In `seeded-mixed`, requires 100% request success but does not yet assert the
-  per-operation NFR006/NFR007 thresholds; the run is pooling evidence first.
-- Applies bounded 502/504 recovery only to the read-only control. Seeded mixed
-  actions are never retried or excluded from Gatling results.
+- In `seeded-mixed`, asserts each sampled operation's retry-adjusted logical p95
+  against its classified `NFR006` or `NFR007` threshold and reports unsampled
+  operations as not measured.
+- Applies bounded 502/504 recovery to GET requests only. Recovered attempt time
+  and delay are excluded from logical NFR timing; writes are never retried.
 - Requires 100% success globally so authentication and ramp-up failures still
   fail the run.
 - Reports actor count, authenticated pool size, SSO journeys and reuse ratio,
@@ -403,6 +412,5 @@ logging raw HTML, tokens, cookies or credentials.
 - CNP proof mode omits three executable proof/setup simulations named above.
 - The `validation` workload profile has no matching user-facing CNP mode.
 - The seed stage changes the database before workload authentication succeeds.
-- The workload has functional success assertions but no response-time NFR.
 - The action mix and 500-user performance size are implementation inputs, not
   independently validated requirements.

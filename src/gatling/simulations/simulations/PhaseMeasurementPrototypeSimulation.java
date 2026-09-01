@@ -18,6 +18,7 @@ import utils.PhaseController;
 import utils.PhaseController.Phase;
 import utils.PrototypeSettings;
 import utils.SsoAuthentication;
+import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
 import static io.gatling.javaapi.core.CoreDsl.details;
@@ -41,9 +42,9 @@ import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.AppRegHttp.protocol;
 import static utils.Headers.COMMON_HEADER;
-import static utils.PrototypeGatewayRetryPolicy.isTransient;
-import static utils.PrototypeGatewayRetryPolicy.percentile95;
-import static utils.PrototypeGatewayRetryPolicy.shouldRetry;
+import static utils.GatewayRetryPolicy.isTransient;
+import static utils.GatewayRetryPolicy.percentile95;
+import static utils.GatewayRetryPolicy.shouldRetry;
 
 /**
  * Read-only proof that a small authenticated session pool can support a larger number of
@@ -52,7 +53,7 @@ import static utils.PrototypeGatewayRetryPolicy.shouldRetry;
  */
 public class PhaseMeasurementPrototypeSimulation extends Simulation {
   private static final int SEARCH_P95_LIMIT_MILLIS = 5_000;
-  private static final String SEARCH_GROUP = "AppReg_030_Application_List_Search";
+  private static final String SEARCH_GROUP = WorkloadAction.OTHER_OPERATIONS.groupName();
   private static final String RAMP_UP_GROUP = "Prototype_Ramp_Up_Application_List_Search";
   private static final String SEARCH_DESCRIPTION = System.getProperty(
       "appRegApplicationListSearchDescription", "Bulk");
