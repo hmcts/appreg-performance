@@ -253,6 +253,11 @@ fails the request and the workload.
 
 The workload's internal phase controls are parameterised and logged:
 
+During the measured phase, a separate `WORKLOAD OPERATIONS` percentage bar shows
+the proportion of planned operations remaining. Gatling's built-in scenario
+percentages continue to represent completed virtual users, so they normally
+remain at zero while those actors are sustaining the workload.
+
 | System property | Default | Purpose |
 | --- | --- | --- |
 | `appRegWorkloadSessionPoolSize` | Actor count | Authenticated sessions assigned round-robin; setting it equal to the actor count reproduces one session per actor |
@@ -274,9 +279,10 @@ before traffic begins.
 
 At the end of a seeded workload, the eye-catching `WORKLOAD NFR SUMMARY` is the
 authoritative response-time verdict. It reports every scheduled action's
-completed sample count, logical p95, applicable `NFR006` or `NFR007` limit and
-PASS/FAIL result. Operations with no scheduled samples are explicitly `NOT
-MEASURED`. Gatling's HTML group timings deliberately retain the wall-clock
+attempted, succeeded and failed counts, logical p95, applicable `NFR006` or
+`NFR007` limit and PASS/FAIL result. A failed action is recorded without
+discarding that actor's remaining independently seeded actions. Operations with
+no scheduled samples are explicitly `NOT MEASURED`. Gatling's HTML group timings deliberately retain the wall-clock
 effect of support retries and remain useful for diagnosing the raw journey;
 they are not the retry-adjusted NFR value.
 

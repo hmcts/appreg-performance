@@ -262,8 +262,10 @@ never reuses a mutable allocation. Unused worst-case ramp-up rows remain
 untouched if authentication completes before the deadline.
 
 The workload requires 100% functional success. For every action with scheduled
-measured samples, it calculates the nearest-rank logical p95 across the complete
-business-action chain and applies the classified `NFR006` or `NFR007` limit.
+measured samples, it reports attempted, succeeded and failed counts, calculates
+the nearest-rank logical p95 across successful complete business-action chains
+and applies the classified `NFR006` or `NFR007` limit. A failed action remains a
+failure but does not discard the actor's remaining independently seeded plan.
 Recovered GET attempt time and retry delay are subtracted from the logical
 duration, while successful responses and intentional journey pauses remain.
 Operations with zero scheduled samples are reported as not measured.

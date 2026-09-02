@@ -64,6 +64,7 @@ import static utils.GatewayGetRetry.retryingGet;
  * round-robin to separately paced workload actors for the common measured window.
  */
 public class AppRegWorkloadSimulation extends Simulation {
+  private static final int OPERATION_PROGRESS_BAR_WIDTH = 50;
   private static final String RAMP_UP_GROUP = "AppReg_Ramp_Up";
   private static final String ACTION_PHASE_SESSION_KEY = "workloadActionPhase";
   private static final String ACTOR_INDEX_SESSION_KEY = "workloadActorIndex";
@@ -91,6 +92,8 @@ public class AppRegWorkloadSimulation extends Simulation {
   private final AtomicBoolean completionFailureLogged = new AtomicBoolean();
   private final AtomicInteger rampActionsStarted = new AtomicInteger();
   private final AtomicInteger measuredActionsStarted = new AtomicInteger();
+  private final AtomicInteger measuredActionsFinished = new AtomicInteger();
+  private final AtomicInteger lastLoggedOperationPercentage = new AtomicInteger(-1);
   private final AtomicInteger nextActorIndex = new AtomicInteger();
   private final WorkloadNfrMetrics nfrMetrics = new WorkloadNfrMetrics();
 
@@ -197,17 +200,22 @@ public class AppRegWorkloadSimulation extends Simulation {
       .exec(session -> registerReadyActor(session
         .set(RAMP_ITERATION_SESSION_KEY, 0)
         .set(MEASURED_ITERATION_SESSION_KEY, 0)))
-      .asLongAs(session -> acceptsActions(phases.currentPhase())).on(
+      .asLongAs(this::hasScheduledAction).on(
         exec(pace(profile.actionPace()))
           // Capture the phase after pacing, immediately before choosing the action. The stored
           // value deliberately keeps an in-flight action in the phase in which it started.
           .exec(this::assignNextAction)
           .doIf(session -> Phase.AUTHENTICATION_RAMP_UP.name().equals(
               session.getString(ACTION_PHASE_SESSION_KEY))).then(
-                group(RAMP_UP_GROUP).on(workloadAction(true)))
+                group(RAMP_UP_GROUP).on(workloadAction(true))
+                  .exec(this::recoverRampUpFailure))
           .doIf(session -> Phase.MEASURED_STEADY_STATE.name().equals(
-              session.getString(ACTION_PHASE_SESSION_KEY))).then(workloadAction(false))
+              session.getString(ACTION_PHASE_SESSION_KEY))).then(
+                workloadAction(false).exec(this::recordMeasuredOperation))
           .exec(exitHereIfFailed()))
+      // An actor that finishes its reserved plan just before the common deadline remains part of
+      // the concurrent population until ramp-down instead of being reported as an early exit.
+      .asLongAs(this::awaitingMeasuredDeadline).on(pause(POOL_WAIT_POLL_INTERVAL))
       .exec(this::completeSession);
 
     // One finite actor population is intentional: replacing completed actors would require
@@ -251,6 +259,14 @@ public class AppRegWorkloadSimulation extends Simulation {
               + " measured actions started; logical NFR assertions passed");
       return;
     }
+    if (executionComplete) {
+      logPhase(
+          "EXECUTION COMPLETE - NFR FAILED",
+          sessionPool.size() + " authenticated sessions supported " + phases.completedActors()
+              + " completed actors and " + measuredActionsStarted.get()
+              + " measured actions; see WORKLOAD NFR SUMMARY");
+      throw new IllegalStateException("Workload logical NFR assertions failed");
+    }
     logPhase(
         "INCOMPLETE",
         sessionPool.size() + " of " + profile.sessionPoolSize()
@@ -259,9 +275,6 @@ public class AppRegWorkloadSimulation extends Simulation {
             + " completed; "
             + phases.lateCompletions() + " exceeded the completion grace; final phase "
             + finalPhase);
-    if (!nfrPassed) {
-      throw new IllegalStateException("Workload logical NFR assertions failed");
-    }
     throw new IllegalStateException("Workload did not complete its measured steady state");
   }
 
@@ -274,8 +287,31 @@ public class AppRegWorkloadSimulation extends Simulation {
           profile.concurrentUsers() + " active actors using " + profile.sessionPoolSize()
               + " authenticated sessions for "
               + minutes(profile.durationMinutes()));
+      logMeasuredOperationProgress(0);
     }
     return session;
+  }
+
+  private Session recordMeasuredOperation(Session session) {
+    logMeasuredOperationProgress(measuredActionsFinished.incrementAndGet());
+    return session;
+  }
+
+  private void logMeasuredOperationProgress(int finished) {
+    int total = Math.multiplyExact(profile.concurrentUsers(), profile.actionsPerUser());
+    int completedPercentage = finished * 100 / total;
+    int previous = lastLoggedOperationPercentage.get();
+    while (completedPercentage > previous) {
+      if (lastLoggedOperationPercentage.compareAndSet(previous, completedPercentage)) {
+        int remainingPercentage = 100 - completedPercentage;
+        int remainingBars = remainingPercentage * OPERATION_PROGRESS_BAR_WIDTH / 100;
+        System.out.println("WORKLOAD OPERATIONS [" + "|".repeat(remainingBars)
+            + " ".repeat(OPERATION_PROGRESS_BAR_WIDTH - remainingBars) + "] "
+            + remainingPercentage + "% remaining");
+        return;
+      }
+      previous = lastLoggedOperationPercentage.get();
+    }
   }
 
   private Session assignNextAction(Session session) {
@@ -302,6 +338,33 @@ public class AppRegWorkloadSimulation extends Simulation {
           .set(MEASURED_ITERATION_SESSION_KEY, iteration + 1);
     }
     return session;
+  }
+
+  private boolean hasScheduledAction(Session session) {
+    Phase phase = phases.currentPhase();
+    if (phase == Phase.AUTHENTICATION_RAMP_UP) {
+      return session.getInt(RAMP_ITERATION_SESSION_KEY) < profile.rampActionsPerUser();
+    }
+    if (phase == Phase.MEASURED_STEADY_STATE) {
+      return session.getInt(MEASURED_ITERATION_SESSION_KEY) < profile.actionsPerUser();
+    }
+    return false;
+  }
+
+  private boolean awaitingMeasuredDeadline(Session session) {
+    return phases.currentPhase() == Phase.MEASURED_STEADY_STATE
+        && session.getInt(MEASURED_ITERATION_SESSION_KEY) >= profile.actionsPerUser();
+  }
+
+  private Session recoverRampUpFailure(Session session) {
+    if (!session.isFailed()) return session;
+    System.out.println("APPREG_RAMP_UP_ACTION_FAILED actor="
+        + session.getInt(ACTOR_INDEX_SESSION_KEY) + " action="
+        + session.getString("plannedAction")
+        + " continuation=remaining-actions-will-run");
+    // Ramp-up is deliberately outside the NFR sample. Preserve Gatling request failures while
+    // allowing this actor to reach the common measured window and use its isolated measured data.
+    return session.markAsSucceeded();
   }
 
   private Session completeSession(Session session) {
@@ -528,11 +591,17 @@ public class AppRegWorkloadSimulation extends Simulation {
         continue;
       }
       int completed = nfrMetrics.completedActions(action);
+      int attempted = nfrMetrics.attemptedActions(action);
+      int failed = nfrMetrics.failedActions(action);
       long p95Millis = nfrMetrics.p95Millis(action);
-      boolean actionPassed = completed == expected && p95Millis < action.p95LimitMillis();
+      boolean actionPassed = attempted == expected
+          && completed == expected
+          && failed == 0
+          && p95Millis < action.p95LimitMillis();
       passed &= actionPassed;
       System.out.println(action.nfr() + " " + action.key() + ": "
-          + (actionPassed ? "PASS" : "FAIL") + " | completed=" + completed + "/" + expected
+          + (actionPassed ? "PASS" : "FAIL") + " | attempted=" + attempted + "/" + expected
+          + " | succeeded=" + completed + " | failed=" + failed
           + " | logical p95=" + p95Millis + " ms | limit < "
           + action.p95LimitMillis() + " ms");
     }

@@ -46,9 +46,12 @@ public final class BulkApplicationUploadScenario {
             jsonPath("$.status").saveAs("bulkUploadStatus"))))
       .exec(session -> {
         var uploadStatus = session.getString("bulkUploadStatus");
-        return "SUCCEEDED".equals(uploadStatus) || "COMPLETED".equals(uploadStatus)
-          ? session
-          : session.markAsFailed();
+        if ("SUCCEEDED".equals(uploadStatus) || "COMPLETED".equals(uploadStatus)) {
+          return session;
+        }
+        System.out.println("APPREG_BUSINESS_ACTION_FAILED action=bulk_upload terminalStatus="
+            + uploadStatus);
+        return session.markAsFailed();
       })
     );
   }

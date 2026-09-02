@@ -33,14 +33,40 @@ appreg_derive_test_url() {
   printf '%s' "${candidate%/}"
 }
 
-appreg_source_if_present() {
+appreg_load_env_file_if_present() {
   local file="$1"
-  if [[ -f "${file}" ]]; then
-    set -a
-    # shellcheck disable=SC1090
-    source "${file}"
-    set +a
-  fi
+  [[ -f "${file}" ]] || return 0
+
+  local line name value
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    [[ "${line}" =~ ^[[:space:]]*$ || "${line}" =~ ^[[:space:]]*# ]] && continue
+    line="${line#export }"
+    if [[ "${line}" != *=* ]]; then
+      printf 'Invalid environment entry in %s; expected NAME=value\n' "${file}" >&2
+      return 1
+    fi
+
+    name="${line%%=*}"
+    name="${name#"${name%%[![:space:]]*}"}"
+    name="${name%"${name##*[![:space:]]}"}"
+    if [[ ! "${name}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      printf 'Invalid environment variable name in %s\n' "${file}" >&2
+      return 1
+    fi
+
+    value="${line#*=}"
+    if (( ${#value} >= 2 )) \
+        && { [[ "${value:0:1}" == "'" && "${value: -1}" == "'" ]] \
+          || [[ "${value:0:1}" == '"' && "${value: -1}" == '"' ]]; }; then
+      value="${value:1:${#value}-2}"
+    fi
+
+    # Treat local configuration as data, not shell code. Passwords and tokens
+    # commonly contain characters such as $, parentheses, spaces and equals.
+    printf -v "${name}" '%s' "${value}"
+    export "${name?}"
+  done < "${file}"
 }
 
 appreg_load_runtime_inputs() {
@@ -49,11 +75,11 @@ appreg_load_runtime_inputs() {
   local test_url_override="$3"
 
   if [[ -n "${env_file}" ]]; then
-    appreg_source_if_present "${env_file}"
+    appreg_load_env_file_if_present "${env_file}"
   fi
 
   if [[ -n "${config_file}" ]]; then
-    appreg_source_if_present "${config_file}"
+    appreg_load_env_file_if_present "${config_file}"
   fi
 
   if [[ -n "${test_url_override}" ]]; then
