@@ -9,6 +9,7 @@ import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
+import static io.gatling.javaapi.core.CoreDsl.exitBlockOnFail;
 import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
@@ -31,10 +32,13 @@ public final class ApplicationListCreateScenario {
 
   public static ChainBuilder createApplicationList() {
     return group(WorkloadAction.CREATE_LIST.groupName()).on(
+      // Clear the previous result and skip the dependent GET if this create fails.
       exec(session -> session
+        .remove("applicationListId")
         .set("applicationListDate", LocalDate.now().toString())
         .set("applicationListDescription", "Gatling create-list proof " + UUID.randomUUID()))
-        .exec(retryingGet(
+      .exec(exitBlockOnFail().on(
+        exec(retryingGet(
           "Application lists page",
           http("Application lists page")
             .get(Environment.APPLICATIONS_LIST_PATH)
@@ -56,7 +60,7 @@ public final class ApplicationListCreateScenario {
             .queryParam("pageSize", "10")
             .header("Accept", Headers.APPREG_API_MEDIA_TYPE),
           status().saveAs(STATUS_SESSION_KEY)))
-        .exec(logFailure("Create Application List", "Get created application list"))
+        .exec(logFailure("Create Application List", "Get created application list"))))
     );
   }
 }

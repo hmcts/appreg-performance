@@ -232,6 +232,12 @@ or `ResultMultipleApplicationsSetupSimulation`.
 - `bulk_upload`
 - `other_operations`, implemented as Application List search
 
+Bulk upload is asynchronous. Its scenario polls through the non-terminal
+`RECEIVED`, `VALIDATING` and `PROCESSING` states until the job reports
+`COMPLETED` or `FAILED`. A job that remains non-terminal beyond the configurable
+polling timeout fails with its last observed status instead of waiting
+indefinitely.
+
 `data/seed/workload/allocation-profile.properties` is the source of the
 configured users, maximum duration, login ramp and workload weighting counts.
 

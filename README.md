@@ -256,7 +256,9 @@ The workload's internal phase controls are parameterised and logged:
 During the measured phase, a separate `WORKLOAD OPERATIONS` percentage bar shows
 the proportion of planned operations remaining. Gatling's built-in scenario
 percentages continue to represent completed virtual users, so they normally
-remain at zero while those actors are sustaining the workload.
+remain at zero while those actors are sustaining the workload. The final
+operations bar is followed by the total workload elapsed time, covering session
+authentication, actor setup, measured steady state and ramp-down.
 
 | System property | Default | Purpose |
 | --- | --- | --- |
@@ -267,6 +269,8 @@ remain at zero while those actors are sustaining the workload.
 | `appRegWorkloadRampDownGraceSeconds` | `60` | Time allowed for an in-flight final action to complete |
 | `appRegGatewayGetRetries` | `1` | Retries allowed for a GET that returns HTTP 502/504; `0` disables recovery |
 | `appRegGatewayGetRetryDelaySeconds` | `1` | Delay before a safe GET retry |
+| `appRegBulkUploadPollTimeoutSeconds` | `30` | Maximum wait for a bulk-upload job to leave `RECEIVED`, `VALIDATING` or `PROCESSING` |
+| `gatling.data.console.writePeriod` | `5` directly; `10` through supplied runners | Seconds between Gatling console-statistics blocks |
 
 Jenkins supplies the pool, pace and spread from `SESSION_POOL_SIZE`,
 `ACTION_PACE_SECONDS` and `ACTION_SPREAD_SECONDS`. The setup deadline and
@@ -274,8 +278,11 @@ completion grace remain internal environment defaults named
 `WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES` and
 `WORKLOAD_RAMP_DOWN_GRACE_SECONDS`. Jenkins can override the internal GET retry
 defaults with `WORKLOAD_GATEWAY_GET_RETRIES` and
-`WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS`. Every effective value is logged
-before traffic begins.
+`WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS`. Bulk-upload completion polling uses
+`WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS`, defaulting to 30 seconds. Every
+effective value is logged before traffic begins. Jenkins and the local runners
+set the Gatling console period from `GATLING_CONSOLE_WRITE_PERIOD_SECONDS`,
+defaulting to 10 seconds.
 
 At the end of a seeded workload, the eye-catching `WORKLOAD NFR SUMMARY` is the
 authoritative response-time verdict. It reports every scheduled action's

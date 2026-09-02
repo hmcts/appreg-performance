@@ -9,6 +9,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import scenarios.BulkApplicationUploadScenario;
 
 /** Runtime configuration and isolated deterministic plans for ramp-up and measured workload actions. */
 public record WorkloadProfile(
@@ -432,6 +433,7 @@ public record WorkloadProfile(
     GatewayRetryPolicy.selfCheck();
     WorkloadAction.selfCheck();
     WorkloadNfrMetrics.selfCheck();
+    BulkApplicationUploadScenario.selfCheck();
     if (maximumActionsPerUser(15, 60) != 15 || maximumActionsPerUser(15, 120) != 8) {
       throw new IllegalStateException("Workload ramp capacity calculation failed");
     }

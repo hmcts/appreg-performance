@@ -7,6 +7,7 @@ import utils.Headers;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
+import static io.gatling.javaapi.core.CoreDsl.exitBlockOnFail;
 import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.core.CoreDsl.pause;
@@ -28,11 +29,14 @@ public final class ActivityAuditReportScenario {
 
   public static ChainBuilder generateActivityAuditReport() {
     return group("AppReg_090_Reports_Activity_Audit").on(
+      // A failed report start must not poll or download a job retained from an earlier run.
       exec(session -> session
+        .removeAll("activityAuditReportJobId", "activityAuditReportStatus")
         .set("activityAuditReportDateFrom", DATE_FROM)
         .set("activityAuditReportDateTo", DATE_TO)
         .set("activityAuditReportActivity", ACTIVITY_TYPE))
-        .exec(http("Reports page")
+      .exec(exitBlockOnFail().on(
+        exec(http("Reports page")
           .get("/reports")
           .headers(COMMON_HEADER)
           .check(status().is(200)))
@@ -59,7 +63,7 @@ public final class ActivityAuditReportScenario {
         .exec(http("Download Activity Audit report")
           .get("/reports/jobs/#{activityAuditReportJobId}/download")
           .header("Accept", "text/csv")
-          .check(status().is(200)))
+          .check(status().is(200)))))
     );
   }
 

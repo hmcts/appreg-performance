@@ -407,6 +407,8 @@ withNightlyPipeline(type, product, component) {
                     def workloadRampDownGraceSeconds = (env.WORKLOAD_RAMP_DOWN_GRACE_SECONDS ?: '60').toString().trim()
                     def workloadGatewayGetRetries = (env.WORKLOAD_GATEWAY_GET_RETRIES ?: '1').toString().trim()
                     def workloadGatewayGetRetryDelaySeconds = (env.WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS ?: '1').toString().trim()
+                    def workloadBulkUploadPollTimeoutSeconds = (env.WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS ?: '30').toString().trim()
+                    def gatlingConsoleWritePeriodSeconds = (env.GATLING_CONSOLE_WRITE_PERIOD_SECONDS ?: '10').toString().trim()
                     def prototypeIsSeeded = runMode == 'prototype' && prototypeWorkload == 'seeded-mixed'
                     def runModes = [
                         'application-diagnostic': [profile: 'performance', users: diagnosticUsers, minutes: diagnosticMinutes, proofs: false, prototype: false, workload: true, seed: true],
@@ -483,6 +485,11 @@ withNightlyPipeline(type, product, component) {
                             error 'Session authentication and actor spread must finish before the setup timeout'
                         }
                     }
+                    if (!(gatlingConsoleWritePeriodSeconds ==~ /\d+/)
+                        || gatlingConsoleWritePeriodSeconds.toInteger() < 1
+                        || gatlingConsoleWritePeriodSeconds.toInteger() > 3600) {
+                        error 'GATLING_CONSOLE_WRITE_PERIOD_SECONDS must be from 1 to 3600'
+                    }
                     if (runMode == 'performance' && steadyStateMinutes.toInteger() > 70) {
                         error 'performance requires STEADY_STATE_MINUTES to be 70 or less'
                     }
@@ -506,6 +513,11 @@ withNightlyPipeline(type, product, component) {
                             || workloadGatewayGetRetryDelaySeconds.toInteger() > 3600) {
                             error 'WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS must be from 0 to 3600'
                         }
+                        if (!(workloadBulkUploadPollTimeoutSeconds ==~ /\d+/)
+                            || workloadBulkUploadPollTimeoutSeconds.toInteger() < 1
+                            || workloadBulkUploadPollTimeoutSeconds.toInteger() > 3600) {
+                            error 'WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS must be from 1 to 3600'
+                        }
                     }
                     env.RUN_DB_RESET = (selectedRun.seed && (params.RESET_DATABASE ?: false)).toString()
                     env.RUN_DB_SEED = selectedRun.seed.toString()
@@ -528,6 +540,8 @@ withNightlyPipeline(type, product, component) {
                     env.WORKLOAD_RAMP_DOWN_GRACE_SECONDS = workloadRampDownGraceSeconds
                     env.WORKLOAD_GATEWAY_GET_RETRIES = workloadGatewayGetRetries
                     env.WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS = workloadGatewayGetRetryDelaySeconds
+                    env.WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS = workloadBulkUploadPollTimeoutSeconds
+                    env.GATLING_CONSOLE_WRITE_PERIOD_SECONDS = gatlingConsoleWritePeriodSeconds
                     if (env.RUN_DB_RESET == 'true') {
                         sh dbResetCommand
                     }
@@ -541,6 +555,7 @@ withNightlyPipeline(type, product, component) {
                             export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
                             export PATH="$JAVA_HOME/bin:$PATH"
                             java -version
+                            echo "Gatling console write period: $GATLING_CONSOLE_WRITE_PERIOD_SECONDS seconds"
 
                             if [ "$RUN_MODE" = "prototype" ]; then
                               echo "========== PROTOTYPE VARIANT: $PROTOTYPE_WORKLOAD =========="
@@ -571,11 +586,13 @@ withNightlyPipeline(type, product, component) {
 
                               # One virtual user reuses one SSO session across the complete seeded proof set.
                               ./gradlew --no-daemon gatlingRun \
+                                -Dgatling.data.console.writePeriod="$GATLING_CONSOLE_WRITE_PERIOD_SECONDS" \
                                 --simulation simulations.FrameworkProofSimulation
                             fi
 
                             if [ "$RUN_PROTOTYPE" = "true" ]; then
                               ./gradlew --no-daemon gatlingRun \
+                                -Dgatling.data.console.writePeriod="$GATLING_CONSOLE_WRITE_PERIOD_SECONDS" \
                                 -DappRegPrototypeUsers="$MAX_USERS" \
                                 -DappRegPrototypeSessionPoolSize="$PROTOTYPE_SESSION_POOL_SIZE" \
                                 -DappRegPrototypeSteadyStateMinutes="$STEADY_STATE_MINUTES" \
@@ -645,6 +662,7 @@ withNightlyPipeline(type, product, component) {
                               done
 
                               ./gradlew --no-daemon gatlingRun \
+                                -Dgatling.data.console.writePeriod="$GATLING_CONSOLE_WRITE_PERIOD_SECONDS" \
                                 -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
                                 -DappRegMaxUsers="$MAX_USERS" \
                                 -DappRegDurationMinutes="$RUN_DURATION_MINUTES" \
@@ -655,6 +673,7 @@ withNightlyPipeline(type, product, component) {
                                 -DappRegWorkloadRampDownGraceSeconds="$WORKLOAD_RAMP_DOWN_GRACE_SECONDS" \
                                 -DappRegGatewayGetRetries="$WORKLOAD_GATEWAY_GET_RETRIES" \
                                 -DappRegGatewayGetRetryDelaySeconds="$WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS" \
+                                -DappRegBulkUploadPollTimeoutSeconds="$WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS" \
                                 -DappRegPerformanceDataDirectory="$PWD/build/workload-data" \
                                 --simulation simulations.AppRegWorkloadSimulation
                             fi

@@ -94,6 +94,7 @@ public class AppRegWorkloadSimulation extends Simulation {
   private final AtomicInteger measuredActionsStarted = new AtomicInteger();
   private final AtomicInteger measuredActionsFinished = new AtomicInteger();
   private final AtomicInteger lastLoggedOperationPercentage = new AtomicInteger(-1);
+  private long workloadStartedNanos;
   private final AtomicInteger nextActorIndex = new AtomicInteger();
   private final WorkloadNfrMetrics nfrMetrics = new WorkloadNfrMetrics();
 
@@ -231,6 +232,7 @@ public class AppRegWorkloadSimulation extends Simulation {
 
   @Override
   public void before() {
+    workloadStartedNanos = System.nanoTime();
     GatewayGetRetry.resetCounts();
     phases.start();
     logConfiguration();
@@ -257,6 +259,7 @@ public class AppRegWorkloadSimulation extends Simulation {
               + " completed actors; " + rampActionsStarted.get() + " ramp-up and "
               + measuredActionsStarted.get()
               + " measured actions started; logical NFR assertions passed");
+      printFinalWorkloadProgress();
       return;
     }
     if (executionComplete) {
@@ -265,6 +268,7 @@ public class AppRegWorkloadSimulation extends Simulation {
           sessionPool.size() + " authenticated sessions supported " + phases.completedActors()
               + " completed actors and " + measuredActionsStarted.get()
               + " measured actions; see WORKLOAD NFR SUMMARY");
+      printFinalWorkloadProgress();
       throw new IllegalStateException("Workload logical NFR assertions failed");
     }
     logPhase(
@@ -275,7 +279,21 @@ public class AppRegWorkloadSimulation extends Simulation {
             + " completed; "
             + phases.lateCompletions() + " exceeded the completion grace; final phase "
             + finalPhase);
+    printFinalWorkloadProgress();
     throw new IllegalStateException("Workload did not complete its measured steady state");
+  }
+
+  private void printFinalWorkloadProgress() {
+    // Repeat the final operation progress after Gatling's periodic console output so it remains
+    // visible beside the elapsed time instead of scrolling out of view.
+    printMeasuredOperationProgress(measuredActionsFinished.get());
+    long elapsedSeconds = Duration.ofNanos(System.nanoTime() - workloadStartedNanos).toSeconds();
+    long hours = elapsedSeconds / 3_600;
+    long minutes = elapsedSeconds % 3_600 / 60;
+    long seconds = elapsedSeconds % 60;
+    System.out.println("WORKLOAD TOTAL ELAPSED TIME: "
+        + (hours > 0 ? hours + "h " : "") + minutes + "m " + seconds + "s"
+        + " (" + elapsedSeconds + " seconds)");
   }
 
   private Session registerReadyActor(Session session) {
@@ -303,15 +321,20 @@ public class AppRegWorkloadSimulation extends Simulation {
     int previous = lastLoggedOperationPercentage.get();
     while (completedPercentage > previous) {
       if (lastLoggedOperationPercentage.compareAndSet(previous, completedPercentage)) {
-        int remainingPercentage = 100 - completedPercentage;
-        int remainingBars = remainingPercentage * OPERATION_PROGRESS_BAR_WIDTH / 100;
-        System.out.println("WORKLOAD OPERATIONS [" + "|".repeat(remainingBars)
-            + " ".repeat(OPERATION_PROGRESS_BAR_WIDTH - remainingBars) + "] "
-            + remainingPercentage + "% remaining");
+        printMeasuredOperationProgress(finished);
         return;
       }
       previous = lastLoggedOperationPercentage.get();
     }
+  }
+
+  private void printMeasuredOperationProgress(int finished) {
+    int total = Math.multiplyExact(profile.concurrentUsers(), profile.actionsPerUser());
+    int remainingPercentage = Math.max(0, 100 - finished * 100 / total);
+    int remainingBars = remainingPercentage * OPERATION_PROGRESS_BAR_WIDTH / 100;
+    System.out.println("WORKLOAD OPERATIONS [" + "|".repeat(remainingBars)
+        + " ".repeat(OPERATION_PROGRESS_BAR_WIDTH - remainingBars) + "] "
+        + remainingPercentage + "% remaining");
   }
 
   private Session assignNextAction(Session session) {
@@ -560,10 +583,14 @@ public class AppRegWorkloadSimulation extends Simulation {
     System.out.println("Initial actor action spread: " + seconds(profile.actionSpreadSeconds()));
     System.out.println("Action spread policy: stable actor-index offsets; 0 seconds means intentional burst");
     System.out.println("Ramp-down grace: " + seconds(profile.rampDownGraceSeconds()));
+    System.out.println("Gatling console write period: "
+        + System.getProperty("gatling.data.console.writePeriod", "5") + " seconds");
     System.out.println("Gateway GET retry policy: " + GatewayGetRetry.retries()
         + " retries after HTTP 502/504; delay "
         + seconds(GatewayGetRetry.retryDelaySeconds()));
     System.out.println("Write retry policy: disabled for POST, PUT and other non-GET requests");
+    System.out.println("Bulk-upload completion polling timeout: "
+        + seconds(BulkApplicationUploadScenario.pollTimeoutSeconds()));
     System.out.println("Maximum ramp-up action capacity: " + profile.maximumRampActionCount());
     System.out.println("Ramp-up allocation totals: " + profile.rampScheduledActionCounts());
     System.out.println("Measured allocation totals: " + profile.scheduledActionCounts());
@@ -636,6 +663,8 @@ public class AppRegWorkloadSimulation extends Simulation {
   }
 
   private static void logPhase(String phase, String detail) {
-    System.out.println("========== WORKLOAD PHASE: " + phase + " | " + detail + " ==========");
+    System.out.println("==========");
+    System.out.println("========== WORKLOAD PHASE: " + phase + " | " + detail);
+    System.out.println("==========");
   }
 }

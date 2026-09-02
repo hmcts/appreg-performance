@@ -8,6 +8,7 @@ import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
 import static io.gatling.javaapi.core.CoreDsl.exec;
+import static io.gatling.javaapi.core.CoreDsl.exitBlockOnFail;
 import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
 import static io.gatling.javaapi.http.HttpDsl.http;
@@ -35,10 +36,13 @@ public final class AddApplicationScenario {
    */
   public static ChainBuilder addApplication(String entryIdSessionKey) {
     return group(WorkloadAction.ADD_APPLICATION.groupName()).on(
+      // An actor can run this action more than once. Never let a failed create reuse its old ID.
       exec(session -> session
+        .remove(entryIdSessionKey)
         .set("applicationAddId", String.format("%06d", ThreadLocalRandom.current().nextInt(1_000_000)))
         .set("applicationAddDate", LocalDate.now().toString()))
-        .exec(retryingGet(
+      .exec(exitBlockOnFail().on(
+        exec(retryingGet(
           "Search application codes",
           http("Search application codes")
             .get("/application-codes")
@@ -89,7 +93,7 @@ public final class AddApplicationScenario {
           .header("Content-Type", Headers.APPREG_API_MEDIA_TYPE)
           .header(Headers.XSRF_TOKEN_HEADER, "#{xsrfToken}")
           .body(StringBody(requireNonNull(completedApplicationBody())))
-          .check(status().is(200)))
+          .check(status().is(200)))))
     );
   }
 

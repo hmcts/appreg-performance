@@ -456,6 +456,8 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
     System.out.println("Initial actor action spread: " + seconds(settings.actionSpreadSeconds()));
     System.out.println("Action spread policy: stable actor-index offsets; 0 seconds means intentional burst");
     System.out.println("Ramp-down grace: " + seconds(settings.rampDownGraceSeconds()));
+    System.out.println("Gatling console write period: "
+        + System.getProperty("gatling.data.console.writePeriod", "5") + " seconds");
     System.out.println("Gateway retry policy: " + settings.gatewayRetries()
         + " retries after HTTP 502/504; delay " + seconds(settings.gatewayRetryDelaySeconds()));
     System.out.println("Logical timing: successful operation responses only; retry attempts and delay excluded");
@@ -476,6 +478,8 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
   }
 
   private static void logPhase(String phase, String detail) {
-    System.out.println("========== PROTOTYPE PHASE: " + phase + " | " + detail + " ==========");
+    System.out.println("==========");
+    System.out.println("========== PROTOTYPE PHASE: " + phase + " | " + detail);
+    System.out.println("==========");
   }
 }
