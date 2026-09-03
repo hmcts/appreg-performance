@@ -476,7 +476,7 @@ withNightlyPipeline(type, product, component) {
                         } catch (NumberFormatException ignored) {
                             error 'AUTHENTICATION_RATE_PER_SECOND must be greater than 0 and no more than 1'
                         }
-                        if (!Double.isFinite(authenticationRatePerSecond)
+                        if (Double.isNaN(value) || Double.isInfinite(value)
                             || authenticationRatePerSecond <= 0
                             || authenticationRatePerSecond > 1) {
                             error 'AUTHENTICATION_RATE_PER_SECOND must be greater than 0 and no more than 1'
