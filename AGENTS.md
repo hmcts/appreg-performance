@@ -6,9 +6,9 @@ This is a Java-only Gatling performance-test project for the HMCTS Applications 
 
 ## Design approach
 
-- Put reusable Gatling `ChainBuilder` actions in `src/gatling/simulations/scenarios/` and name them by business capability.
-- Put executable load profiles and focused one-user proofs in `src/gatling/simulations/simulations/`.
-- Keep cross-cutting code (SSO, headers, environment configuration and test-data helpers) in `src/gatling/simulations/utils/`.
+- Put reusable Gatling `ChainBuilder` actions in `src/gatling/java/scenarios/` and name them by business capability.
+- Put executable load profiles and focused one-user proofs in `src/gatling/java/simulations/`.
+- Keep cross-cutting code (SSO, headers, environment configuration and test-data helpers) in `src/gatling/java/utils/`.
 - Use a separate Gatling group for each reported business action. Keep authentication and unrelated test-data setup outside that group; include supporting requests when they are part of the user journey being measured.
 
 Do not use raw browser recordings as executable performance tests. Extract only the necessary requests into curated scenarios, capture server-generated values in the Gatling session, supply controlled inputs through configuration or test data, remove browser-only noise and add meaningful response checks.

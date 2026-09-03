@@ -22,17 +22,6 @@ gatling {
   gatlingVersion = '3.15.1'
 }
 
-sourceSets {
-  gatling {
-    java {
-      srcDir 'src/gatling/simulations'
-    }
-    resources {
-      srcDir 'src/gatling/resources'
-    }
-  }
-}
-
 tasks.named('gatlingRecorder') {
   // Keep browser recordings separate from curated performance journeys.
   simulationPackage = 'recorded'

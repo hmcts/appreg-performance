@@ -109,11 +109,11 @@ The repository contains no Scala test source or Scala Gradle plugin.
 
 ## Source layout
 
-- `src/gatling/simulations/scenarios/` contains reusable business actions as
+- `src/gatling/java/scenarios/` contains reusable business actions as
   Gatling `ChainBuilder` classes.
-- `src/gatling/simulations/simulations/` contains executable smoke, proof,
+- `src/gatling/java/simulations/` contains executable smoke, proof,
   setup and workload simulations.
-- `src/gatling/simulations/utils/` contains shared HTTP configuration,
+- `src/gatling/java/utils/` contains shared HTTP configuration,
   authentication, diagnostics, workload planning and coordination.
 - `data/seed/` contains the selective PostgreSQL test-data generator and the
   workload allocation profiles.
