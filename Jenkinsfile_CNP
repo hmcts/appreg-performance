@@ -12,42 +12,66 @@ properties([
     choice(
       name: 'RUN_MODE',
       choices: ['framework-proof', 'application-diagnostic', 'performance'],
-      description: 'Execution type. framework-proof runs the retained one-session proof suite; application-diagnostic runs the seeded workload with configurable actors; performance runs the canonical seeded 500-actor NFR workload.'
+      description: 'Select the execution type.\n'
+        + 'framework-proof: Run twelve business proofs sequentially with one authenticated session.\n'
+        + 'application-diagnostic: Run a configurable bounded seeded workload.\n'
+        + 'performance: Run the canonical seeded 500-actor NFR workload.'
     ),
     string(
       name: 'MAX_USERS',
       defaultValue: '10',
-      description: 'Concurrent workload actors for application-diagnostic: integer 1 to 500. performance always uses 500; framework-proof ignores this value.'
+      description: 'Concurrent workload actors.\n'
+        + 'framework-proof: Not used; the proof uses one actor.\n'
+        + 'application-diagnostic: Between 1 and 500; default 10.\n'
+        + 'performance: Not used; always 500.'
     ),
     string(
       name: 'SESSION_POOL_SIZE',
       defaultValue: '',
-      description: 'Authenticated sessions shared round-robin by workload actors: integer 1 to the actor count. Blank uses one session per actor for application-diagnostic and 100 sessions for performance.'
+      description: 'Authenticated sessions shared round-robin by workload actors.\n'
+        + 'framework-proof: Not used; the proof uses one session.\n'
+        + 'application-diagnostic: Between 1 and MAX_USERS; blank uses MAX_USERS.\n'
+        + 'performance: Between 1 and 500; blank uses 100.'
     ),
     string(
       name: 'AUTHENTICATION_RATE_PER_SECOND',
       defaultValue: '0.15',
-      description: 'Progressive SSO journey rate for workload session setup: greater than 0 and no more than 1 per second. At 0.15, 100 sessions take approximately 667 seconds. Ignored by framework-proof.'
+      description: 'Progressive SSO journeys started per second during workload setup.\n'
+        + 'framework-proof: Not used.\n'
+        + 'application-diagnostic: Greater than 0 and no more than 1; default 0.15.\n'
+        + 'performance: Greater than 0 and no more than 1; default 0.15 (about 667 seconds for 100 sessions).'
     ),
     string(
       name: 'RUN_DURATION_MINUTES',
       defaultValue: '30',
-      description: 'Measured workload duration for application-diagnostic and performance: integer 1 to 70 minutes, with actors multiplied by minutes no greater than 35,000. Ignored by framework-proof.'
+      description: 'Measured steady-state workload duration.\n'
+        + 'framework-proof: Not used.\n'
+        + 'application-diagnostic: Between 1 and 70 minutes; MAX_USERS multiplied by minutes must not exceed 35,000.\n'
+        + 'performance: Between 1 and 70 minutes; default 30.'
     ),
     string(
       name: 'ACTION_PACE_SECONDS',
       defaultValue: '60',
-      description: 'Minimum interval between business-action starts for each workload actor: integer 60 to 3,600 seconds. Ignored by framework-proof.'
+      description: 'Minimum interval between business-action starts for each workload actor.\n'
+        + 'framework-proof: Not used.\n'
+        + 'application-diagnostic: Between 60 and 3,600 seconds; default 60.\n'
+        + 'performance: Between 60 and 3,600 seconds; default 60.'
     ),
     string(
       name: 'ACTION_SPREAD_SECONDS',
       defaultValue: '60',
-      description: 'Deterministic initial actor offsets distributed across this interval: integer 0 to 3,600 seconds. Zero deliberately starts all actors together. Ignored by framework-proof.'
+      description: 'Interval across which deterministic initial actor offsets are distributed.\n'
+        + 'framework-proof: Not used.\n'
+        + 'application-diagnostic: Between 0 and 3,600 seconds; default 60; zero starts all actors together.\n'
+        + 'performance: Between 0 and 3,600 seconds; default 60; zero starts all actors together.'
     ),
     booleanParam(
       name: 'RESET_DATABASE',
       defaultValue: false,
-      description: 'Restore the approved masked Test database baseline before seeding. This is destructive, is disabled by default, and applies to all three modes.'
+      description: 'Restore the approved masked Test database baseline before seeding; destructive and disabled by default.\n'
+        + 'framework-proof: Applied before proof data is seeded when selected.\n'
+        + 'application-diagnostic: Applied before workload data is seeded when selected.\n'
+        + 'performance: Applied before workload data is seeded when selected.'
     )
   ])
 ])
