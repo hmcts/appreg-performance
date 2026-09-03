@@ -105,15 +105,14 @@ environment and data scope have been explicitly approved.
 
 | Parameter | Purpose |
 | --- | --- |
-| `RUN_MODE` | Select `framework-proof`, `application-diagnostic`, `prototype` or `performance` |
-| `PROTOTYPE_WORKLOAD` | Select the `read-only` control or `seeded-mixed` pooling experiment when `RUN_MODE=prototype` |
-| `MAX_USERS` | Set concurrent-access actors for `application-diagnostic` or `prototype`; defaults to 10 |
-| `SESSION_POOL_SIZE` | Set authenticated sessions shared by actors; blank means 2 for `prototype` and one session per actor for seeded workloads |
-| `RUN_DURATION_MINUTES` | Cap duration for `application-diagnostic` |
-| `STEADY_STATE_MINUTES` | Set the measured steady-state duration for `prototype` and `performance`; defaults to 30 minutes |
-| `ACTION_PACE_SECONDS` | Set the minimum interval between action starts for each actor; defaults to 60 seconds |
-| `ACTION_SPREAD_SECONDS` | Distribute stable initial actor offsets across this interval; defaults to 60 seconds and 0 requests a burst |
-| `RESET_DATABASE` | Optionally restore the masked Test baseline before seeding, including `prototype/seeded-mixed` |
+| `RUN_MODE` | Select `framework-proof`, `application-diagnostic` or `performance` |
+| `MAX_USERS` | Concurrent actors for `application-diagnostic`, from 1 to 500; ignored by the other modes |
+| `SESSION_POOL_SIZE` | Authenticated sessions shared by actors, from 1 to the actor count; blank means one per diagnostic actor or 100 in `performance` |
+| `AUTHENTICATION_RATE_PER_SECOND` | Progressive workload SSO rate, greater than 0 and no more than 1; defaults to 0.15 and is ignored by `framework-proof` |
+| `RUN_DURATION_MINUTES` | Measured workload duration from 1 to 70 minutes; defaults to 30 and is ignored by `framework-proof` |
+| `ACTION_PACE_SECONDS` | Minimum interval between action starts, from 60 to 3,600 seconds; defaults to 60 and is ignored by `framework-proof` |
+| `ACTION_SPREAD_SECONDS` | Deterministic initial actor spread from 0 to 3,600 seconds; defaults to 60, while 0 deliberately requests a burst |
+| `RESET_DATABASE` | Optionally restore the masked Test baseline before seeding; destructive and disabled by default |
 
 Current modes:
 
@@ -121,7 +120,6 @@ Current modes:
 | --- | --- |
 | `framework-proof` | Seed data, authenticate one user once and run the twelve-proof set sequentially in one Gatling session |
 | `application-diagnostic` | Seed data and run a bounded pooled-session workload using the `performance` profile scaled to the requested actors and minutes |
-| `prototype` | Run either the read-only pooling control or the seeded mixed-action pooling experiment selected by `PROTOTYPE_WORKLOAD` |
 | `performance` | Seed isolated ramp-up and measured data, then run the pooled-session phase-based workload with 500 actors and a configurable measured period |
 
 The phase-based modes follow an attack, sustain and release load profile:
@@ -155,70 +153,13 @@ deliberately starts actors without offsets.
 For `application-diagnostic`, actors must be between 1 and 500, duration must be
 from 1 to 70 minutes, and actors multiplied by minutes must not exceed 35,000.
 
-The `prototype` mode authenticates `SESSION_POOL_SIZE` sessions first. Its
-`MAX_USERS` workload actors wait without sending HTTP traffic, then receive the
-pooled AppReg session cookie and XSRF state round-robin in separate Gatling
-cookie jars. Every actor must pass `/sso/me` and complete its stable initial
-offset before it counts as ready.
-
-`PROTOTYPE_WORKLOAD=read-only` is the proven control. Actors perform searches
-under an unmeasured ramp-up group until the requested actor count is ready, then
-continue under the measured group for the common `STEADY_STATE_MINUTES` window.
-It does not reset or seed data.
-
-`PROTOTYPE_WORKLOAD=seeded-mixed` uses the same pooled actor lifecycle with the
-deterministic mixed workload. Jenkins seeds separate ramp-up and measured
-allocations before authentication, so sharing a login never shares a mutable
-record or actor plan. This variant creates and changes Test data. Its purpose is
-to prove pooled sessions with concurrent mixed actions before that configuration
-is promoted to a full NFR run.
-
-The read-only prototype's logical search-action p95 must be less than five
-seconds and all SSO journeys must complete. Its AppReg GETs that receive HTTP
-502 or 504 are retried once after one second by default. A recovered gateway
-attempt and its delay remain visible as support evidence but are excluded from
-the logical action duration; exhausting
-the configured retries fails the run. Other statuses are never retried.
-
-The `PROTOTYPE LOGICAL RESULTS` console block is the authoritative prototype
-NFR verdict. Gatling's request charts still show every support attempt, so they
-remain useful for diagnosing gateway availability rather than judging the
-logical action after recovery. Effective configuration, retry events and phase
-changes are printed prominently. A ten-actor/two-session result is evidence of
-ten concurrent access actors, not ten distinct users or server-side sessions.
-
 During SSO, only the final authenticated AppReg `/` and `/sso/me` validation
 GETs retry once after HTTP 502/504. No Entra, credential, KMSI or callback step
 is retried. As soon as a completed SSO failure means the remaining fixed
 candidates cannot fill the requested pool, the waiting actors exit rather than
-waiting for the remaining setup deadline.
-
-Run the read-only prototype locally with the group-duration metric enabled:
-
-```bash
-./gradlew gatlingRun \
-  -DappRegPrototypeUsers=10 \
-  -DappRegPrototypeSessionPoolSize=2 \
-  -DappRegPrototypeSteadyStateMinutes=1 \
-  -DappRegPrototypeAuthenticationRatePerSecond=1 \
-  -DappRegPrototypeAuthenticationSetupTimeoutMinutes=15 \
-  -DappRegPrototypeActionPaceSeconds=60 \
-  -DappRegPrototypeActionSpreadSeconds=60 \
-  -DappRegPrototypeRampDownGraceSeconds=60 \
-  -DappRegPrototypeGatewayRetries=1 \
-  -DappRegPrototypeGatewayRetryDelaySeconds=1 \
-  -Dgatling.charting.useGroupDurationMetric=true \
-  --simulation simulations.PhaseMeasurementPrototypeSimulation
-```
-
-The authentication rate, setup timeout, completion grace and gateway retry
-settings are internal controls rather than Jenkins parameters. The authentication
-rate applies to both read-only and seeded mixed workloads. Action pace and spread
-are supplied by the corresponding Jenkins parameters. Their shown values are the
-defaults. The authentication setup timeout must be long enough to contain the
-configured session-pool injection ramp and actor spread. Jenkins may
-override the retry defaults with `PROTOTYPE_GATEWAY_RETRIES` and
-`PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS`; both effective values are logged.
+waiting for the remaining setup deadline. Jenkins validates that the configured
+authentication rate can inject the complete session pool and apply the actor
+spread before the internal setup deadline.
 
 A local seeded-mixed run requires a freshly prepared `ramp-up` and `measured`
 feeder directory and explicit approval for its persistent Test-data changes:
@@ -229,6 +170,7 @@ feeder directory and explicit approval for its persistent Test-data changes:
   -DappRegMaxUsers=10 \
   -DappRegDurationMinutes=5 \
   -DappRegWorkloadSessionPoolSize=2 \
+  -DappRegWorkloadAuthenticationRatePerSecond=0.15 \
   -DappRegWorkloadActionPaceSeconds=60 \
   -DappRegWorkloadActionSpreadSeconds=60 \
   -DappRegPerformanceDataDirectory="$PWD/build/workload-data" \
@@ -270,6 +212,7 @@ authentication, actor setup, measured steady state and ramp-down.
 | System property | Default | Purpose |
 | --- | --- | --- |
 | `appRegWorkloadSessionPoolSize` | Actor count | Authenticated sessions assigned round-robin; setting it equal to the actor count reproduces one session per actor |
+| `appRegWorkloadAuthenticationRatePerSecond` | `1` in Java; `0.15` through Jenkins and supplied runners | Progressive SSO journeys per second; must be greater than 0 and no more than 1 |
 | `appRegWorkloadAuthenticationSetupTimeoutMinutes` | `15` | Deadline for authenticating the pool and readying every actor |
 | `appRegWorkloadActionPaceSeconds` | `60` | Minimum interval between action starts; values below 60 are rejected |
 | `appRegWorkloadActionSpreadSeconds` | `60` | Stable initial actor offsets; `0` requests an intentional burst |
@@ -279,8 +222,9 @@ authentication, actor setup, measured steady state and ramp-down.
 | `appRegBulkUploadPollTimeoutSeconds` | `30` | Maximum wait for a bulk-upload job to leave `RECEIVED`, `VALIDATING` or `PROCESSING` |
 | `gatling.data.console.writePeriod` | `5` directly; `10` through supplied runners | Seconds between Gatling console-statistics blocks |
 
-Jenkins supplies the pool, pace and spread from `SESSION_POOL_SIZE`,
-`ACTION_PACE_SECONDS` and `ACTION_SPREAD_SECONDS`. The setup deadline and
+Jenkins supplies the pool, authentication rate, pace and spread from
+`SESSION_POOL_SIZE`, `AUTHENTICATION_RATE_PER_SECOND`, `ACTION_PACE_SECONDS`
+and `ACTION_SPREAD_SECONDS`. The setup deadline and
 completion grace remain internal environment defaults named
 `WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES` and
 `WORKLOAD_RAMP_DOWN_GRACE_SECONDS`. Jenkins can override the internal GET retry
@@ -306,16 +250,20 @@ group timings deliberately retain the wall-clock effect of support retries and
 remain useful for diagnosing the raw journey; they are not the retry-adjusted
 NFR value.
 
+The same summary is retained as
+`build/reports/gatling/workload-nfr-summary.txt` and linked from the Jenkins
+Gatling report index. Its `Result classification` distinguishes a genuine NFR
+timing failure from workload functional failure and framework or setup failure.
+
 Validate its defaults, boundaries and phase transitions without authenticating
 or sending HTTP traffic:
 
 ```bash
-./gradlew prototypeSelfCheck workloadSelfCheck gatlingClasses
+./gradlew workloadSelfCheck traceContextSelfCheck gatlingClasses
 ```
 
-The read-only prototype does not seed data. Seeded-mixed prototype and the other
-seeded CNP modes prepare data first; database reset remains optional. Workload
-seed construction checks the exact ramp-up and measured feeder sizes before Gatling
+All CNP modes seed data first; database reset remains optional. Workload seed
+construction checks the exact ramp-up and measured feeder sizes before Gatling
 starts, so a short allocation fails before authentication rather than reusing a
 mutable record.
 
@@ -331,7 +279,8 @@ The mode does not execute every proof class present in the source tree; see
 ## Reports and diagnostics
 
 Gatling writes HTML reports below `build/reports/gatling/`. Jenkins archives the
-report directories and publishes a Gatling HTML index even when execution fails.
+report directories, retained workload NFR summary and Gatling HTML index even
+when execution fails.
 
 Selected failures emit sanitised diagnostic lines. Passwords, access tokens,
 cookies and raw response bodies must not be logged.

@@ -27,9 +27,13 @@ import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.FeederBuilder;
 import io.gatling.javaapi.core.Session;
 import io.gatling.javaapi.core.Simulation;
+import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -72,6 +76,8 @@ public class AppRegWorkloadSimulation extends Simulation {
   private static final String CAPTURED_XSRF_TOKEN_KEY = "workloadCapturedXsrfToken";
   private static final String RAMP_ITERATION_SESSION_KEY = "workloadRampIteration";
   private static final String MEASURED_ITERATION_SESSION_KEY = "workloadMeasuredIteration";
+  private static final Path NFR_SUMMARY_PATH =
+      Path.of("build/reports/gatling/workload-nfr-summary.txt");
   private static final Duration POOL_WAIT_POLL_INTERVAL = Duration.ofMillis(100);
   private static final URI APPREG_ORIGIN = URI.create(Environment.BASE_URL);
   public static final String RAMP_UP = "ramp-up";
@@ -631,22 +637,15 @@ public class AppRegWorkloadSimulation extends Simulation {
   }
 
   private boolean logNfrSummary(boolean executionComplete) {
-    boolean passed = executionComplete && GatewayGetRetry.exhaustedFailures() == 0;
+    boolean functionalPassed = executionComplete && GatewayGetRetry.exhaustedFailures() == 0;
+    boolean timingPassed = executionComplete;
     int plannedTotal = 0;
     int attemptedTotal = 0;
-    System.out.println("========== WORKLOAD NFR SUMMARY ==========");
-    System.out.println("Functional success: ASSERTED at 100% for the complete execution");
-    System.out.println("Transient GET gateway failures observed: "
-        + GatewayGetRetry.transientFailures());
-    System.out.println("Recovered GET operations: " + GatewayGetRetry.recoveredOperations());
-    System.out.println("Exhausted GET gateway failures: " + GatewayGetRetry.exhaustedFailures());
-    System.out.println("Logical timing excludes recovered GET attempts and their retry delay");
-    System.out.println("NFR001 availability: NOT MEASURED by this Gatling run");
-    System.out.println("NFR005 browser-only trivial operations: NOT MEASURED by this HTTP test");
+    var actionResults = new ArrayList<String>();
     for (var action : WorkloadAction.values()) {
       int expected = profile.scheduledActionCount(action);
       if (expected == 0) {
-        System.out.println(action.nfr() + " " + action.key()
+        actionResults.add(action.nfr() + " " + action.key()
             + ": NOT MEASURED (no scheduled samples)");
         continue;
       }
@@ -656,26 +655,58 @@ public class AppRegWorkloadSimulation extends Simulation {
       long p95Millis = nfrMetrics.p95Millis(action);
       plannedTotal += expected;
       attemptedTotal += attempted;
+      functionalPassed &= attempted > 0 && completed == attempted && failed == 0;
+      timingPassed &= attempted > 0 && p95Millis < action.p95LimitMillis();
       boolean actionPassed = WorkloadNfrMetrics.passesNfr(
           attempted, completed, failed, p95Millis, action.p95LimitMillis());
-      passed &= actionPassed;
-      System.out.println(action.nfr() + " " + action.key() + ": "
+      actionResults.add(action.nfr() + " " + action.key() + ": "
           + (actionPassed ? "PASS" : "FAIL") + " | attempted=" + attempted + "/" + expected
           + " | succeeded=" + completed + " | failed=" + failed
           + " | logical p95=" + p95Millis + " ms | limit < "
           + action.p95LimitMillis() + " ms");
     }
-    System.out.println("Measured plan utilisation: " + attemptedTotal + "/" + plannedTotal
-        + " operations started during the fixed window; unused final-boundary slots are"
-        + " informational and do not override functional or p95 results");
+    boolean passed = functionalPassed && timingPassed;
     var nfr004 = profile.concurrentUsers() == 500
         ? (passed ? "PASS" : "FAIL")
         : "NOT MEASURED (configured actors: " + profile.concurrentUsers() + ")";
-    System.out.println("NFR004 500 concurrent actors: " + nfr004);
-    System.out.println("Overall asserted workload-operation verdict: "
-        + (passed ? "PASS" : "FAIL"));
-    System.out.println("==========================================");
+    var summary = new StringBuilder()
+        .append("========== WORKLOAD NFR SUMMARY ==========\n")
+        .append("Result classification: ")
+        .append(WorkloadNfrMetrics.resultClassification(
+            executionComplete, functionalPassed, timingPassed))
+        .append('\n')
+        .append("Functional success: ").append(functionalPassed ? "PASS" : "FAIL").append('\n')
+        .append("Transient GET gateway failures observed: ")
+        .append(GatewayGetRetry.transientFailures()).append('\n')
+        .append("Recovered GET operations: ")
+        .append(GatewayGetRetry.recoveredOperations()).append('\n')
+        .append("Exhausted GET gateway failures: ")
+        .append(GatewayGetRetry.exhaustedFailures()).append('\n')
+        .append("Logical timing excludes recovered GET attempts and their retry delay\n")
+        .append("NFR001 availability: NOT MEASURED by this Gatling run\n")
+        .append("NFR005 browser-only trivial operations: NOT MEASURED by this HTTP test\n");
+    actionResults.forEach(result -> summary.append(result).append('\n'));
+    summary.append("Measured plan utilisation: ").append(attemptedTotal).append('/')
+        .append(plannedTotal)
+        .append(" operations started during the fixed window; unused final-boundary slots are")
+        .append(" informational and do not override functional or p95 results\n")
+        .append("NFR004 500 concurrent actors: ").append(nfr004).append('\n')
+        .append("Overall asserted workload-operation verdict: ")
+        .append(passed ? "PASS" : "FAIL").append('\n')
+        .append("==========================================\n");
+    System.out.print(summary);
+    writeNfrSummary(summary.toString());
     return passed;
+  }
+
+  private static void writeNfrSummary(String summary) {
+    try {
+      Files.createDirectories(NFR_SUMMARY_PATH.getParent());
+      Files.writeString(NFR_SUMMARY_PATH, summary, StandardCharsets.UTF_8);
+      System.out.println("Retained workload NFR summary: " + NFR_SUMMARY_PATH.toAbsolutePath());
+    } catch (IOException exception) {
+      throw new IllegalStateException("Could not retain workload NFR summary", exception);
+    }
   }
 
   private static void logPhaseOnce(AtomicBoolean marker, String phase, String detail) {

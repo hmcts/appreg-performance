@@ -11,48 +11,43 @@ properties([
   parameters([
     choice(
       name: 'RUN_MODE',
-      choices: ['framework-proof', 'application-diagnostic', 'prototype', 'performance'],
-      description: 'Framework proof runs one retained-session proof sequence; application diagnostic is a short capped workload; prototype is the staged pooling experiment; performance is the 500-actor seeded workload.'
-    ),
-    choice(
-      name: 'PROTOTYPE_WORKLOAD',
-      choices: ['read-only', 'seeded-mixed'],
-      description: 'Select the safe read-only pooling control or the seeded mixed-action pooling experiment. Used only by prototype.'
+      choices: ['framework-proof', 'application-diagnostic', 'performance'],
+      description: 'Execution type. framework-proof runs the retained one-session proof suite; application-diagnostic runs the seeded workload with configurable actors; performance runs the canonical seeded 500-actor NFR workload.'
     ),
     string(
       name: 'MAX_USERS',
       defaultValue: '10',
-      description: 'Concurrent-access actors for application-diagnostic or prototype, capped at 500. Performance always uses 500; framework-proof ignores this.'
+      description: 'Concurrent workload actors for application-diagnostic: integer 1 to 500. performance always uses 500; framework-proof ignores this value.'
     ),
     string(
       name: 'SESSION_POOL_SIZE',
       defaultValue: '',
-      description: 'Authenticated sessions shared round-robin by actors. Blank defaults to 2 for prototype and one session per actor for seeded workloads.'
+      description: 'Authenticated sessions shared round-robin by workload actors: integer 1 to the actor count. Blank uses one session per actor for application-diagnostic and 100 sessions for performance.'
+    ),
+    string(
+      name: 'AUTHENTICATION_RATE_PER_SECOND',
+      defaultValue: '0.15',
+      description: 'Progressive SSO journey rate for workload session setup: greater than 0 and no more than 1 per second. At 0.15, 100 sessions take approximately 667 seconds. Ignored by framework-proof.'
     ),
     string(
       name: 'RUN_DURATION_MINUTES',
-      defaultValue: '5',
-      description: 'Duration for application-diagnostic mode in minutes. Ignored by framework-proof, prototype and performance modes.'
-    ),
-    string(
-      name: 'STEADY_STATE_MINUTES',
       defaultValue: '30',
-      description: 'Measured steady-state duration for prototype and performance modes. Defaults to 30 minutes.'
+      description: 'Measured workload duration for application-diagnostic and performance: integer 1 to 70 minutes, with actors multiplied by minutes no greater than 35,000. Ignored by framework-proof.'
     ),
     string(
       name: 'ACTION_PACE_SECONDS',
       defaultValue: '60',
-      description: 'Minimum interval between business-action starts for each actor. Defaults to 60 seconds.'
+      description: 'Minimum interval between business-action starts for each workload actor: integer 60 to 3,600 seconds. Ignored by framework-proof.'
     ),
     string(
       name: 'ACTION_SPREAD_SECONDS',
       defaultValue: '60',
-      description: 'Initial actor offsets distributed across this interval. Use 0 only for an intentional burst.'
+      description: 'Deterministic initial actor offsets distributed across this interval: integer 0 to 3,600 seconds. Zero deliberately starts all actors together. Ignored by framework-proof.'
     ),
     booleanParam(
       name: 'RESET_DATABASE',
       defaultValue: false,
-      description: 'Restore the approved masked Test database baseline before a seeded run, including prototype/seeded-mixed.'
+      description: 'Restore the approved masked Test database baseline before seeding. This is destructive, is disabled by default, and applies to all three modes.'
     )
   ])
 ])
@@ -206,6 +201,7 @@ def dbSeedCommand = '''
       -DappRegMaxUsers="$max_users" \
       -DappRegDurationMinutes="$run_duration_minutes" \
       -DappRegWorkloadSessionPoolSize="$SESSION_POOL_SIZE" \
+      -DappRegWorkloadAuthenticationRatePerSecond="$WORKLOAD_AUTHENTICATION_RATE_PER_SECOND" \
       -DappRegWorkloadAuthenticationSetupTimeoutMinutes="$WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES" \
       -DappRegWorkloadActionPaceSeconds="$WORKLOAD_ACTION_PACE_SECONDS" \
       -DappRegWorkloadActionSpreadSeconds="$WORKLOAD_ACTION_SPREAD_SECONDS" \
@@ -394,27 +390,22 @@ withNightlyPipeline(type, product, component) {
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
                     def runMode = params.RUN_MODE ?: 'framework-proof'
-                    def prototypeWorkload = (params.PROTOTYPE_WORKLOAD ?: 'read-only').toString().trim()
                     def diagnosticUsers = (params.MAX_USERS ?: '10').toString().trim()
                     def requestedSessionPoolSize = (params.SESSION_POOL_SIZE ?: '').toString().trim()
-                    def diagnosticMinutes = (params.RUN_DURATION_MINUTES ?: '5').toString().trim()
-                    def steadyStateMinutes = (params.STEADY_STATE_MINUTES ?: '30').toString().trim()
+                    def requestedDurationMinutes = (params.RUN_DURATION_MINUTES ?: '30').toString().trim()
+                    def authenticationRateText = (params.AUTHENTICATION_RATE_PER_SECOND ?: '0.15').toString().trim()
                     def actionPaceSeconds = (params.ACTION_PACE_SECONDS ?: '60').toString().trim()
                     def actionSpreadSeconds = (params.ACTION_SPREAD_SECONDS ?: '60').toString().trim()
-                    def prototypeGatewayRetries = (env.PROTOTYPE_GATEWAY_RETRIES ?: '1').toString().trim()
-                    def prototypeGatewayRetryDelaySeconds = (env.PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS ?: '1').toString().trim()
                     def workloadSetupTimeoutMinutes = (env.WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES ?: '15').toString().trim()
                     def workloadRampDownGraceSeconds = (env.WORKLOAD_RAMP_DOWN_GRACE_SECONDS ?: '60').toString().trim()
                     def workloadGatewayGetRetries = (env.WORKLOAD_GATEWAY_GET_RETRIES ?: '1').toString().trim()
                     def workloadGatewayGetRetryDelaySeconds = (env.WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS ?: '1').toString().trim()
                     def workloadBulkUploadPollTimeoutSeconds = (env.WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS ?: '30').toString().trim()
                     def gatlingConsoleWritePeriodSeconds = (env.GATLING_CONSOLE_WRITE_PERIOD_SECONDS ?: '10').toString().trim()
-                    def prototypeIsSeeded = runMode == 'prototype' && prototypeWorkload == 'seeded-mixed'
                     def runModes = [
-                        'application-diagnostic': [profile: 'performance', users: diagnosticUsers, minutes: diagnosticMinutes, proofs: false, prototype: false, workload: true, seed: true],
-                        'framework-proof':         [profile: 'smoke', users: '1', minutes: '1', proofs: true, prototype: false, workload: false, seed: true],
-                        'prototype':               [profile: prototypeIsSeeded ? 'performance' : 'smoke', users: diagnosticUsers, minutes: steadyStateMinutes, proofs: false, prototype: !prototypeIsSeeded, workload: prototypeIsSeeded, seed: prototypeIsSeeded],
-                        'performance':             [profile: 'performance', users: '500', minutes: steadyStateMinutes, proofs: false, prototype: false, workload: true, seed: true]
+                        'application-diagnostic': [profile: 'performance', users: diagnosticUsers, minutes: requestedDurationMinutes, proofs: false, workload: true, seed: true],
+                        'framework-proof':         [profile: 'smoke', users: '1', minutes: '1', proofs: true, workload: false, seed: true],
+                        'performance':             [profile: 'performance', users: '500', minutes: requestedDurationMinutes, proofs: false, workload: true, seed: true]
                     ]
                     def selectedRun = runModes[runMode]
                     if (selectedRun == null) {
@@ -422,45 +413,25 @@ withNightlyPipeline(type, product, component) {
                     }
                     def sessionPoolSize = requestedSessionPoolSize
                     if (!sessionPoolSize) {
-                        sessionPoolSize = runMode == 'prototype' ? '2' : selectedRun.users
+                        sessionPoolSize = runMode == 'performance' ? '100' : selectedRun.users
                     }
-                    if (runMode == 'application-diagnostic') {
-                        if (!(diagnosticUsers ==~ /\d+/) || diagnosticUsers.toInteger() < 1 || diagnosticUsers.toInteger() > 500) {
+                    if (selectedRun.workload) {
+                        if (runMode == 'application-diagnostic'
+                            && (!(diagnosticUsers ==~ /\d+/)
+                            || diagnosticUsers.toInteger() < 1
+                            || diagnosticUsers.toInteger() > 500)) {
                             error 'application-diagnostic requires MAX_USERS to be an integer from 1 to 500'
                         }
-                        if (!(diagnosticMinutes ==~ /\d+/) || diagnosticMinutes.toInteger() < 1) {
-                            error 'application-diagnostic requires RUN_DURATION_MINUTES to be a positive integer'
+                        if (!(selectedRun.minutes ==~ /\d+/)
+                            || selectedRun.minutes.toInteger() < 1
+                            || selectedRun.minutes.toInteger() > 70) {
+                            error "${runMode} requires RUN_DURATION_MINUTES to be an integer from 1 to 70"
                         }
-                        if (diagnosticMinutes.toInteger() > 70) {
-                            error 'application-diagnostic requires RUN_DURATION_MINUTES to be 70 or less'
-                        }
-                        if ((diagnosticUsers.toInteger() * diagnosticMinutes.toInteger()) > 35000) {
-                            error 'application-diagnostic requires MAX_USERS * RUN_DURATION_MINUTES to be 35000 or less'
-                        }
-                    }
-                    if (runMode == 'prototype') {
-                        if (prototypeWorkload != 'read-only' && prototypeWorkload != 'seeded-mixed') {
-                            error 'prototype requires PROTOTYPE_WORKLOAD to be read-only or seeded-mixed'
-                        }
-                        if (!(diagnosticUsers ==~ /\d+/) || diagnosticUsers.toInteger() < 1 || diagnosticUsers.toInteger() > 500) {
-                            error 'prototype requires MAX_USERS actors to be an integer from 1 to 500'
-                        }
-                        if (!(prototypeGatewayRetries ==~ /\d+/)
-                            || prototypeGatewayRetries.toInteger() > 5) {
-                            error 'PROTOTYPE_GATEWAY_RETRIES must be from 0 to 5'
-                        }
-                        if (!(prototypeGatewayRetryDelaySeconds ==~ /\d+/)
-                            || prototypeGatewayRetryDelaySeconds.toInteger() < 1
-                            || prototypeGatewayRetryDelaySeconds.toInteger() > 3600) {
-                            error 'PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS must be from 1 to 3600'
+                        if ((selectedRun.users.toInteger() * selectedRun.minutes.toInteger()) > 35000) {
+                            error "${runMode} requires actors multiplied by RUN_DURATION_MINUTES to be 35000 or less"
                         }
                     }
-                    if (runMode == 'prototype' || runMode == 'performance') {
-                        if (!(steadyStateMinutes ==~ /\d+/) || steadyStateMinutes.toInteger() < 1) {
-                            error "${runMode} requires STEADY_STATE_MINUTES to be a positive integer"
-                        }
-                    }
-                    if (selectedRun.prototype || selectedRun.workload) {
+                    if (selectedRun.workload) {
                         if (!(sessionPoolSize ==~ /\d+/)
                             || sessionPoolSize.toInteger() < 1
                             || sessionPoolSize.toInteger() > selectedRun.users.toInteger()) {
@@ -475,30 +446,33 @@ withNightlyPipeline(type, product, component) {
                             || actionSpreadSeconds.toInteger() > 3600) {
                             error 'ACTION_SPREAD_SECONDS must be an integer from 0 to 3600 seconds'
                         }
+                        double authenticationRatePerSecond
+                        try {
+                            authenticationRatePerSecond = authenticationRateText.toDouble()
+                        } catch (NumberFormatException ignored) {
+                            error 'AUTHENTICATION_RATE_PER_SECOND must be greater than 0 and no more than 1'
+                        }
+                        if (!Double.isFinite(authenticationRatePerSecond)
+                            || authenticationRatePerSecond <= 0
+                            || authenticationRatePerSecond > 1) {
+                            error 'AUTHENTICATION_RATE_PER_SECOND must be greater than 0 and no more than 1'
+                        }
                         if (!(workloadSetupTimeoutMinutes ==~ /\d+/)
                             || workloadSetupTimeoutMinutes.toInteger() < 1
                             || workloadSetupTimeoutMinutes.toInteger() > 1440) {
                             error 'WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES must be from 1 to 1440'
                         }
-                        if (sessionPoolSize.toInteger() + actionSpreadSeconds.toInteger()
+                        def authenticationRampSeconds = Math.ceil(
+                            sessionPoolSize.toInteger() / authenticationRatePerSecond).toInteger()
+                        if (authenticationRampSeconds + actionSpreadSeconds.toInteger()
                             >= workloadSetupTimeoutMinutes.toInteger() * 60) {
-                            error 'Session authentication and actor spread must finish before the setup timeout'
+                            error 'Session authentication at AUTHENTICATION_RATE_PER_SECOND plus actor spread must finish before the setup timeout'
                         }
                     }
                     if (!(gatlingConsoleWritePeriodSeconds ==~ /\d+/)
                         || gatlingConsoleWritePeriodSeconds.toInteger() < 1
                         || gatlingConsoleWritePeriodSeconds.toInteger() > 3600) {
                         error 'GATLING_CONSOLE_WRITE_PERIOD_SECONDS must be from 1 to 3600'
-                    }
-                    if (runMode == 'performance' && steadyStateMinutes.toInteger() > 70) {
-                        error 'performance requires STEADY_STATE_MINUTES to be 70 or less'
-                    }
-                    if (prototypeIsSeeded && steadyStateMinutes.toInteger() > 70) {
-                        error 'prototype/seeded-mixed requires STEADY_STATE_MINUTES to be 70 or less'
-                    }
-                    if (prototypeIsSeeded
-                        && diagnosticUsers.toInteger() * steadyStateMinutes.toInteger() > 35000) {
-                        error 'prototype/seeded-mixed requires MAX_USERS * STEADY_STATE_MINUTES to be 35000 or less'
                     }
                     if (selectedRun.workload) {
                         if (!(workloadRampDownGraceSeconds ==~ /\d+/)
@@ -522,18 +496,13 @@ withNightlyPipeline(type, product, component) {
                     env.RUN_DB_RESET = (selectedRun.seed && (params.RESET_DATABASE ?: false)).toString()
                     env.RUN_DB_SEED = selectedRun.seed.toString()
                     env.RUN_MODE = runMode
-                    env.PROTOTYPE_WORKLOAD = prototypeWorkload
                     env.WORKLOAD_PROFILE = selectedRun.profile
                     env.RUN_PROOF_SMOKES = selectedRun.proofs.toString()
-                    env.RUN_PROTOTYPE = selectedRun.prototype.toString()
                     env.RUN_PERFTEST = selectedRun.workload.toString()
                     env.MAX_USERS = selectedRun.users
                     env.RUN_DURATION_MINUTES = selectedRun.minutes
-                    env.STEADY_STATE_MINUTES = steadyStateMinutes
                     env.SESSION_POOL_SIZE = sessionPoolSize
-                    env.PROTOTYPE_SESSION_POOL_SIZE = sessionPoolSize
-                    env.PROTOTYPE_GATEWAY_RETRIES = prototypeGatewayRetries
-                    env.PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS = prototypeGatewayRetryDelaySeconds
+                    env.WORKLOAD_AUTHENTICATION_RATE_PER_SECOND = authenticationRateText
                     env.WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES = workloadSetupTimeoutMinutes
                     env.WORKLOAD_ACTION_PACE_SECONDS = actionPaceSeconds
                     env.WORKLOAD_ACTION_SPREAD_SECONDS = actionSpreadSeconds
@@ -557,14 +526,7 @@ withNightlyPipeline(type, product, component) {
                             java -version
                             echo "Gatling console write period: $GATLING_CONSOLE_WRITE_PERIOD_SECONDS seconds"
 
-                            if [ "$RUN_MODE" = "prototype" ]; then
-                              echo "========== PROTOTYPE VARIANT: $PROTOTYPE_WORKLOAD =========="
-                              if [ "$PROTOTYPE_WORKLOAD" = "seeded-mixed" ]; then
-                                echo "========== PROTOTYPE EVIDENCE BOUNDARY: pooled authentication with isolated actor plans and mutable feeder rows; no gateway retry =========="
-                              else
-                                echo "========== PROTOTYPE EVIDENCE BOUNDARY: read-only pooled authentication control with bounded 502/504 recovery =========="
-                              fi
-                            fi
+                            rm -f build/reports/gatling/workload-nfr-summary.txt
 
                             if [ "$RUN_DB_SEED" = "true" ]; then
                               . build/seed-allocation.env
@@ -590,21 +552,6 @@ withNightlyPipeline(type, product, component) {
                                 --simulation simulations.FrameworkProofSimulation
                             fi
 
-                            if [ "$RUN_PROTOTYPE" = "true" ]; then
-                              ./gradlew --no-daemon gatlingRun \
-                                -Dgatling.data.console.writePeriod="$GATLING_CONSOLE_WRITE_PERIOD_SECONDS" \
-                                -DappRegPrototypeUsers="$MAX_USERS" \
-                                -DappRegPrototypeSessionPoolSize="$PROTOTYPE_SESSION_POOL_SIZE" \
-                                -DappRegPrototypeSteadyStateMinutes="$STEADY_STATE_MINUTES" \
-                                -DappRegPrototypeAuthenticationSetupTimeoutMinutes="$WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES" \
-                                -DappRegPrototypeActionPaceSeconds="$WORKLOAD_ACTION_PACE_SECONDS" \
-                                -DappRegPrototypeActionSpreadSeconds="$WORKLOAD_ACTION_SPREAD_SECONDS" \
-                                -DappRegPrototypeGatewayRetries="$PROTOTYPE_GATEWAY_RETRIES" \
-                                -DappRegPrototypeGatewayRetryDelaySeconds="$PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS" \
-                                -Dgatling.charting.useGroupDurationMetric=true \
-                                --simulation simulations.PhaseMeasurementPrototypeSimulation
-                            fi
-
                             if [ "$RUN_PERFTEST" = "true" ]; then
                               if [ "$RUN_DB_SEED" != "true" ]; then
                                 echo "RUN_PERFTEST=true requires RUN_DB_SEED=true" >&2
@@ -621,6 +568,7 @@ withNightlyPipeline(type, product, component) {
                                 -DappRegMaxUsers="$MAX_USERS" \
                                 -DappRegDurationMinutes="$RUN_DURATION_MINUTES" \
                                 -DappRegWorkloadSessionPoolSize="$SESSION_POOL_SIZE" \
+                                -DappRegWorkloadAuthenticationRatePerSecond="$WORKLOAD_AUTHENTICATION_RATE_PER_SECOND" \
                                 -DappRegWorkloadAuthenticationSetupTimeoutMinutes="$WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES" \
                                 -DappRegWorkloadActionPaceSeconds="$WORKLOAD_ACTION_PACE_SECONDS" \
                                 -DappRegWorkloadActionSpreadSeconds="$WORKLOAD_ACTION_SPREAD_SECONDS" \
@@ -667,6 +615,7 @@ withNightlyPipeline(type, product, component) {
                                 -DappRegMaxUsers="$MAX_USERS" \
                                 -DappRegDurationMinutes="$RUN_DURATION_MINUTES" \
                                 -DappRegWorkloadSessionPoolSize="$SESSION_POOL_SIZE" \
+                                -DappRegWorkloadAuthenticationRatePerSecond="$WORKLOAD_AUTHENTICATION_RATE_PER_SECOND" \
                                 -DappRegWorkloadAuthenticationSetupTimeoutMinutes="$WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES" \
                                 -DappRegWorkloadActionPaceSeconds="$WORKLOAD_ACTION_PACE_SECONDS" \
                                 -DappRegWorkloadActionSpreadSeconds="$WORKLOAD_ACTION_SPREAD_SECONDS" \
@@ -693,6 +642,20 @@ withNightlyPipeline(type, product, component) {
 
 def publishGatlingReports() {
     def reportsDirectory = 'build/reports/gatling'
+    def nfrSummaryPath = "${reportsDirectory}/workload-nfr-summary.txt"
+
+    if (env.RUN_PERFTEST == 'true' && !fileExists(nfrSummaryPath)) {
+        sh "mkdir -p ${reportsDirectory}"
+        writeFile(
+            file: nfrSummaryPath,
+            text: '''========== WORKLOAD NFR SUMMARY ==========
+Result classification: FRAMEWORK_OR_SETUP_FAILURE
+No complete workload summary was produced; inspect the console log for the setup or framework failure.
+Overall asserted workload-operation verdict: FAIL
+==========================================
+'''
+        )
+    }
 
     if (!fileExists(reportsDirectory)) {
         echo "No Gatling reports found in ${reportsDirectory}; nothing to publish."
@@ -711,6 +674,10 @@ def publishGatlingReports() {
     def archivedReportLinks = reportLinks.collect { report ->
         "<li><a href=\"${reportsDirectory}/${report.path}\">${report.name}</a></li>"
     }.join('\n')
+    if (fileExists(nfrSummaryPath)) {
+        publishedReportLinks = "<li><a href=\"workload-nfr-summary.txt\">Workload NFR summary</a></li>\n${publishedReportLinks}"
+        archivedReportLinks = "<li><a href=\"${nfrSummaryPath}\">Workload NFR summary</a></li>\n${archivedReportLinks}"
+    }
 
     writeFile(
         file: "${reportsDirectory}/index.html",

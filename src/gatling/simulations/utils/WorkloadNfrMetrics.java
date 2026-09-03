@@ -76,13 +76,25 @@ public final class WorkloadNfrMetrics {
         && p95Millis < p95LimitMillis;
   }
 
+  public static String resultClassification(
+      boolean executionComplete, boolean functionalPassed, boolean timingPassed) {
+    if (!executionComplete) return "FRAMEWORK_OR_SETUP_FAILURE";
+    if (!functionalPassed) return "WORKLOAD_FUNCTIONAL_FAILURE";
+    if (!timingPassed) return "NFR_TIMING_FAILURE";
+    return "PASS";
+  }
+
   static void selfCheck() {
     if (logicalDurationMillis(1_500, 1_200) != 300
         || logicalDurationMillis(900, 1_000) != 0
         || !passesNfr(29, 29, 0, 1_999, 2_000)
         || passesNfr(0, 0, 0, -1, 2_000)
         || passesNfr(29, 28, 1, 1_999, 2_000)
-        || passesNfr(29, 29, 0, 2_000, 2_000)) {
+        || passesNfr(29, 29, 0, 2_000, 2_000)
+        || !"FRAMEWORK_OR_SETUP_FAILURE".equals(resultClassification(false, false, false))
+        || !"WORKLOAD_FUNCTIONAL_FAILURE".equals(resultClassification(true, false, false))
+        || !"NFR_TIMING_FAILURE".equals(resultClassification(true, true, false))
+        || !"PASS".equals(resultClassification(true, true, true))) {
       throw new IllegalStateException("Workload logical timing self-check failed");
     }
   }

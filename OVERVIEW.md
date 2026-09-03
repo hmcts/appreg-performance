@@ -10,11 +10,10 @@ Applications Register at the HTTP layer. It provides:
 
 - a basic Applications List smoke journey;
 - focused one-user proofs for individual business actions;
-- a prototype mode with a read-only pooling control and seeded mixed-action experiment;
 - a deterministic multi-user workload;
 - AppReg and Microsoft Entra authentication replay;
 - PostgreSQL-backed test-data allocation; and
-- Jenkins entrypoints for proof, prototype, diagnostic and performance execution.
+- Jenkins entrypoints for proof, diagnostic and performance execution.
 
 The default target is `https://appreg.test.apps.hmcts.net`.
 
@@ -73,8 +72,8 @@ Current framework coverage is limited:
 
 The acceptance boundary is the complete named Gatling group, including the
 supporting requests that form that business action. Authentication, unrelated
-setup and pre-target ramp-up traffic are excluded. The phase-specific prototype
-confirms that Gatling reports and asserts the intended elapsed group duration.
+setup and pre-target ramp-up traffic are excluded. The workload reports and
+asserts the intended complete logical-operation duration.
 `WorkloadAction` is the source of truth for the classifications and limits below.
 
 | Workload action | Gatling group | Classification | p95 limit |
@@ -160,8 +159,9 @@ a feeder.
 `AppRegWorkloadSimulation` now separates pool authentication from the Gatling
 actors that perform workload actions:
 
-1. A configurable pool population is injected at a configurable SSO rate,
-   defaulting to one journey per second.
+1. A configurable pool population is injected at a configurable SSO rate.
+   Jenkins and the supplied local runners default to 0.15 journeys per second;
+   the Java property itself defaults to one per second when invoked directly.
 2. Every pool entry receives one dedicated identity and independent AppReg
    session.
 3. Workload actors wait without sending HTTP traffic until the complete pool is
@@ -210,7 +210,6 @@ authentication later fails.
 | `BulkUpdateFeesProofSimulation` | Update fee details on three seeded Applications | Changes data | Yes |
 | `BulkApplicationUploadProofSimulation` | Upload Applications into a seeded empty list | Creates data | Yes |
 | `ResultMultipleApplicationsSetupSimulation` | Create a list and three Applications for manual setup | Creates data | No |
-| `PhaseMeasurementPrototypeSimulation` | Authenticate a smaller session pool, assign it round-robin to concurrent-access actors, validate every actor and run paced searches through a common measured window | Read-only | `prototype` only |
 | `AppRegWorkloadSimulation` | Execute the deterministic mixed workload | Creates and changes data | Workload modes |
 
 All executable proof simulations assert 100% successful requests. Proofs that
@@ -290,10 +289,7 @@ action must contribute at least one measured sample to its p95 verdict.
 ## Test-data provisioning
 
 The CNP pipeline runs PostgreSQL seed logic before proof and workload modes. It
-is deliberately skipped by `prototype/read-only` and used by
-`prototype/seeded-mixed`. Where seeding runs,
-it creates
-isolated synthetic records and writes:
+creates isolated synthetic records and writes:
 
 - proof allocation variables to `build/seed-allocation.env`;
 - action-specific allocation CSV files to `build/performance-data/`; and
@@ -306,23 +302,22 @@ file count. Mutable allocations are intended for one action only so virtual
 users do not update the same record.
 
 `RESET_DATABASE=true` runs the guarded masked-database restore before the seed
-stage. Reset is optional and ignored by `prototype/read-only`.
+stage. Reset is optional and disabled by default.
 
 ## CNP Jenkins execution
 
-`Jenkinsfile_CNP` exposes nine parameters:
+`Jenkinsfile_CNP` exposes eight parameters:
 
 | Parameter | Behaviour |
 | --- | --- |
-| `RUN_MODE` | Selects `framework-proof`, `application-diagnostic`, `prototype` or `performance` |
-| `PROTOTYPE_WORKLOAD` | Selects the `read-only` control or `seeded-mixed` experiment for prototype mode |
-| `MAX_USERS` | Caps diagnostic users or prototype concurrent-access actors to `1..500` |
-| `SESSION_POOL_SIZE` | Configures authenticated sessions for phase-based modes; blank means 2 for `prototype` and one session per actor for seeded workloads |
-| `RUN_DURATION_MINUTES` | Caps diagnostic duration |
-| `STEADY_STATE_MINUTES` | Configures the prototype and performance measured steady state; defaults to 30 minutes |
-| `ACTION_PACE_SECONDS` | Configures each actor's minimum action-start interval; defaults to 60 seconds |
-| `ACTION_SPREAD_SECONDS` | Configures deterministic initial actor offsets; defaults to 60 seconds and zero requests a burst |
-| `RESET_DATABASE` | Optionally restores the masked Test baseline before seeding; ignored by `prototype/read-only` |
+| `RUN_MODE` | Selects `framework-proof`, `application-diagnostic` or `performance` |
+| `MAX_USERS` | Configures diagnostic actors from 1 to 500; ignored by proof and performance modes |
+| `SESSION_POOL_SIZE` | Configures authenticated workload sessions from 1 to the actor count; blank means one per diagnostic actor or 100 in performance mode |
+| `AUTHENTICATION_RATE_PER_SECOND` | Configures workload SSO injection above 0 and no more than 1 journey per second; defaults to 0.15 and is ignored by proof mode |
+| `RUN_DURATION_MINUTES` | Configures the measured workload window from 1 to 70 minutes; defaults to 30 and is ignored by proof mode |
+| `ACTION_PACE_SECONDS` | Configures each workload actor's minimum action-start interval from 60 to 3,600 seconds; defaults to 60 |
+| `ACTION_SPREAD_SECONDS` | Configures deterministic initial actor offsets from 0 to 3,600 seconds; defaults to 60 and zero requests a burst |
+| `RESET_DATABASE` | Optionally restores the masked Test baseline before seeding; destructive and disabled by default |
 
 The seeded-mode execution order is:
 
@@ -355,56 +350,16 @@ The seeded-mode execution order is:
 - Uses one authenticated session per actor when `SESSION_POOL_SIZE` is blank;
   an explicit smaller value enables staged pooled-write diagnosis.
 
-### `prototype`
-
-- Uses `PROTOTYPE_WORKLOAD=read-only` as the safe default control or
-  `PROTOTYPE_WORKLOAD=seeded-mixed` for the staged pooled-write experiment.
-- Authenticates only `SESSION_POOL_SIZE` sessions, defaulting to two at one SSO
-  journey per second. The same authentication-rate control applies to both
-  prototype workload variants.
-- Starts `MAX_USERS` concurrent-access actors, defaulting to ten. They wait
-  without HTTP traffic until the complete session pool is ready.
-- Assigns pool entries round-robin into separate Gatling actor cookie jars and
-  verifies `/sso/me` for every actor without another SSO journey.
-- Gives every actor a stable initial offset across `ACTION_SPREAD_SECONDS` after
-  its pooled session validates.
-- In `read-only`, begins the search workload and records pre-target searches
-  under `Prototype_Ramp_Up_Application_List_Search`.
-- In `seeded-mixed`, seeds isolated ramp-up and measured allocations before SSO,
-  then runs each actor's deterministic mixed-action plan. Authentication state
-  may be shared; mutable feeder rows and actor plan positions are never shared.
-- Opens one common measured window when all actors are ready without restarting
-  them. Subsequent actions use measured groups; the read-only control uses
-  `AppReg_030_Application_List_Search`.
-- Defaults to a 15-minute authentication setup deadline, 30-minute measured
-  window, 60-second action pace, 60-second action spread and 60-second
-  completion grace. These controls are configurable with the parameters and
-  system properties documented in `README.md` and are logged before
-  authentication starts.
-- Stops starting actions at the common measured deadline.
-- In `read-only`, uses elapsed group duration and asserts that measured requests
-  are 100% successful and p95 is less than five seconds.
-- In `seeded-mixed`, asserts each sampled operation's retry-adjusted logical p95
-  against its classified `NFR006` or `NFR007` threshold and reports unsampled
-  operations as not measured.
-- Applies bounded 502/504 recovery to GET requests only. Recovered attempt time
-  and delay are excluded from logical NFR timing; writes are never retried.
-- Requires 100% success globally so authentication and ramp-up failures still
-  fail the run.
-- Reports actor count, authenticated pool size, SSO journeys and reuse ratio,
-  and explicitly does not claim distinct-user or distinct-session equivalence.
-- Prints prominent configuration and phase banners once per transition.
-
 ### `performance`
 
 - Uses the `performance` profile's action mix.
-- Requests 500 actors. A blank `SESSION_POOL_SIZE` authenticates 500 accounts as
-  the control; an explicit smaller pool enables staged session reuse.
-- Uses `STEADY_STATE_MINUTES`, defaulting to 30 and capped at the profile's
+- Requests 500 actors. A blank `SESSION_POOL_SIZE` authenticates the canonical
+  100-session pool; an explicit value can select another pool size.
+- Uses `RUN_DURATION_MINUTES`, defaulting to 30 and capped at the profile's
   70-minute envelope.
-- Defaults to a 15-minute authentication setup deadline, 60-second action pace,
-  60-second initial action spread and 60-second completion grace; all effective
-  values are logged.
+- Defaults to 0.15 authentication journeys per second, a 15-minute setup
+  deadline, 60-second action pace, 60-second initial action spread and 60-second
+  completion grace; all effective values are logged.
 - Runs the pooled-session phase-based `AppRegWorkloadSimulation`.
 
 The properties file also contains a ten-user, five-minute `validation` profile,
@@ -419,9 +374,10 @@ not the deterministic mixed workload.
 
 ## Reports and diagnostics
 
-Gatling reports are generated below `build/reports/gatling/`. Both Jenkins
-pipelines archive the report directories and publish an HTML index, including
-after a failed run.
+Gatling reports are generated below `build/reports/gatling/`. Workload runs also
+retain `workload-nfr-summary.txt`, whose classification distinguishes NFR timing,
+workload functional and framework/setup failures. Both Jenkins pipelines archive
+the report directories and publish an HTML index, including after a failed run.
 
 Selected HTTP failures emit sanitised request, status and session-state
 diagnostics. Optional SSO diagnostics summarise continuation-page shape without
