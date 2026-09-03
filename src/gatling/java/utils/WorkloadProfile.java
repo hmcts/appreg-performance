@@ -16,6 +16,7 @@ public record WorkloadProfile(
     String name,
     int concurrentUsers,
     int sessionPoolSize,
+    int authenticationSpareUsers,
     int durationMinutes,
     int actionsPerUser,
     int authenticationRampUpSeconds,
@@ -36,12 +37,15 @@ public record WorkloadProfile(
   private static final double MINIMUM_ACTION_PACE_SECONDS = 60.0;
   private static final double MAXIMUM_ACTION_PACE_SECONDS = 3_600.0;
   private static final int DEFAULT_AUTHENTICATION_SETUP_TIMEOUT_MINUTES = 15;
+  private static final int DEFAULT_AUTHENTICATION_SPARE_USERS = 10;
   private static final double DEFAULT_ACTION_PACE_SECONDS = 60.0;
   private static final double DEFAULT_ACTION_SPREAD_SECONDS = 60.0;
   private static final int DEFAULT_RAMP_DOWN_GRACE_SECONDS = 60;
   private static final String MAX_USERS_PROPERTY = "appRegMaxUsers";
   private static final String DURATION_MINUTES_PROPERTY = "appRegDurationMinutes";
   private static final String SESSION_POOL_SIZE_PROPERTY = "appRegWorkloadSessionPoolSize";
+  private static final String AUTHENTICATION_SPARE_USERS_PROPERTY =
+      "appRegWorkloadAuthenticationSpareUsers";
   private static final String AUTHENTICATION_RATE_PER_SECOND_PROPERTY =
       "appRegWorkloadAuthenticationRatePerSecond";
   private static final String SETUP_TIMEOUT_MINUTES_PROPERTY =
@@ -61,6 +65,12 @@ public record WorkloadProfile(
     if (sessionPoolSize < 1 || sessionPoolSize > concurrentUsers) {
       throw new IllegalArgumentException("Workload session-pool size must be between 1 and the actor count");
     }
+    if (authenticationSpareUsers < 0
+        || sessionPoolSize + authenticationSpareUsers > MAX_TEST_ACCOUNTS) {
+      throw new IllegalArgumentException(
+          "Workload session-pool size plus spare authentication users must be between 1 and "
+              + MAX_TEST_ACCOUNTS);
+    }
     requireMinutes("Workload duration", durationMinutes);
     requireMinutes("Workload authentication setup timeout", authenticationSetupTimeoutMinutes);
     requireActionPace(actionPaceSeconds);
@@ -71,7 +81,7 @@ public record WorkloadProfile(
     if (actionsPerUser != durationMinutes) {
       throw new IllegalArgumentException("Workload currently reserves one measured action per user per minute");
     }
-    if (authenticationRampUpSeconds < minimumAuthenticationRampUpSeconds(sessionPoolSize)) {
+    if (authenticationRampUpSeconds < minimumAuthenticationRampUpSeconds(authenticationCandidateCount())) {
       throw new IllegalArgumentException(
           "Workload login ramp must allow one login every " + LOGIN_INTERVAL_SECONDS + " seconds");
     }
@@ -110,15 +120,21 @@ public record WorkloadProfile(
     int configuredUsers = positive(properties, name + ".concurrent_users");
     int concurrentUsers = cappedUsers(configuredUsers);
     int sessionPoolSize = integerProperty(SESSION_POOL_SIZE_PROPERTY, concurrentUsers);
+    int authenticationSpareUsers = integerProperty(
+        AUTHENTICATION_SPARE_USERS_PROPERTY,
+        Math.min(DEFAULT_AUTHENTICATION_SPARE_USERS, MAX_TEST_ACCOUNTS - sessionPoolSize));
+    int authenticationCandidateCount = Math.addExact(sessionPoolSize, authenticationSpareUsers);
     int configuredDurationMinutes = positive(properties, name + ".duration_minutes");
     int durationMinutes = cappedDuration(configuredDurationMinutes);
     int actionsPerUser = durationMinutes;
     int configuredLoginRampUpSeconds = positive(properties, name + ".login_ramp_up_seconds");
     String authenticationRateValue = System.getProperty(AUTHENTICATION_RATE_PER_SECOND_PROPERTY);
     int authenticationRampUpSeconds = authenticationRateValue == null
-        ? Math.min(configuredLoginRampUpSeconds, minimumAuthenticationRampUpSeconds(sessionPoolSize))
+        ? Math.min(
+            configuredLoginRampUpSeconds,
+            minimumAuthenticationRampUpSeconds(authenticationCandidateCount))
         : authenticationRampUpSeconds(
-            sessionPoolSize,
+            authenticationCandidateCount,
             doubleProperty(
                 AUTHENTICATION_RATE_PER_SECOND_PROPERTY, DEFAULT_AUTHENTICATION_RATE_PER_SECOND));
     int setupTimeoutMinutes = integerProperty(
@@ -144,6 +160,7 @@ public record WorkloadProfile(
         name,
         concurrentUsers,
         sessionPoolSize,
+        authenticationSpareUsers,
         durationMinutes,
         actionsPerUser,
         authenticationRampUpSeconds,
@@ -160,6 +177,10 @@ public record WorkloadProfile(
 
   public static int minimumAuthenticationRampUpSeconds(int sessions) {
     return (int) Math.ceil(sessions * LOGIN_INTERVAL_SECONDS);
+  }
+
+  public int authenticationCandidateCount() {
+    return Math.addExact(sessionPoolSize, authenticationSpareUsers);
   }
 
   private static int authenticationRampUpSeconds(int sessions, double ratePerSecond) {
@@ -448,6 +469,7 @@ public record WorkloadProfile(
 
   /** Small dependency-free check for ramp capacity and deterministic scaling. */
   public static void main(String[] args) {
+    AuthenticatedSessionPool.selfCheck();
     GatewayRetryPolicy.selfCheck();
     WorkloadAction.selfCheck();
     WorkloadNfrMetrics.selfCheck();
@@ -455,8 +477,8 @@ public record WorkloadProfile(
     if (maximumActionsPerUser(15, 60) != 15 || maximumActionsPerUser(15, 120) != 8) {
       throw new IllegalStateException("Workload ramp capacity calculation failed");
     }
-    if (authenticationRampUpSeconds(100, 0.5) != 200
-        || authenticationRampUpSeconds(100, 0.15) != 667) {
+    if (authenticationRampUpSeconds(110, 0.5) != 220
+        || authenticationRampUpSeconds(110, 0.15) != 734) {
       throw new IllegalStateException("Workload authentication rate calculation failed");
     }
     expectInvalid(() -> authenticationRampUpSeconds(100, 0));
@@ -487,6 +509,7 @@ public record WorkloadProfile(
         1,
         1,
         1,
+        2,
         15,
         60,
         60,
@@ -504,6 +527,7 @@ public record WorkloadProfile(
         "validation",
         2,
         3,
+        0,
         1,
         1,
         3,

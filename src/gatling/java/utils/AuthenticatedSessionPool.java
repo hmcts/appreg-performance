@@ -8,26 +8,38 @@ import java.util.Set;
 /** Retains authenticated AppReg cookie material in memory for round-robin actor assignment. */
 public final class AuthenticatedSessionPool {
   private final int capacity;
+  private final int candidateCount;
   private final List<SessionMaterial> sessions = new ArrayList<>();
   private final Set<String> sessionCookieValues = new HashSet<>();
   private int completedAuthenticationJourneys;
+  private int failedAuthenticationJourneys;
 
-  public AuthenticatedSessionPool(int capacity) {
+  public AuthenticatedSessionPool(int capacity, int spareCandidates) {
     if (capacity < 1) throw new IllegalArgumentException("Session-pool capacity must be positive");
+    if (spareCandidates < 0) {
+      throw new IllegalArgumentException("Spare authentication candidate count must not be negative");
+    }
     this.capacity = capacity;
+    this.candidateCount = Math.addExact(capacity, spareCandidates);
   }
 
-  /** Adds one independently authenticated session without logging either cookie value. */
-  public synchronized void add(String sessionCookieValue, String xsrfTokenValue) {
-    requireValue("AppReg session cookie", sessionCookieValue);
-    requireValue("XSRF token", xsrfTokenValue);
-    if (sessions.size() == capacity) {
-      throw new IllegalStateException("The authenticated session pool is already full");
+  /** Records one candidate and atomically retains valid cookie material while the pool needs it. */
+  public synchronized boolean completeAuthenticationJourney(
+      String sessionCookieValue, String xsrfTokenValue) {
+    if (completedAuthenticationJourneys == candidateCount) {
+      throw new IllegalStateException("All configured authentication candidates are already complete");
     }
-    if (!sessionCookieValues.add(sessionCookieValue)) {
-      throw new IllegalStateException("The authenticated session pool received a duplicate AppReg session");
+    completedAuthenticationJourneys++;
+    if (sessionCookieValue == null || sessionCookieValue.isBlank()
+        || xsrfTokenValue == null || xsrfTokenValue.isBlank()
+        || sessionCookieValues.contains(sessionCookieValue)) {
+      failedAuthenticationJourneys++;
+      return false;
     }
+    if (ready()) return false;
+    sessionCookieValues.add(sessionCookieValue);
     sessions.add(new SessionMaterial(sessionCookieValue, xsrfTokenValue));
+    return true;
   }
 
   public synchronized boolean ready() {
@@ -38,21 +50,25 @@ public final class AuthenticatedSessionPool {
     return sessions.size();
   }
 
-  /** Records either a successful or failed configured authentication journey. */
-  public synchronized void recordAuthenticationJourneyCompleted() {
-    if (completedAuthenticationJourneys == capacity) {
-      throw new IllegalStateException("All configured authentication journeys are already complete");
-    }
-    completedAuthenticationJourneys++;
+  public synchronized boolean authenticationRequired() {
+    return !ready() && !authenticationFailed();
   }
 
   public synchronized int completedAuthenticationJourneys() {
     return completedAuthenticationJourneys;
   }
 
-  /** True when completed failures mean the remaining fixed candidates cannot fill the pool. */
+  public synchronized int failedAuthenticationJourneys() {
+    return failedAuthenticationJourneys;
+  }
+
+  public int candidateCount() {
+    return candidateCount;
+  }
+
+  /** True when even every remaining candidate succeeding could no longer fill the pool. */
   public synchronized boolean authenticationFailed() {
-    int remainingAuthenticationJourneys = capacity - completedAuthenticationJourneys;
+    int remainingAuthenticationJourneys = candidateCount - completedAuthenticationJourneys;
     return sessions.size() + remainingAuthenticationJourneys < capacity;
   }
 
@@ -64,12 +80,12 @@ public final class AuthenticatedSessionPool {
   }
 
   static void selfCheck() {
-    var pool = new AuthenticatedSessionPool(2);
+    var pool = new AuthenticatedSessionPool(2, 1);
     if (pool.ready() || pool.size() != 0) {
       throw new IllegalStateException("A new authenticated session pool must be empty");
     }
-    pool.add("session-one", "xsrf-one");
-    pool.add("session-two", "xsrf-two");
+    pool.completeAuthenticationJourney("session-one", "xsrf-one");
+    pool.completeAuthenticationJourney("session-two", "xsrf-two");
     if (!pool.ready() || pool.size() != 2) {
       throw new IllegalStateException("The authenticated session pool did not reach capacity");
     }
@@ -79,44 +95,35 @@ public final class AuthenticatedSessionPool {
         || !"xsrf-two".equals(pool.sessionForActor(3).xsrfTokenValue())) {
       throw new IllegalStateException("Authenticated sessions were not assigned round-robin");
     }
-    pool.recordAuthenticationJourneyCompleted();
-    pool.recordAuthenticationJourneyCompleted();
-    if (pool.completedAuthenticationJourneys() != 2 || pool.authenticationFailed()) {
+    if (pool.completedAuthenticationJourneys() != 2 || pool.authenticationFailed()
+        || pool.authenticationRequired()) {
       throw new IllegalStateException("A complete authenticated session pool must not report failure");
     }
-    expectInvalid(pool::recordAuthenticationJourneyCompleted);
-    expectInvalid(() -> new AuthenticatedSessionPool(0));
+    if (pool.completeAuthenticationJourney("session-three", "xsrf-three")) {
+      throw new IllegalStateException("A surplus successful candidate must not extend a full pool");
+    }
+    expectInvalid(() -> pool.completeAuthenticationJourney("session-four", "xsrf-four"));
+    expectInvalid(() -> new AuthenticatedSessionPool(0, 0));
+    expectInvalid(() -> new AuthenticatedSessionPool(1, -1));
     expectInvalid(() -> pool.sessionForActor(-1));
-    expectInvalid(() -> pool.add("session-three", "xsrf-three"));
 
-    var duplicatePool = new AuthenticatedSessionPool(2);
-    duplicatePool.add("session-one", "xsrf-one");
-    expectInvalid(() -> duplicatePool.add("session-one", "xsrf-two"));
-
-    var missingValuePool = new AuthenticatedSessionPool(1);
-    expectInvalid(() -> missingValuePool.add("", "xsrf"));
-    expectInvalid(() -> missingValuePool.add("session", null));
-
-    var incompletePool = new AuthenticatedSessionPool(2);
-    incompletePool.add("session-one", "xsrf-one");
-    incompletePool.recordAuthenticationJourneyCompleted();
-    if (incompletePool.authenticationFailed()) {
-      throw new IllegalStateException("An incomplete candidate population can still fill the pool");
+    var recoveredPool = new AuthenticatedSessionPool(2, 1);
+    recoveredPool.completeAuthenticationJourney(null, null);
+    if (recoveredPool.authenticationFailed() || !recoveredPool.authenticationRequired()) {
+      throw new IllegalStateException("A spare candidate must keep the session target reachable");
     }
-    incompletePool.recordAuthenticationJourneyCompleted();
-    if (!incompletePool.authenticationFailed()) {
-      throw new IllegalStateException("An exhausted candidate population must fail immediately");
+    recoveredPool.completeAuthenticationJourney("session-one", "xsrf-one");
+    recoveredPool.completeAuthenticationJourney("session-two", "xsrf-two");
+    if (!recoveredPool.ready() || recoveredPool.failedAuthenticationJourneys() != 1) {
+      throw new IllegalStateException("A spare candidate did not recover the session pool");
     }
 
-    var failedCandidatePool = new AuthenticatedSessionPool(2);
-    failedCandidatePool.recordAuthenticationJourneyCompleted();
-    if (!failedCandidatePool.authenticationFailed()) {
-      throw new IllegalStateException("A fixed pool must fail as soon as its target is unreachable");
+    var exhaustedPool = new AuthenticatedSessionPool(2, 1);
+    exhaustedPool.completeAuthenticationJourney(null, null);
+    exhaustedPool.completeAuthenticationJourney(null, null);
+    if (!exhaustedPool.authenticationFailed() || exhaustedPool.authenticationRequired()) {
+      throw new IllegalStateException("An unreachable session target must fail immediately");
     }
-  }
-
-  private static void requireValue(String name, String value) {
-    if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " is missing");
   }
 
   private static void expectInvalid(Runnable action) {

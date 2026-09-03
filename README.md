@@ -108,6 +108,7 @@ environment and data scope have been explicitly approved.
 | `RUN_MODE` | Select `framework-proof`, `application-diagnostic` or `performance` |
 | `MAX_USERS` | Concurrent actors for `application-diagnostic`, from 1 to 500; ignored by the other modes |
 | `SESSION_POOL_SIZE` | Authenticated sessions shared by actors, from 1 to the actor count; blank means one per diagnostic actor or 100 in `performance` |
+| `AUTHENTICATION_SPARE_USERS` | Additional SSO candidates available to replace failed workload authentications; defaults to 10 and required sessions plus spares must not exceed 500 |
 | `AUTHENTICATION_RATE_PER_SECOND` | Progressive workload SSO rate, greater than 0 and no more than 1; defaults to 0.15 and is ignored by `framework-proof` |
 | `RUN_DURATION_MINUTES` | Measured workload duration from 1 to 70 minutes; defaults to 30 and is ignored by `framework-proof` |
 | `ACTION_PACE_SECONDS` | Minimum interval between action starts, from 60 to 3,600 seconds; defaults to 60 and is ignored by `framework-proof` |
@@ -155,11 +156,13 @@ from 1 to 70 minutes, and actors multiplied by minutes must not exceed 35,000.
 
 During SSO, only the final authenticated AppReg `/` and `/sso/me` validation
 GETs retry once after HTTP 502/504. No Entra, credential, KMSI or callback step
-is retried. As soon as a completed SSO failure means the remaining fixed
-candidates cannot fill the requested pool, the waiting actors exit rather than
-waiting for the remaining setup deadline. Jenkins validates that the configured
-authentication rate can inject the complete session pool and apply the actor
-spread before the internal setup deadline.
+is retried. Ten additional candidate users are available by default to replace
+failed whole SSO journeys without changing the requested session-pool size.
+Once the pool is full, later scheduled candidates exit without attempting SSO.
+As soon as completed failures mean even every remaining candidate succeeding
+cannot fill the pool, Gatling stops the load generator and the run fails.
+Jenkins validates the complete candidate ramp plus actor spread against the
+internal setup deadline.
 
 A local seeded-mixed run requires a freshly prepared `ramp-up` and `measured`
 feeder directory and explicit approval for its persistent Test-data changes:
@@ -170,6 +173,7 @@ feeder directory and explicit approval for its persistent Test-data changes:
   -DappRegMaxUsers=10 \
   -DappRegDurationMinutes=5 \
   -DappRegWorkloadSessionPoolSize=2 \
+  -DappRegWorkloadAuthenticationSpareUsers=10 \
   -DappRegWorkloadAuthenticationRatePerSecond=0.15 \
   -DappRegWorkloadActionPaceSeconds=60 \
   -DappRegWorkloadActionSpreadSeconds=60 \
@@ -188,8 +192,8 @@ actor-specific deterministic plans. Before the complete actor target is ready,
 actions appear below the `AppReg_Ramp_Up` group and consume only
 `build/workload-data/ramp-up` feeders. The same actors continue into the
 measured window using the separately reserved `build/workload-data/measured`
-feeders. There is no shared gate, workload release, spare account or final
-authentication retry.
+feeders. Spare candidates replace failed pool authentications only; they do not
+create extra sessions or retry the failed state-changing SSO journey.
 
 Pooling shares authentication state, not test data: every actor retains its own
 plan index and every mutable feeder row remains queue-backed and single-use.
@@ -212,6 +216,7 @@ authentication, actor setup, measured steady state and ramp-down.
 | System property | Default | Purpose |
 | --- | --- | --- |
 | `appRegWorkloadSessionPoolSize` | Actor count | Authenticated sessions assigned round-robin; setting it equal to the actor count reproduces one session per actor |
+| `appRegWorkloadAuthenticationSpareUsers` | Up to `10`, within the 500-account ceiling | Additional candidate identities available to replace failed SSO journeys |
 | `appRegWorkloadAuthenticationRatePerSecond` | `1` in Java; `0.15` through Jenkins and supplied runners | Progressive SSO journeys per second; must be greater than 0 and no more than 1 |
 | `appRegWorkloadAuthenticationSetupTimeoutMinutes` | `15` | Deadline for authenticating the pool and readying every actor |
 | `appRegWorkloadActionPaceSeconds` | `60` | Minimum interval between action starts; values below 60 are rejected |
@@ -222,9 +227,10 @@ authentication, actor setup, measured steady state and ramp-down.
 | `appRegBulkUploadPollTimeoutSeconds` | `30` | Maximum wait for a bulk-upload job to leave `RECEIVED`, `VALIDATING` or `PROCESSING` |
 | `gatling.data.console.writePeriod` | `5` directly; `10` through supplied runners | Seconds between Gatling console-statistics blocks |
 
-Jenkins supplies the pool, authentication rate, pace and spread from
-`SESSION_POOL_SIZE`, `AUTHENTICATION_RATE_PER_SECOND`, `ACTION_PACE_SECONDS`
-and `ACTION_SPREAD_SECONDS`. The setup deadline and
+Jenkins supplies the pool, spare candidates, authentication rate, pace and
+spread from `SESSION_POOL_SIZE`, `AUTHENTICATION_SPARE_USERS`,
+`AUTHENTICATION_RATE_PER_SECOND`, `ACTION_PACE_SECONDS` and
+`ACTION_SPREAD_SECONDS`. The setup deadline and
 completion grace remain internal environment defaults named
 `WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES` and
 `WORKLOAD_RAMP_DOWN_GRACE_SECONDS`. Jenkins can override the internal GET retry

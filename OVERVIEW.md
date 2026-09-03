@@ -159,7 +159,7 @@ a feeder.
 `AppRegWorkloadSimulation` now separates pool authentication from the Gatling
 actors that perform workload actions:
 
-1. A configurable pool population is injected at a configurable SSO rate.
+1. A configurable pool population plus bounded spare candidates is injected at a configurable SSO rate.
    Jenkins and the supplied local runners default to 0.15 journeys per second;
    the Java property itself defaults to one per second when invoked directly.
 2. Every pool entry receives one dedicated identity and independent AppReg
@@ -176,17 +176,20 @@ actors that perform workload actions:
 7. When the final required actor is ready, the common measured window
    opens. Existing actors retain their cadence; their next actions use the
    measured groups and measured-only feeder rows.
-8. As soon as a completed SSO failure means the remaining fixed candidates
-   cannot fill the pool, waiting actors exit and the run fails. Other failure to
+8. A failed SSO journey consumes a spare candidate without increasing the
+   requested pool size. Once the pool is full, unused candidates skip SSO. As
+   soon as the remaining candidates cannot fill the pool, Gatling stops the
+   load generator and the run fails. Other failure to
    authenticate the pool and ready every actor within the setup deadline also
    fails the run.
 9. At the measured deadline, no new action starts and in-flight work must finish
    within the completion grace.
 
-There are no spare identities, whole-journey authentication-retry population,
-shared gate or post-login workload release. Setting the pool size equal to the
-actor count reproduces one independently authenticated session per actor.
-`SsoAuthentication` accepts at most 500 accounts.
+There is no whole-journey retry population, shared gate or post-login workload
+release. A bounded spare-candidate allowance replaces failed authentications
+with different identities. Setting the pool size equal to the actor count
+reproduces one independently authenticated session per actor.
+`SsoAuthentication` accepts at most 500 candidate accounts in total.
 The Jenkins seed stage still runs before Gatling and is not rolled back if
 authentication later fails.
 
@@ -306,13 +309,14 @@ stage. Reset is optional and disabled by default.
 
 ## CNP Jenkins execution
 
-`Jenkinsfile_CNP` exposes eight parameters:
+`Jenkinsfile_CNP` exposes nine parameters:
 
 | Parameter | Behaviour |
 | --- | --- |
 | `RUN_MODE` | Selects `framework-proof`, `application-diagnostic` or `performance` |
 | `MAX_USERS` | Configures diagnostic actors from 1 to 500; ignored by proof and performance modes |
 | `SESSION_POOL_SIZE` | Configures authenticated workload sessions from 1 to the actor count; blank means one per diagnostic actor or 100 in performance mode |
+| `AUTHENTICATION_SPARE_USERS` | Configures additional SSO candidates from 0 to 500 minus the session-pool size; defaults to 10 and is ignored by proof mode |
 | `AUTHENTICATION_RATE_PER_SECOND` | Configures workload SSO injection above 0 and no more than 1 journey per second; defaults to 0.15 and is ignored by proof mode |
 | `RUN_DURATION_MINUTES` | Configures the measured workload window from 1 to 70 minutes; defaults to 30 and is ignored by proof mode |
 | `ACTION_PACE_SECONDS` | Configures each workload actor's minimum action-start interval from 60 to 3,600 seconds; defaults to 60 |

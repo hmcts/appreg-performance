@@ -12,65 +12,73 @@ properties([
     choice(
       name: 'RUN_MODE',
       choices: ['framework-proof', 'application-diagnostic', 'performance'],
-      description: 'Select the execution type.\n'
-        + 'framework-proof: Run twelve business proofs sequentially with one authenticated session.\n'
-        + 'application-diagnostic: Run a configurable bounded seeded workload.\n'
+      description: 'Select the execution type.<br/>'
+        + 'framework-proof: Run twelve business proofs sequentially with one authenticated session.<br/>'
+        + 'application-diagnostic: Run a configurable bounded seeded workload.<br/>'
         + 'performance: Run the canonical seeded 500-actor NFR workload.'
     ),
     string(
       name: 'MAX_USERS',
       defaultValue: '10',
-      description: 'Concurrent workload actors.\n'
-        + 'framework-proof: Not used; the proof uses one actor.\n'
-        + 'application-diagnostic: Between 1 and 500; default 10.\n'
+      description: 'Concurrent workload actors.<br/>'
+        + 'framework-proof: Not used; the proof uses one actor.<br/>'
+        + 'application-diagnostic: Between 1 and 500; default 10.<br/>'
         + 'performance: Not used; always 500.'
     ),
     string(
       name: 'SESSION_POOL_SIZE',
       defaultValue: '',
-      description: 'Authenticated sessions shared round-robin by workload actors.\n'
-        + 'framework-proof: Not used; the proof uses one session.\n'
-        + 'application-diagnostic: Between 1 and MAX_USERS; blank uses MAX_USERS.\n'
+      description: 'Authenticated sessions shared round-robin by workload actors.<br/>'
+        + 'framework-proof: Not used; the proof uses one session.<br/>'
+        + 'application-diagnostic: Between 1 and MAX_USERS; blank uses MAX_USERS.<br/>'
         + 'performance: Between 1 and 500; blank uses 100.'
+    ),
+    string(
+      name: 'AUTHENTICATION_SPARE_USERS',
+      defaultValue: '10',
+      description: 'Additional SSO candidates available when required sessions fail authentication.<br/>'
+        + 'framework-proof: Not used.<br/>'
+        + 'application-diagnostic: Between 0 and 500 minus SESSION_POOL_SIZE; default 10.<br/>'
+        + 'performance: Between 0 and 500 minus SESSION_POOL_SIZE; default 10.'
     ),
     string(
       name: 'AUTHENTICATION_RATE_PER_SECOND',
       defaultValue: '0.15',
-      description: 'Progressive SSO journeys started per second during workload setup.\n'
-        + 'framework-proof: Not used.\n'
-        + 'application-diagnostic: Greater than 0 and no more than 1; default 0.15.\n'
-        + 'performance: Greater than 0 and no more than 1; default 0.15 (about 667 seconds for 100 sessions).'
+      description: 'Progressive SSO journeys started per second during workload setup.<br/>'
+        + 'framework-proof: Not used.<br/>'
+        + 'application-diagnostic: Greater than 0 and no more than 1; default 0.15.<br/>'
+        + 'performance: Greater than 0 and no more than 1; default 0.15 (about 734 seconds for 110 candidates).'
     ),
     string(
       name: 'RUN_DURATION_MINUTES',
       defaultValue: '30',
-      description: 'Measured steady-state workload duration.\n'
-        + 'framework-proof: Not used.\n'
-        + 'application-diagnostic: Between 1 and 70 minutes; MAX_USERS multiplied by minutes must not exceed 35,000.\n'
+      description: 'Measured steady-state workload duration.<br/>'
+        + 'framework-proof: Not used.<br/>'
+        + 'application-diagnostic: Between 1 and 70 minutes; MAX_USERS multiplied by minutes must not exceed 35,000.<br/>'
         + 'performance: Between 1 and 70 minutes; default 30.'
     ),
     string(
       name: 'ACTION_PACE_SECONDS',
       defaultValue: '60',
-      description: 'Minimum interval between business-action starts for each workload actor.\n'
-        + 'framework-proof: Not used.\n'
-        + 'application-diagnostic: Between 60 and 3,600 seconds; default 60.\n'
+      description: 'Minimum interval between business-action starts for each workload actor.<br/>'
+        + 'framework-proof: Not used.<br/>'
+        + 'application-diagnostic: Between 60 and 3,600 seconds; default 60.<br/>'
         + 'performance: Between 60 and 3,600 seconds; default 60.'
     ),
     string(
       name: 'ACTION_SPREAD_SECONDS',
       defaultValue: '60',
-      description: 'Interval across which deterministic initial actor offsets are distributed.\n'
-        + 'framework-proof: Not used.\n'
-        + 'application-diagnostic: Between 0 and 3,600 seconds; default 60; zero starts all actors together.\n'
+      description: 'Interval across which deterministic initial actor offsets are distributed.<br/>'
+        + 'framework-proof: Not used.<br/>'
+        + 'application-diagnostic: Between 0 and 3,600 seconds; default 60; zero starts all actors together.<br/>'
         + 'performance: Between 0 and 3,600 seconds; default 60; zero starts all actors together.'
     ),
     booleanParam(
       name: 'RESET_DATABASE',
       defaultValue: false,
-      description: 'Restore the approved masked Test database baseline before seeding; destructive and disabled by default.\n'
-        + 'framework-proof: Applied before proof data is seeded when selected.\n'
-        + 'application-diagnostic: Applied before workload data is seeded when selected.\n'
+      description: 'Restore the approved masked Test database baseline before seeding; destructive and disabled by default.<br/>'
+        + 'framework-proof: Applied before proof data is seeded when selected.<br/>'
+        + 'application-diagnostic: Applied before workload data is seeded when selected.<br/>'
         + 'performance: Applied before workload data is seeded when selected.'
     )
   ])
@@ -225,6 +233,7 @@ def dbSeedCommand = '''
       -DappRegMaxUsers="$max_users" \
       -DappRegDurationMinutes="$run_duration_minutes" \
       -DappRegWorkloadSessionPoolSize="$SESSION_POOL_SIZE" \
+      -DappRegWorkloadAuthenticationSpareUsers="$AUTHENTICATION_SPARE_USERS" \
       -DappRegWorkloadAuthenticationRatePerSecond="$WORKLOAD_AUTHENTICATION_RATE_PER_SECOND" \
       -DappRegWorkloadAuthenticationSetupTimeoutMinutes="$WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES" \
       -DappRegWorkloadActionPaceSeconds="$WORKLOAD_ACTION_PACE_SECONDS" \
@@ -416,6 +425,7 @@ withNightlyPipeline(type, product, component) {
                     def runMode = params.RUN_MODE ?: 'framework-proof'
                     def diagnosticUsers = (params.MAX_USERS ?: '10').toString().trim()
                     def requestedSessionPoolSize = (params.SESSION_POOL_SIZE ?: '').toString().trim()
+                    def authenticationSpareUsers = (params.AUTHENTICATION_SPARE_USERS ?: '10').toString().trim()
                     def requestedDurationMinutes = (params.RUN_DURATION_MINUTES ?: '30').toString().trim()
                     def authenticationRateText = (params.AUTHENTICATION_RATE_PER_SECOND ?: '0.15').toString().trim()
                     def actionPaceSeconds = (params.ACTION_PACE_SECONDS ?: '60').toString().trim()
@@ -461,6 +471,11 @@ withNightlyPipeline(type, product, component) {
                             || sessionPoolSize.toInteger() > selectedRun.users.toInteger()) {
                             error "${runMode} requires SESSION_POOL_SIZE to be an integer from 1 to the actor count"
                         }
+                        if (!(authenticationSpareUsers ==~ /\d+/)
+                            || authenticationSpareUsers.toInteger() > 500
+                            || sessionPoolSize.toInteger() + authenticationSpareUsers.toInteger() > 500) {
+                            error 'AUTHENTICATION_SPARE_USERS must be an integer from 0 to 500 minus SESSION_POOL_SIZE'
+                        }
                         if (!(actionPaceSeconds ==~ /\d+/)
                             || actionPaceSeconds.toInteger() < 60
                             || actionPaceSeconds.toInteger() > 3600) {
@@ -487,7 +502,8 @@ withNightlyPipeline(type, product, component) {
                             error 'WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES must be from 1 to 1440'
                         }
                         def authenticationRampSeconds = Math.ceil(
-                            sessionPoolSize.toInteger() / authenticationRatePerSecond).toInteger()
+                            (sessionPoolSize.toInteger() + authenticationSpareUsers.toInteger())
+                                / authenticationRatePerSecond).toInteger()
                         if (authenticationRampSeconds + actionSpreadSeconds.toInteger()
                             >= workloadSetupTimeoutMinutes.toInteger() * 60) {
                             error 'Session authentication at AUTHENTICATION_RATE_PER_SECOND plus actor spread must finish before the setup timeout'
@@ -526,6 +542,7 @@ withNightlyPipeline(type, product, component) {
                     env.MAX_USERS = selectedRun.users
                     env.RUN_DURATION_MINUTES = selectedRun.minutes
                     env.SESSION_POOL_SIZE = sessionPoolSize
+                    env.AUTHENTICATION_SPARE_USERS = authenticationSpareUsers
                     env.WORKLOAD_AUTHENTICATION_RATE_PER_SECOND = authenticationRateText
                     env.WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES = workloadSetupTimeoutMinutes
                     env.WORKLOAD_ACTION_PACE_SECONDS = actionPaceSeconds
@@ -592,6 +609,7 @@ withNightlyPipeline(type, product, component) {
                                 -DappRegMaxUsers="$MAX_USERS" \
                                 -DappRegDurationMinutes="$RUN_DURATION_MINUTES" \
                                 -DappRegWorkloadSessionPoolSize="$SESSION_POOL_SIZE" \
+                                -DappRegWorkloadAuthenticationSpareUsers="$AUTHENTICATION_SPARE_USERS" \
                                 -DappRegWorkloadAuthenticationRatePerSecond="$WORKLOAD_AUTHENTICATION_RATE_PER_SECOND" \
                                 -DappRegWorkloadAuthenticationSetupTimeoutMinutes="$WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES" \
                                 -DappRegWorkloadActionPaceSeconds="$WORKLOAD_ACTION_PACE_SECONDS" \
@@ -639,6 +657,7 @@ withNightlyPipeline(type, product, component) {
                                 -DappRegMaxUsers="$MAX_USERS" \
                                 -DappRegDurationMinutes="$RUN_DURATION_MINUTES" \
                                 -DappRegWorkloadSessionPoolSize="$SESSION_POOL_SIZE" \
+                                -DappRegWorkloadAuthenticationSpareUsers="$AUTHENTICATION_SPARE_USERS" \
                                 -DappRegWorkloadAuthenticationRatePerSecond="$WORKLOAD_AUTHENTICATION_RATE_PER_SECOND" \
                                 -DappRegWorkloadAuthenticationSetupTimeoutMinutes="$WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES" \
                                 -DappRegWorkloadActionPaceSeconds="$WORKLOAD_ACTION_PACE_SECONDS" \
