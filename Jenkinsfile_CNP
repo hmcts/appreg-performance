@@ -435,7 +435,7 @@ withNightlyPipeline(type, product, component) {
                     def workloadGatewayGetRetries = (env.WORKLOAD_GATEWAY_GET_RETRIES ?: '1').toString().trim()
                     def workloadGatewayGetRetryDelaySeconds = (env.WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS ?: '1').toString().trim()
                     def workloadBulkUploadPollTimeoutSeconds = (env.WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS ?: '30').toString().trim()
-                    def gatlingConsoleWritePeriodSeconds = (env.GATLING_CONSOLE_WRITE_PERIOD_SECONDS ?: '10').toString().trim()
+                    def gatlingConsoleWritePeriodSeconds = (env.GATLING_CONSOLE_WRITE_PERIOD_SECONDS ?: '30').toString().trim()
                     def runModes = [
                         'application-diagnostic': [profile: 'performance', users: diagnosticUsers, minutes: requestedDurationMinutes, proofs: false, workload: true, seed: true],
                         'framework-proof':         [profile: 'smoke', users: '1', minutes: '1', proofs: true, workload: false, seed: true],
@@ -561,13 +561,16 @@ withNightlyPipeline(type, product, component) {
                     }
 
                     try {
-                        sh '''
+                        sh '''#!/bin/bash -xe
+                            set -o pipefail
                             export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
                             export PATH="$JAVA_HOME/bin:$PATH"
                             java -version
                             echo "Gatling console write period: $GATLING_CONSOLE_WRITE_PERIOD_SECONDS seconds"
 
-                            rm -f build/reports/gatling/workload-nfr-summary.txt
+                            mkdir -p build
+                            rm -f build/reports/gatling/workload-nfr-summary.txt \
+                              build/jenkins-gatling-console.log
 
                             if [ "$RUN_DB_SEED" = "true" ]; then
                               . build/seed-allocation.env
@@ -590,7 +593,9 @@ withNightlyPipeline(type, product, component) {
                               # One virtual user reuses one SSO session across the complete seeded proof set.
                               ./gradlew --no-daemon gatlingRun \
                                 -Dgatling.data.console.writePeriod="$GATLING_CONSOLE_WRITE_PERIOD_SECONDS" \
-                                --simulation simulations.FrameworkProofSimulation
+                                --simulation simulations.FrameworkProofSimulation \
+                                2>&1 | tee build/jenkins-gatling-console.log \
+                                | sed '/APPREG_TRACE_CONTEXT/d'
                             fi
 
                             if [ "$RUN_PERFTEST" = "true" ]; then
@@ -667,7 +672,9 @@ withNightlyPipeline(type, product, component) {
                                 -DappRegGatewayGetRetryDelaySeconds="$WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS" \
                                 -DappRegBulkUploadPollTimeoutSeconds="$WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS" \
                                 -DappRegPerformanceDataDirectory="$PWD/build/workload-data" \
-                                --simulation simulations.AppRegWorkloadSimulation
+                                --simulation simulations.AppRegWorkloadSimulation \
+                                2>&1 | tee build/jenkins-gatling-console.log \
+                                | sed '/APPREG_TRACE_CONTEXT/d'
                             fi
                         '''
                     } finally {
@@ -686,6 +693,8 @@ withNightlyPipeline(type, product, component) {
 def publishGatlingReports() {
     def reportsDirectory = 'build/reports/gatling'
     def nfrSummaryPath = "${reportsDirectory}/workload-nfr-summary.txt"
+
+    archiveArtifacts allowEmptyArchive: true, artifacts: 'build/jenkins-gatling-console.log'
 
     if (env.RUN_PERFTEST == 'true' && !fileExists(nfrSummaryPath)) {
         sh "mkdir -p ${reportsDirectory}"

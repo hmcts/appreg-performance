@@ -225,7 +225,7 @@ authentication, actor setup, measured steady state and ramp-down.
 | `appRegGatewayGetRetries` | `1` | Retries allowed for a GET that returns HTTP 502/504; `0` disables recovery |
 | `appRegGatewayGetRetryDelaySeconds` | `1` | Delay before a safe GET retry |
 | `appRegBulkUploadPollTimeoutSeconds` | `30` | Maximum wait for a bulk-upload job to leave `RECEIVED`, `VALIDATING` or `PROCESSING` |
-| `gatling.data.console.writePeriod` | `5` directly; `10` through supplied runners | Seconds between Gatling console-statistics blocks |
+| `gatling.data.console.writePeriod` | `5` directly; `10` through local runners; `30` through Jenkins | Seconds between Gatling console-statistics blocks |
 
 Jenkins supplies the pool, spare candidates, authentication rate, pace and
 spread from `SESSION_POOL_SIZE`, `AUTHENTICATION_SPARE_USERS`,
@@ -238,8 +238,11 @@ defaults with `WORKLOAD_GATEWAY_GET_RETRIES` and
 `WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS`. Bulk-upload completion polling uses
 `WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS`, defaulting to 30 seconds. Every
 effective value is logged before traffic begins. Jenkins and the local runners
-set the Gatling console period from `GATLING_CONSOLE_WRITE_PERIOD_SECONDS`,
-defaulting to 10 seconds.
+set the Gatling console period from `GATLING_CONSOLE_WRITE_PERIOD_SECONDS`.
+Local runners default to 10 seconds and Jenkins defaults to 30 seconds. Jenkins
+filters `APPREG_TRACE_CONTEXT` rows from the live console while retaining the
+complete unfiltered stream in the archived `build/jenkins-gatling-console.log`
+artifact.
 
 At the end of a seeded workload, the eye-catching `WORKLOAD NFR SUMMARY` is the
 authoritative response-time verdict. It reports every scheduled action's
