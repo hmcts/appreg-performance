@@ -18,8 +18,9 @@ public final class ApplicationListFailureLogger {
       Integer statusCode = session.getInt(STATUS_SESSION_KEY);
       if (statusCode != null && statusCode != 200) {
         LOGGER.warn(
-            "Application List GET failure: action={}, request={}, status={}, applicationListId={}",
-            action, requestName, statusCode, session.getString("applicationListId"));
+            "Application List GET failure: traceId={}, action={}, request={}, status={}, applicationListId={}",
+            AppRegTraceContext.currentTraceId(session), action, requestName, statusCode,
+            session.getString("applicationListId"));
       }
       return session;
     });

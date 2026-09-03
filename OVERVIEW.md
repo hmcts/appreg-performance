@@ -64,10 +64,10 @@ Current framework coverage is limited:
 | Requirement | Current coverage |
 | --- | --- |
 | `NFR001` | Not measured. |
-| `NFR004` | The read-only prototype has passed ten-actor runs with two, five and ten sessions, including a paced 15-minute two-session control. A five-minute seeded mixed run has also passed with ten actors sharing two sessions. A matching one-session-per-actor control, intermediate pooled-write load and 500 actors remain outstanding, and no degradation comparison has been agreed. |
+| `NFR004` | A repeated 30-minute seeded mixed run completed all 500 actors using 100 authenticated sessions, with all 69,372 HTTP requests successful. It did not meet `NFR004` because `other_operations` exceeded its `NFR006` p95 limit. No separate baseline-degradation comparison has been agreed. |
 | `NFR005` | Not measured. |
-| `NFR006` | Each scheduled simple workload operation has a logical p95 assertion against the two-second limit. Staged load evidence remains outstanding. |
-| `NFR007` | Each scheduled complex workload operation has a logical p95 assertion against the five-second limit. The Activity Audit report is not currently part of the mixed workload, and staged load evidence remains outstanding. |
+| `NFR006` | In the repeat at 500 actors, `close_list` passed at 277 ms p95 and `other_operations` failed at 2,533 ms p95 against the two-second limit. |
+| `NFR007` | Every classified mixed-workload action that ran in the 500-actor repeat was functionally successful and below the five-second p95 limit; `bulk_upload` recorded 2,667 ms. The Activity Audit report is not currently part of the mixed workload. |
 
 ### Workload operation classification
 
@@ -75,21 +75,22 @@ The acceptance boundary is the complete named Gatling group, including the
 supporting requests that form that business action. Authentication, unrelated
 setup and pre-target ramp-up traffic are excluded. The phase-specific prototype
 confirms that Gatling reports and asserts the intended elapsed group duration.
+`WorkloadAction` is the source of truth for the classifications and limits below.
 
 | Workload action | Gatling group | Classification | p95 limit |
 | --- | --- | --- | --- |
-| `update_application` | `AppReg_040_Application_Update` | `NFR006` simple single-application operation | Less than 2 seconds |
-| `add_application` | `AppReg_050_Application_Add` | `NFR006` simple single-application operation | Less than 2 seconds |
-| `result_multiple` | `AppReg_060_Applications_Bulk_Result` | `NFR007` complex multi-application operation | Less than 5 seconds |
-| `update_result` | `AppReg_070_Application_Result_Update` | `NFR006` simple single-application operation | Less than 2 seconds |
-| `create_list` | `AppReg_020_Application_List_Create` | `NFR006` simple single-list operation | Less than 2 seconds |
-| `update_list` | `AppReg_080_Application_List_Update` | `NFR006` simple single-list operation | Less than 2 seconds |
-| `close_list` | `AppReg_090_Application_List_Close` | `NFR006` simple single-list operation | Less than 2 seconds |
-| `result_application` | `AppReg_065_Application_Result` | `NFR006` simple single-application operation | Less than 2 seconds |
-| `bulk_officials` | `AppReg_065_Applications_Bulk_Officials` | `NFR007` complex multi-application operation | Less than 5 seconds |
-| `bulk_fees` | `AppReg_070_Applications_Bulk_Fees` | `NFR007` complex multi-application operation | Less than 5 seconds |
-| `bulk_upload` | `AppReg_085_Applications_Bulk_Upload` | `NFR007` complex asynchronous bulk operation | Less than 5 seconds |
-| `other_operations` | `AppReg_030_Application_List_Search` | `NFR007` complex search operation | Less than 5 seconds |
+| `update_application` | `AppReg_040_Application_Update` | `NFR007` | Less than 5 seconds |
+| `add_application` | `AppReg_050_Application_Add` | `NFR007` | Less than 5 seconds |
+| `result_multiple` | `AppReg_060_Applications_Bulk_Result` | `NFR007` | Less than 5 seconds |
+| `update_result` | `AppReg_070_Application_Result_Update` | `NFR007` | Less than 5 seconds |
+| `create_list` | `AppReg_020_Application_List_Create` | `NFR007` | Less than 5 seconds |
+| `update_list` | `AppReg_080_Application_List_Update` | `NFR007` | Less than 5 seconds |
+| `close_list` | `AppReg_090_Application_List_Close` | `NFR006` | Less than 2 seconds |
+| `result_application` | `AppReg_065_Application_Result` | `NFR007` | Less than 5 seconds |
+| `bulk_officials` | `AppReg_065_Applications_Bulk_Officials` | `NFR007` | Less than 5 seconds |
+| `bulk_fees` | `AppReg_070_Applications_Bulk_Fees` | `NFR007` | Less than 5 seconds |
+| `bulk_upload` | `AppReg_085_Applications_Bulk_Upload` | `NFR007` | Less than 5 seconds |
+| `other_operations` | `AppReg_030_Application_List_Search` | `NFR006` | Less than 2 seconds |
 
 The Activity Audit report proof group,
 `AppReg_090_Reports_Activity_Audit`, is also a complex `NFR007` operation when
@@ -145,7 +146,9 @@ authenticated `/application-lists` API.
 `SsoAuthentication.login()` replays the AppReg and Microsoft Entra HTTP flow. It
 extracts the changing Entra continuation values, submits the configured account
 credentials, follows the AppReg callback, verifies the authenticated home page
-and checks `/sso/me`.
+and checks `/sso/me`. Only the final read-only AppReg `/` and `/sso/me` requests
+retry once after HTTP 502/504; Entra, password, KMSI and callback requests are
+never retried.
 
 Credentials come from environment variables. Account names may be generated
 from a `{index}` template so each virtual user receives a dedicated identity.
@@ -157,7 +160,8 @@ a feeder.
 `AppRegWorkloadSimulation` now separates pool authentication from the Gatling
 actors that perform workload actions:
 
-1. A configurable pool population is injected at one SSO journey per second.
+1. A configurable pool population is injected at a configurable SSO rate,
+   defaulting to one journey per second.
 2. Every pool entry receives one dedicated identity and independent AppReg
    session.
 3. Workload actors wait without sending HTTP traffic until the complete pool is
@@ -172,14 +176,16 @@ actors that perform workload actions:
 7. When the final required actor is ready, the common measured window
    opens. Existing actors retain their cadence; their next actions use the
    measured groups and measured-only feeder rows.
-8. Failure to authenticate the pool and ready every actor within the setup
-   deadline fails the run.
+8. As soon as a completed SSO failure means the remaining fixed candidates
+   cannot fill the pool, waiting actors exit and the run fails. Other failure to
+   authenticate the pool and ready every actor within the setup deadline also
+   fails the run.
 9. At the measured deadline, no new action starts and in-flight work must finish
    within the completion grace.
 
-There are no spare identities, authentication-retry population, shared gate or
-post-login workload release. Setting the pool size equal to the actor count
-reproduces one independently authenticated session per actor.
+There are no spare identities, whole-journey authentication-retry population,
+shared gate or post-login workload release. Setting the pool size equal to the
+actor count reproduces one independently authenticated session per actor.
 `SsoAuthentication` accepts at most 500 accounts.
 The Jenkins seed stage still runs before Gatling and is not rolled back if
 authentication later fails.
@@ -274,7 +280,12 @@ and applies the classified `NFR006` or `NFR007` limit. A failed action remains a
 failure but does not discard the actor's remaining independently seeded plan.
 Recovered GET attempt time and retry delay are subtracted from the logical
 duration, while successful responses and intentional journey pauses remain.
-Operations with zero scheduled samples are reported as not measured.
+Operations with zero scheduled samples are reported as not measured. Scheduled
+counts are the deterministic plan and feeder capacity, not a second duration
+assertion: the common measured-window deadline can leave an operation whose
+final slot lands on the boundary unused. Plan utilisation is reported
+separately, while every operation that starts must succeed and every scheduled
+action must contribute at least one measured sample to its p95 verdict.
 
 ## Test-data provisioning
 
@@ -349,7 +360,8 @@ The seeded-mode execution order is:
 - Uses `PROTOTYPE_WORKLOAD=read-only` as the safe default control or
   `PROTOTYPE_WORKLOAD=seeded-mixed` for the staged pooled-write experiment.
 - Authenticates only `SESSION_POOL_SIZE` sessions, defaulting to two at one SSO
-  journey per second.
+  journey per second. The same authentication-rate control applies to both
+  prototype workload variants.
 - Starts `MAX_USERS` concurrent-access actors, defaulting to ten. They wait
   without HTTP traffic until the complete session pool is ready.
 - Assigns pool entries round-robin into separate Gatling actor cookie jars and

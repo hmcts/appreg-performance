@@ -73,8 +73,10 @@ public final class GatewayGetRetry {
       if (attempt > 1) {
         recoveredOperations.incrementAndGet();
         System.out.printf(
-            "APPREG_GATEWAY_GET_RECOVERED timestamp=%s operation=%s attempt=%d successfulResponseMillis=%d%n",
-            Instant.now(), operation, attempt, responseMillis);
+            "APPREG_GATEWAY_GET_RECOVERED timestamp=%s traceId=%s operation=%s "
+                + "attempt=%d successfulResponseMillis=%d%n",
+            Instant.now(), AppRegTraceContext.currentTraceId(session), operation, attempt,
+            responseMillis);
       }
       return session.set(ATTEMPT_KEY, attempt).set(PENDING_KEY, false);
     }
@@ -84,8 +86,10 @@ public final class GatewayGetRetry {
     transientFailures.incrementAndGet();
     boolean willRetry = shouldRetry(statusCode, attempt, retries());
     System.out.printf(
-        "APPREG_GATEWAY_GET_RETRY timestamp=%s operation=%s status=%d attempt=%d maxAttempts=%d retry=%s delaySeconds=%s%n",
-        Instant.now(), operation, statusCode, attempt, retries() + 1, willRetry,
+        "APPREG_GATEWAY_GET_RETRY timestamp=%s traceId=%s operation=%s status=%d "
+            + "attempt=%d maxAttempts=%d retry=%s delaySeconds=%s%n",
+        Instant.now(), AppRegTraceContext.currentTraceId(session), operation, statusCode, attempt,
+        retries() + 1, willRetry,
         willRetry ? format(retryDelaySeconds()) : "-");
     var updated = session.set(ATTEMPT_KEY, attempt).set(PENDING_KEY, willRetry);
     if (willRetry) {

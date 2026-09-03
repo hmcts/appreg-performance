@@ -32,6 +32,7 @@ public record WorkloadProfile(
   private static final int MAX_TEST_ACCOUNTS = 500;
   private static final int MAX_DURATION_MINUTES = 1_440;
   private static final double LOGIN_INTERVAL_SECONDS = 1.0;
+  private static final double DEFAULT_AUTHENTICATION_RATE_PER_SECOND = 1.0;
   private static final double MINIMUM_ACTION_PACE_SECONDS = 60.0;
   private static final double MAXIMUM_ACTION_PACE_SECONDS = 3_600.0;
   private static final int DEFAULT_AUTHENTICATION_SETUP_TIMEOUT_MINUTES = 15;
@@ -41,6 +42,8 @@ public record WorkloadProfile(
   private static final String MAX_USERS_PROPERTY = "appRegMaxUsers";
   private static final String DURATION_MINUTES_PROPERTY = "appRegDurationMinutes";
   private static final String SESSION_POOL_SIZE_PROPERTY = "appRegWorkloadSessionPoolSize";
+  private static final String AUTHENTICATION_RATE_PER_SECOND_PROPERTY =
+      "appRegWorkloadAuthenticationRatePerSecond";
   private static final String SETUP_TIMEOUT_MINUTES_PROPERTY =
       "appRegWorkloadAuthenticationSetupTimeoutMinutes";
   private static final String ACTION_PACE_SECONDS_PROPERTY = "appRegWorkloadActionPaceSeconds";
@@ -111,8 +114,13 @@ public record WorkloadProfile(
     int durationMinutes = cappedDuration(configuredDurationMinutes);
     int actionsPerUser = durationMinutes;
     int configuredLoginRampUpSeconds = positive(properties, name + ".login_ramp_up_seconds");
-    int authenticationRampUpSeconds = Math.min(
-        configuredLoginRampUpSeconds, minimumAuthenticationRampUpSeconds(sessionPoolSize));
+    String authenticationRateValue = System.getProperty(AUTHENTICATION_RATE_PER_SECOND_PROPERTY);
+    int authenticationRampUpSeconds = authenticationRateValue == null
+        ? Math.min(configuredLoginRampUpSeconds, minimumAuthenticationRampUpSeconds(sessionPoolSize))
+        : authenticationRampUpSeconds(
+            sessionPoolSize,
+            doubleProperty(
+                AUTHENTICATION_RATE_PER_SECOND_PROPERTY, DEFAULT_AUTHENTICATION_RATE_PER_SECOND));
     int setupTimeoutMinutes = integerProperty(
         SETUP_TIMEOUT_MINUTES_PROPERTY, DEFAULT_AUTHENTICATION_SETUP_TIMEOUT_MINUTES);
     double actionPaceSeconds = doubleProperty(ACTION_PACE_SECONDS_PROPERTY, DEFAULT_ACTION_PACE_SECONDS);
@@ -152,6 +160,16 @@ public record WorkloadProfile(
 
   public static int minimumAuthenticationRampUpSeconds(int sessions) {
     return (int) Math.ceil(sessions * LOGIN_INTERVAL_SECONDS);
+  }
+
+  private static int authenticationRampUpSeconds(int sessions, double ratePerSecond) {
+    if (!Double.isFinite(ratePerSecond)
+        || ratePerSecond <= 0
+        || ratePerSecond > 1.0 / LOGIN_INTERVAL_SECONDS) {
+      throw new IllegalArgumentException(
+          "Workload authentication rate must be greater than 0 and no more than 1 per second");
+    }
+    return (int) Math.ceil(sessions / ratePerSecond);
   }
 
   /** Returns the fixed measured action for a workload actor and its zero-based iteration. */
@@ -437,6 +455,12 @@ public record WorkloadProfile(
     if (maximumActionsPerUser(15, 60) != 15 || maximumActionsPerUser(15, 120) != 8) {
       throw new IllegalStateException("Workload ramp capacity calculation failed");
     }
+    if (authenticationRampUpSeconds(100, 0.5) != 200
+        || authenticationRampUpSeconds(100, 0.15) != 667) {
+      throw new IllegalStateException("Workload authentication rate calculation failed");
+    }
+    expectInvalid(() -> authenticationRampUpSeconds(100, 0));
+    expectInvalid(() -> authenticationRampUpSeconds(100, 1.1));
     Map<WorkloadAction, Integer> configured = new EnumMap<>(WorkloadAction.class);
     for (WorkloadAction action : WorkloadAction.values()) configured.put(action, 0);
     configured.put(WorkloadAction.UPDATE_APPLICATION, 3);

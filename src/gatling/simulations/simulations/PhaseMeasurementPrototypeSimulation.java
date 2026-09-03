@@ -10,6 +10,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import utils.AuthenticatedSessionPool;
+import utils.AppRegTraceContext;
 import utils.AuthenticationStage;
 import utils.DiagnosticLogging;
 import utils.Environment;
@@ -115,11 +116,25 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
             return session
                 .remove(CAPTURED_SESSION_COOKIE_KEY)
                 .remove(CAPTURED_XSRF_TOKEN_KEY);
-          }));
+          }))
+      .exec(session -> {
+        sessionPool.recordAuthenticationJourneyCompleted();
+        if (sessionPool.authenticationFailed()) {
+          logPhaseOnce(
+              setupFailureLogged,
+              "SESSION POOL AUTHENTICATION FAILED",
+              sessionPool.size() + " of " + settings.sessionPoolSize()
+                  + " sessions authenticated after "
+                  + sessionPool.completedAuthenticationJourneys()
+                  + " configured SSO journeys completed; no spare candidates are configured");
+        }
+        return session;
+      });
 
     var prototypeActors = scenario("AppReg pooled-session concurrent-access prototype")
       .exec(session -> session.set(ACTOR_INDEX_SESSION_KEY, nextActorIndex.getAndIncrement()))
       .asLongAs(session -> !sessionPool.ready()
+          && !sessionPool.authenticationFailed()
           && phases.currentPhase() == Phase.AUTHENTICATION_RAMP_UP).on(
             pause(POOL_WAIT_POLL_INTERVAL))
       .exec(session -> sessionPool.ready() ? session : session.markAsFailed())
@@ -138,7 +153,10 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
         .withDomain(APPREG_ORIGIN.getHost())
         .withPath("/")
         .withSecure("https".equalsIgnoreCase(APPREG_ORIGIN.getScheme()))))
+      .exec(session -> AppRegTraceContext.startOperation(
+          session, "setup", "pooled_session_check", session.getInt(ACTOR_INDEX_SESSION_KEY)))
       .exec(gatewayAwareSessionCheck())
+      .exec(AppRegTraceContext::endOperation)
       .exec(exitHereIfFailed())
       .pause(session -> settings.actionSpreadForActor(session.getInt(ACTOR_INDEX_SESSION_KEY)))
       .exec(session -> {
@@ -225,7 +243,9 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
     }
     logPhase(
         "INCOMPLETE",
-        sessionPool.size() + " of " + settings.sessionPoolSize() + " sessions authenticated; "
+        sessionPool.size() + " of " + settings.sessionPoolSize()
+            + " sessions authenticated after " + sessionPool.completedAuthenticationJourneys()
+            + " configured SSO journeys completed; "
             + phases.readyActors() + " of " + actors + " actors validated; "
             + phases.completedActors() + " completed; " + phases.lateCompletions()
             + " exceeded the completion grace; final phase " + finalPhase);
@@ -237,7 +257,10 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
 
   private ChainBuilder gatewayAwareMeasuredSearch() {
     return group(SEARCH_GROUP).on(
-      exec(session -> session
+      exec(session -> AppRegTraceContext.startOperation(
+          session, "measured", WorkloadAction.OTHER_OPERATIONS.key(),
+          session.getInt(ACTOR_INDEX_SESSION_KEY)))
+        .exec(session -> session
         .set(LOGICAL_ACTION_MILLIS_KEY, 0L)
         .set(LOGICAL_ACTION_RECOVERED_KEY, false))
         .exec(gatewayAwareApplicationsPage())
@@ -252,7 +275,8 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
           return session
               .remove(LOGICAL_ACTION_MILLIS_KEY)
               .remove(LOGICAL_ACTION_RECOVERED_KEY);
-        }));
+        })
+        .exec(AppRegTraceContext::endOperation));
   }
 
   private ChainBuilder gatewayAwareApplicationsPage() {
@@ -333,8 +357,10 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
       if (attempt > 1) {
         recoveredGatewayOperations.incrementAndGet();
         System.out.printf(
-            "APPREG_GATEWAY_RECOVERED timestamp=%s operation=%s attempt=%d status=200 successfulResponseMillis=%d%n",
-            Instant.now(), operation, attempt, responseMillis);
+            "APPREG_GATEWAY_RECOVERED timestamp=%s traceId=%s operation=%s attempt=%d "
+                + "status=200 successfulResponseMillis=%d%n",
+            Instant.now(), AppRegTraceContext.currentTraceId(session), operation, attempt,
+            responseMillis);
       }
       var successful = session
           .set(GATEWAY_ATTEMPT_KEY, attempt)
@@ -352,8 +378,10 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
     transientGatewayFailures.incrementAndGet();
     boolean willRetry = shouldRetry(statusCode, attempt, settings.gatewayRetries());
     System.out.printf(
-        "APPREG_GATEWAY_RETRY timestamp=%s operation=%s status=%d attempt=%d maxAttempts=%d retry=%s delaySeconds=%s%n",
+        "APPREG_GATEWAY_RETRY timestamp=%s traceId=%s operation=%s status=%d attempt=%d "
+            + "maxAttempts=%d retry=%s delaySeconds=%s%n",
         Instant.now(),
+        AppRegTraceContext.currentTraceId(session),
         operation,
         statusCode,
         attempt,
@@ -392,10 +420,14 @@ public class PhaseMeasurementPrototypeSimulation extends Simulation {
 
   private ChainBuilder rampUpSearch() {
     return group(RAMP_UP_GROUP).on(
-      exec(gatewayAwareRampUpApplicationsPage())
+      exec(session -> AppRegTraceContext.startOperation(
+          session, "ramp-up", WorkloadAction.OTHER_OPERATIONS.key(),
+          session.getInt(ACTOR_INDEX_SESSION_KEY)))
+        .exec(gatewayAwareRampUpApplicationsPage())
         .exec(exitHereIfFailed())
         .exec(gatewayAwareRampUpApplicationSearch())
         .exec(exitHereIfFailed())
+        .exec(AppRegTraceContext::endOperation)
     );
   }
 

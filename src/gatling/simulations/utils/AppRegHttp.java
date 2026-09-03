@@ -12,6 +12,7 @@ public final class AppRegHttp {
     return http.baseUrl(Environment.BASE_URL)
       .userAgentHeader(Headers.USER_AGENT)
       .doNotTrackHeader("1")
+      .sign(AppRegTraceContext::signAppRegRequest)
       .inferHtmlResources()
       .silentResources();
   }

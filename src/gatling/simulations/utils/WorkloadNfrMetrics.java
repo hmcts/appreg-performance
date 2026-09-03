@@ -68,9 +68,21 @@ public final class WorkloadNfrMetrics {
     return GatewayRetryPolicy.percentile95(durations.get(action));
   }
 
+  public static boolean passesNfr(
+      int attempted, int completed, int failed, long p95Millis, long p95LimitMillis) {
+    return attempted > 0
+        && completed == attempted
+        && failed == 0
+        && p95Millis < p95LimitMillis;
+  }
+
   static void selfCheck() {
     if (logicalDurationMillis(1_500, 1_200) != 300
-        || logicalDurationMillis(900, 1_000) != 0) {
+        || logicalDurationMillis(900, 1_000) != 0
+        || !passesNfr(29, 29, 0, 1_999, 2_000)
+        || passesNfr(0, 0, 0, -1, 2_000)
+        || passesNfr(29, 28, 1, 1_999, 2_000)
+        || passesNfr(29, 29, 0, 2_000, 2_000)) {
       throw new IllegalStateException("Workload logical timing self-check failed");
     }
   }

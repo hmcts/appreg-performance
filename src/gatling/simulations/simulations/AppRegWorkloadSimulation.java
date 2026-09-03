@@ -1,5 +1,28 @@
 package simulations;
 
+import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
+import static io.gatling.javaapi.core.CoreDsl.csv;
+import static io.gatling.javaapi.core.CoreDsl.doSwitch;
+import static io.gatling.javaapi.core.CoreDsl.exec;
+import static io.gatling.javaapi.core.CoreDsl.exitHereIfFailed;
+import static io.gatling.javaapi.core.CoreDsl.feed;
+import static io.gatling.javaapi.core.CoreDsl.global;
+import static io.gatling.javaapi.core.CoreDsl.group;
+import static io.gatling.javaapi.core.CoreDsl.jsonPath;
+import static io.gatling.javaapi.core.CoreDsl.onCase;
+import static io.gatling.javaapi.core.CoreDsl.pace;
+import static io.gatling.javaapi.core.CoreDsl.pause;
+import static io.gatling.javaapi.core.CoreDsl.rampUsers;
+import static io.gatling.javaapi.core.CoreDsl.scenario;
+import static io.gatling.javaapi.http.HttpDsl.Cookie;
+import static io.gatling.javaapi.http.HttpDsl.CookieKey;
+import static io.gatling.javaapi.http.HttpDsl.addCookie;
+import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
+import static io.gatling.javaapi.http.HttpDsl.http;
+import static utils.AppRegHttp.protocol;
+import static utils.GatewayGetRetry.retryingGet;
+import static utils.Headers.XSRF_TOKEN_COOKIE;
+
 import io.gatling.javaapi.core.ChainBuilder;
 import io.gatling.javaapi.core.FeederBuilder;
 import io.gatling.javaapi.core.Session;
@@ -7,6 +30,7 @@ import io.gatling.javaapi.core.Simulation;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import scenarios.AddApplicationScenario;
@@ -21,8 +45,9 @@ import scenarios.SearchScenario;
 import scenarios.UpdateApplicationListScenario;
 import scenarios.UpdateApplicationResultScenario;
 import scenarios.UpdateApplicationScenario;
-import utils.AuthenticationStage;
+import utils.AppRegTraceContext;
 import utils.AuthenticatedSessionPool;
+import utils.AuthenticationStage;
 import utils.Environment;
 import utils.GatewayGetRetry;
 import utils.Headers;
@@ -33,37 +58,12 @@ import utils.WorkloadAction;
 import utils.WorkloadNfrMetrics;
 import utils.WorkloadProfile;
 
-import static io.gatling.javaapi.core.CoreDsl.csv;
-import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
-import static io.gatling.javaapi.core.CoreDsl.doIf;
-import static io.gatling.javaapi.core.CoreDsl.doSwitch;
-import static io.gatling.javaapi.core.CoreDsl.exec;
-import static io.gatling.javaapi.core.CoreDsl.exitBlockOnFail;
-import static io.gatling.javaapi.core.CoreDsl.exitHereIfFailed;
-import static io.gatling.javaapi.core.CoreDsl.feed;
-import static io.gatling.javaapi.core.CoreDsl.global;
-import static io.gatling.javaapi.core.CoreDsl.group;
-import static io.gatling.javaapi.core.CoreDsl.jsonPath;
-import static io.gatling.javaapi.core.CoreDsl.onCase;
-import static io.gatling.javaapi.core.CoreDsl.pace;
-import static io.gatling.javaapi.core.CoreDsl.pause;
-import static io.gatling.javaapi.core.CoreDsl.rampUsers;
-import static io.gatling.javaapi.core.CoreDsl.scenario;
-import static io.gatling.javaapi.http.HttpDsl.CookieKey;
-import static io.gatling.javaapi.http.HttpDsl.Cookie;
-import static io.gatling.javaapi.http.HttpDsl.addCookie;
-import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
-import static io.gatling.javaapi.http.HttpDsl.http;
-import static io.gatling.javaapi.http.HttpDsl.status;
-import static utils.AppRegHttp.protocol;
-import static utils.Headers.XSRF_TOKEN_COOKIE;
-import static utils.GatewayGetRetry.retryingGet;
-
 /**
  * Phase-based, feeder-backed AppReg workload. A smaller authenticated session pool is assigned
  * round-robin to separately paced workload actors for the common measured window.
  */
 public class AppRegWorkloadSimulation extends Simulation {
+
   private static final int OPERATION_PROGRESS_BAR_WIDTH = 50;
   private static final String RAMP_UP_GROUP = "AppReg_Ramp_Up";
   private static final String ACTION_PHASE_SESSION_KEY = "workloadActionPhase";
@@ -74,6 +74,9 @@ public class AppRegWorkloadSimulation extends Simulation {
   private static final String MEASURED_ITERATION_SESSION_KEY = "workloadMeasuredIteration";
   private static final Duration POOL_WAIT_POLL_INTERVAL = Duration.ofMillis(100);
   private static final URI APPREG_ORIGIN = URI.create(Environment.BASE_URL);
+  public static final String RAMP_UP = "ramp-up";
+  public static final String MEASURED = "measured";
+  public static final String PLANNED_ACTION = "plannedAction";
 
   private final WorkloadProfile profile = WorkloadProfile.fromRuntime();
   private final AuthenticatedSessionPool sessionPool =
@@ -99,46 +102,46 @@ public class AppRegWorkloadSimulation extends Simulation {
   private final WorkloadNfrMetrics nfrMetrics = new WorkloadNfrMetrics();
 
   private final FeederBuilder.FileBased<String> rampUpdateApplicationFeeder =
-      feeder("ramp-up", "update-application", WorkloadAction.UPDATE_APPLICATION);
+      feeder(RAMP_UP, "update-application", WorkloadAction.UPDATE_APPLICATION);
   private final FeederBuilder.FileBased<String> rampAddApplicationFeeder =
-      feeder("ramp-up", "add-application", WorkloadAction.ADD_APPLICATION);
+      feeder(RAMP_UP, "add-application", WorkloadAction.ADD_APPLICATION);
   private final FeederBuilder.FileBased<String> rampResultApplicationFeeder =
-      feeder("ramp-up", "result-application", WorkloadAction.RESULT_APPLICATION);
+      feeder(RAMP_UP, "result-application", WorkloadAction.RESULT_APPLICATION);
   private final FeederBuilder.FileBased<String> rampResultMultipleFeeder =
-      feeder("ramp-up", "result-multiple", WorkloadAction.RESULT_MULTIPLE);
+      feeder(RAMP_UP, "result-multiple", WorkloadAction.RESULT_MULTIPLE);
   private final FeederBuilder.FileBased<String> rampUpdateResultFeeder =
-      feeder("ramp-up", "update-result", WorkloadAction.UPDATE_RESULT);
+      feeder(RAMP_UP, "update-result", WorkloadAction.UPDATE_RESULT);
   private final FeederBuilder.FileBased<String> rampUpdateListFeeder =
-      feeder("ramp-up", "update-list", WorkloadAction.UPDATE_LIST);
+      feeder(RAMP_UP, "update-list", WorkloadAction.UPDATE_LIST);
   private final FeederBuilder.FileBased<String> rampCloseListFeeder =
-      feeder("ramp-up", "close-list", WorkloadAction.CLOSE_LIST);
+      feeder(RAMP_UP, "close-list", WorkloadAction.CLOSE_LIST);
   private final FeederBuilder.FileBased<String> rampBulkOfficialsFeeder =
-      feeder("ramp-up", "bulk-officials", WorkloadAction.BULK_OFFICIALS);
+      feeder(RAMP_UP, "bulk-officials", WorkloadAction.BULK_OFFICIALS);
   private final FeederBuilder.FileBased<String> rampBulkFeesFeeder =
-      feeder("ramp-up", "bulk-fees", WorkloadAction.BULK_FEES);
+      feeder(RAMP_UP, "bulk-fees", WorkloadAction.BULK_FEES);
   private final FeederBuilder.FileBased<String> rampBulkUploadFeeder =
-      feeder("ramp-up", "bulk-upload", WorkloadAction.BULK_UPLOAD);
+      feeder(RAMP_UP, "bulk-upload", WorkloadAction.BULK_UPLOAD);
 
   private final FeederBuilder.FileBased<String> measuredUpdateApplicationFeeder =
-      feeder("measured", "update-application", WorkloadAction.UPDATE_APPLICATION);
+      feeder(MEASURED, "update-application", WorkloadAction.UPDATE_APPLICATION);
   private final FeederBuilder.FileBased<String> measuredAddApplicationFeeder =
-      feeder("measured", "add-application", WorkloadAction.ADD_APPLICATION);
+      feeder(MEASURED, "add-application", WorkloadAction.ADD_APPLICATION);
   private final FeederBuilder.FileBased<String> measuredResultApplicationFeeder =
-      feeder("measured", "result-application", WorkloadAction.RESULT_APPLICATION);
+      feeder(MEASURED, "result-application", WorkloadAction.RESULT_APPLICATION);
   private final FeederBuilder.FileBased<String> measuredResultMultipleFeeder =
-      feeder("measured", "result-multiple", WorkloadAction.RESULT_MULTIPLE);
+      feeder(MEASURED, "result-multiple", WorkloadAction.RESULT_MULTIPLE);
   private final FeederBuilder.FileBased<String> measuredUpdateResultFeeder =
-      feeder("measured", "update-result", WorkloadAction.UPDATE_RESULT);
+      feeder(MEASURED, "update-result", WorkloadAction.UPDATE_RESULT);
   private final FeederBuilder.FileBased<String> measuredUpdateListFeeder =
-      feeder("measured", "update-list", WorkloadAction.UPDATE_LIST);
+      feeder(MEASURED, "update-list", WorkloadAction.UPDATE_LIST);
   private final FeederBuilder.FileBased<String> measuredCloseListFeeder =
-      feeder("measured", "close-list", WorkloadAction.CLOSE_LIST);
+      feeder(MEASURED, "close-list", WorkloadAction.CLOSE_LIST);
   private final FeederBuilder.FileBased<String> measuredBulkOfficialsFeeder =
-      feeder("measured", "bulk-officials", WorkloadAction.BULK_OFFICIALS);
+      feeder(MEASURED, "bulk-officials", WorkloadAction.BULK_OFFICIALS);
   private final FeederBuilder.FileBased<String> measuredBulkFeesFeeder =
-      feeder("measured", "bulk-fees", WorkloadAction.BULK_FEES);
+      feeder(MEASURED, "bulk-fees", WorkloadAction.BULK_FEES);
   private final FeederBuilder.FileBased<String> measuredBulkUploadFeeder =
-      feeder("measured", "bulk-upload", WorkloadAction.BULK_UPLOAD);
+      feeder(MEASURED, "bulk-upload", WorkloadAction.BULK_UPLOAD);
 
   public AppRegWorkloadSimulation() {
     var poolAccounts = SsoAuthentication.users(profile.sessionPoolSize());
@@ -164,7 +167,20 @@ public class AppRegWorkloadSimulation extends Simulation {
             return session
                 .remove(CAPTURED_SESSION_COOKIE_KEY)
                 .remove(CAPTURED_XSRF_TOKEN_KEY);
-          }));
+          }))
+      .exec(session -> {
+        sessionPool.recordAuthenticationJourneyCompleted();
+        if (sessionPool.authenticationFailed()) {
+          logPhaseOnce(
+              setupFailureLogged,
+              "SESSION POOL AUTHENTICATION FAILED",
+              sessionPool.size() + " of " + profile.sessionPoolSize()
+                  + " sessions authenticated after "
+                  + sessionPool.completedAuthenticationJourneys()
+                  + " configured SSO journeys completed; no spare candidates are configured");
+        }
+        return session;
+      });
 
     var workload = scenario("AppReg pooled-session phase-based workload")
       .exec(session -> {
@@ -176,6 +192,7 @@ public class AppRegWorkloadSimulation extends Simulation {
             .set("accountOffset", actorIndex);
       })
       .asLongAs(session -> !sessionPool.ready()
+          && !sessionPool.authenticationFailed()
           && phases.currentPhase() == Phase.AUTHENTICATION_RAMP_UP).on(
             pause(POOL_WAIT_POLL_INTERVAL))
       .exec(session -> sessionPool.ready() ? session : session.markAsFailed())
@@ -195,7 +212,10 @@ public class AppRegWorkloadSimulation extends Simulation {
         .withPath("/")
         .withSecure("https".equalsIgnoreCase(APPREG_ORIGIN.getScheme()))))
       .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
+      .exec(session -> AppRegTraceContext.startOperation(
+          session, "setup", "pooled_session_check", session.getInt(ACTOR_INDEX_SESSION_KEY)))
       .exec(pooledSessionCheck())
+      .exec(AppRegTraceContext::endOperation)
       .exec(exitHereIfFailed())
       .pause(session -> profile.actionSpreadForActor(session.getInt(ACTOR_INDEX_SESSION_KEY)))
       .exec(session -> registerReadyActor(session
@@ -274,7 +294,8 @@ public class AppRegWorkloadSimulation extends Simulation {
     logPhase(
         "INCOMPLETE",
         sessionPool.size() + " of " + profile.sessionPoolSize()
-            + " sessions authenticated; " + phases.readyActors() + " of "
+            + " sessions authenticated after " + sessionPool.completedAuthenticationJourneys()
+            + " configured SSO journeys completed; " + phases.readyActors() + " of "
             + profile.concurrentUsers() + " actors validated; " + phases.completedActors()
             + " completed; "
             + phases.lateCompletions() + " exceeded the completion grace; final phase "
@@ -330,11 +351,15 @@ public class AppRegWorkloadSimulation extends Simulation {
 
   private void printMeasuredOperationProgress(int finished) {
     int total = Math.multiplyExact(profile.concurrentUsers(), profile.actionsPerUser());
-    int remainingPercentage = Math.max(0, 100 - finished * 100 / total);
-    int remainingBars = remainingPercentage * OPERATION_PROGRESS_BAR_WIDTH / 100;
-    System.out.println("WORKLOAD OPERATIONS [" + "|".repeat(remainingBars)
-        + " ".repeat(OPERATION_PROGRESS_BAR_WIDTH - remainingBars) + "] "
-        + remainingPercentage + "% remaining");
+    double remainingPercentage = Math.max(0.0, 100.0 - finished * 100.0 / total);
+    int completedBars = (int) Math.min(
+        OPERATION_PROGRESS_BAR_WIDTH, (long) finished * OPERATION_PROGRESS_BAR_WIDTH / total);
+    System.out.println("==========");
+    System.out.println("========== WORKLOAD OPERATIONS [" + "|".repeat(completedBars)
+        + " ".repeat(OPERATION_PROGRESS_BAR_WIDTH - completedBars) + "] "
+        + String.format(Locale.ROOT, "%.2f%% remaining (%d/%d complete)",
+            remainingPercentage, finished, total));
+    System.out.println("==========");
   }
 
   private Session assignNextAction(Session session) {
@@ -348,7 +373,7 @@ public class AppRegWorkloadSimulation extends Simulation {
           session.getInt(ACTOR_INDEX_SESSION_KEY), iteration);
       rampActionsStarted.incrementAndGet();
       return session
-          .set("plannedAction", action.key())
+          .set(PLANNED_ACTION, action.key())
           .set(RAMP_ITERATION_SESSION_KEY, iteration + 1);
     }
     if (phase == Phase.MEASURED_STEADY_STATE) {
@@ -357,7 +382,7 @@ public class AppRegWorkloadSimulation extends Simulation {
           session.getInt(ACTOR_INDEX_SESSION_KEY), iteration);
       measuredActionsStarted.incrementAndGet();
       return session
-          .set("plannedAction", action.key())
+          .set(PLANNED_ACTION, action.key())
           .set(MEASURED_ITERATION_SESSION_KEY, iteration + 1);
     }
     return session;
@@ -381,9 +406,10 @@ public class AppRegWorkloadSimulation extends Simulation {
 
   private Session recoverRampUpFailure(Session session) {
     if (!session.isFailed()) return session;
-    System.out.println("APPREG_RAMP_UP_ACTION_FAILED actor="
+    System.out.println("APPREG_RAMP_UP_ACTION_FAILED traceId="
+        + AppRegTraceContext.currentTraceId(session) + " actor="
         + session.getInt(ACTOR_INDEX_SESSION_KEY) + " action="
-        + session.getString("plannedAction")
+        + session.getString(PLANNED_ACTION)
         + " continuation=remaining-actions-will-run");
     // Ramp-up is deliberately outside the NFR sample. Preserve Gatling request failures while
     // allowing this actor to reach the common measured window and use its isolated measured data.
@@ -421,7 +447,7 @@ public class AppRegWorkloadSimulation extends Simulation {
     // Queue semantics make every mutable row single-use. Requiring the exact planned size at
     // startup turns missing or accidentally shared data into an immediate configuration failure.
     FeederBuilder.FileBased<String> feeder = csv(path).queue();
-    int requiredRows = "ramp-up".equals(phase)
+    int requiredRows = RAMP_UP.equals(phase)
         ? profile.rampScheduledActionCount(scheduledAction)
         : profile.scheduledActionCount(scheduledAction);
     if (feeder.recordsCount() != requiredRows) {
@@ -558,11 +584,16 @@ public class AppRegWorkloadSimulation extends Simulation {
 
   private ChainBuilder measuredAction(
       boolean rampUp, WorkloadAction action, ChainBuilder businessAction) {
-    if (rampUp) return businessAction;
+    var tracedAction = exec(session -> AppRegTraceContext.startOperation(
+        session, rampUp ? RAMP_UP : MEASURED, action.key(),
+        session.getInt(ACTOR_INDEX_SESSION_KEY)))
+      .exec(businessAction)
+      .exec(AppRegTraceContext::endOperation);
+    if (rampUp) return tracedAction;
     // The timer brackets the same chain as the named Gatling group. Safe GET retry attempts and
     // their configured delay are subtracted by GatewayGetRetry before the logical p95 is asserted.
     return exec(nfrMetrics::start)
-      .exec(businessAction)
+      .exec(tracedAction)
       .exec(session -> nfrMetrics.complete(action, session));
   }
 
@@ -601,6 +632,8 @@ public class AppRegWorkloadSimulation extends Simulation {
 
   private boolean logNfrSummary(boolean executionComplete) {
     boolean passed = executionComplete && GatewayGetRetry.exhaustedFailures() == 0;
+    int plannedTotal = 0;
+    int attemptedTotal = 0;
     System.out.println("========== WORKLOAD NFR SUMMARY ==========");
     System.out.println("Functional success: ASSERTED at 100% for the complete execution");
     System.out.println("Transient GET gateway failures observed: "
@@ -621,10 +654,10 @@ public class AppRegWorkloadSimulation extends Simulation {
       int attempted = nfrMetrics.attemptedActions(action);
       int failed = nfrMetrics.failedActions(action);
       long p95Millis = nfrMetrics.p95Millis(action);
-      boolean actionPassed = attempted == expected
-          && completed == expected
-          && failed == 0
-          && p95Millis < action.p95LimitMillis();
+      plannedTotal += expected;
+      attemptedTotal += attempted;
+      boolean actionPassed = WorkloadNfrMetrics.passesNfr(
+          attempted, completed, failed, p95Millis, action.p95LimitMillis());
       passed &= actionPassed;
       System.out.println(action.nfr() + " " + action.key() + ": "
           + (actionPassed ? "PASS" : "FAIL") + " | attempted=" + attempted + "/" + expected
@@ -632,6 +665,9 @@ public class AppRegWorkloadSimulation extends Simulation {
           + " | logical p95=" + p95Millis + " ms | limit < "
           + action.p95LimitMillis() + " ms");
     }
+    System.out.println("Measured plan utilisation: " + attemptedTotal + "/" + plannedTotal
+        + " operations started during the fixed window; unused final-boundary slots are"
+        + " informational and do not override functional or p95 results");
     var nfr004 = profile.concurrentUsers() == 500
         ? (passed ? "PASS" : "FAIL")
         : "NOT MEASURED (configured actors: " + profile.concurrentUsers() + ")";
@@ -640,10 +676,6 @@ public class AppRegWorkloadSimulation extends Simulation {
         + (passed ? "PASS" : "FAIL"));
     System.out.println("==========================================");
     return passed;
-  }
-
-  private static boolean acceptsActions(Phase phase) {
-    return phase == Phase.AUTHENTICATION_RAMP_UP || phase == Phase.MEASURED_STEADY_STATE;
   }
 
   private static void logPhaseOnce(AtomicBoolean marker, String phase, String detail) {

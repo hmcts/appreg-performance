@@ -10,6 +10,7 @@ public final class AuthenticatedSessionPool {
   private final int capacity;
   private final List<SessionMaterial> sessions = new ArrayList<>();
   private final Set<String> sessionCookieValues = new HashSet<>();
+  private int completedAuthenticationJourneys;
 
   public AuthenticatedSessionPool(int capacity) {
     if (capacity < 1) throw new IllegalArgumentException("Session-pool capacity must be positive");
@@ -37,6 +38,24 @@ public final class AuthenticatedSessionPool {
     return sessions.size();
   }
 
+  /** Records either a successful or failed configured authentication journey. */
+  public synchronized void recordAuthenticationJourneyCompleted() {
+    if (completedAuthenticationJourneys == capacity) {
+      throw new IllegalStateException("All configured authentication journeys are already complete");
+    }
+    completedAuthenticationJourneys++;
+  }
+
+  public synchronized int completedAuthenticationJourneys() {
+    return completedAuthenticationJourneys;
+  }
+
+  /** True when completed failures mean the remaining fixed candidates cannot fill the pool. */
+  public synchronized boolean authenticationFailed() {
+    int remainingAuthenticationJourneys = capacity - completedAuthenticationJourneys;
+    return sessions.size() + remainingAuthenticationJourneys < capacity;
+  }
+
   /** Assigns actors round-robin so every pool entry is exercised under concurrent access. */
   public synchronized SessionMaterial sessionForActor(int actorIndex) {
     if (!ready()) throw new IllegalStateException("The authenticated session pool is not ready");
@@ -60,6 +79,12 @@ public final class AuthenticatedSessionPool {
         || !"xsrf-two".equals(pool.sessionForActor(3).xsrfTokenValue())) {
       throw new IllegalStateException("Authenticated sessions were not assigned round-robin");
     }
+    pool.recordAuthenticationJourneyCompleted();
+    pool.recordAuthenticationJourneyCompleted();
+    if (pool.completedAuthenticationJourneys() != 2 || pool.authenticationFailed()) {
+      throw new IllegalStateException("A complete authenticated session pool must not report failure");
+    }
+    expectInvalid(pool::recordAuthenticationJourneyCompleted);
     expectInvalid(() -> new AuthenticatedSessionPool(0));
     expectInvalid(() -> pool.sessionForActor(-1));
     expectInvalid(() -> pool.add("session-three", "xsrf-three"));
@@ -71,6 +96,23 @@ public final class AuthenticatedSessionPool {
     var missingValuePool = new AuthenticatedSessionPool(1);
     expectInvalid(() -> missingValuePool.add("", "xsrf"));
     expectInvalid(() -> missingValuePool.add("session", null));
+
+    var incompletePool = new AuthenticatedSessionPool(2);
+    incompletePool.add("session-one", "xsrf-one");
+    incompletePool.recordAuthenticationJourneyCompleted();
+    if (incompletePool.authenticationFailed()) {
+      throw new IllegalStateException("An incomplete candidate population can still fill the pool");
+    }
+    incompletePool.recordAuthenticationJourneyCompleted();
+    if (!incompletePool.authenticationFailed()) {
+      throw new IllegalStateException("An exhausted candidate population must fail immediately");
+    }
+
+    var failedCandidatePool = new AuthenticatedSessionPool(2);
+    failedCandidatePool.recordAuthenticationJourneyCompleted();
+    if (!failedCandidatePool.authenticationFailed()) {
+      throw new IllegalStateException("A fixed pool must fail as soon as its target is unreachable");
+    }
   }
 
   private static void requireValue(String name, String value) {

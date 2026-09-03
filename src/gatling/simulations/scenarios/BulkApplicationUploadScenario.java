@@ -4,6 +4,7 @@ import io.gatling.javaapi.core.ChainBuilder;
 import java.time.Duration;
 import java.util.Set;
 import utils.Headers;
+import utils.AppRegTraceContext;
 import utils.WorkloadAction;
 
 import static io.gatling.javaapi.core.CoreDsl.*;
@@ -67,10 +68,14 @@ public final class BulkApplicationUploadScenario {
             return session;
           }
           if (isInProgress(uploadStatus)) {
-            System.out.println("APPREG_BUSINESS_ACTION_FAILED action=bulk_upload reason=poll_timeout"
+            System.out.println("APPREG_BUSINESS_ACTION_FAILED traceId="
+                + AppRegTraceContext.currentTraceId(session)
+                + " action=bulk_upload reason=poll_timeout"
                 + " lastStatus=" + uploadStatus + " timeoutSeconds=" + POLL_TIMEOUT_SECONDS);
           } else {
-            System.out.println("APPREG_BUSINESS_ACTION_FAILED action=bulk_upload reason=terminal_status"
+            System.out.println("APPREG_BUSINESS_ACTION_FAILED traceId="
+                + AppRegTraceContext.currentTraceId(session)
+                + " action=bulk_upload reason=terminal_status"
                 + " terminalStatus=" + uploadStatus);
           }
           return session.markAsFailed();

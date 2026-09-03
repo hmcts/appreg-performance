@@ -69,8 +69,10 @@ public final class DiagnosticLogging {
   private static void log(String requestName, Response response, Session session) {
     int status = response.status().code();
     System.err.printf(
-        "APPREG_HTTP_DIAGNOSTIC timestamp=%s request=%s status=%d retryAfter=%s user=%s accountOffset=%s authState=%s%n",
+        "APPREG_HTTP_DIAGNOSTIC timestamp=%s traceId=%s request=%s status=%d "
+            + "retryAfter=%s user=%s accountOffset=%s authState=%s%n",
         Instant.now(),
+        AppRegTraceContext.currentTraceId(session),
         requestName,
         status,
         status == 429 ? response.headers().get("Retry-After") : "-",

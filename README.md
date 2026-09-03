@@ -174,7 +174,7 @@ to prove pooled sessions with concurrent mixed actions before that configuration
 is promoted to a full NFR run.
 
 The read-only prototype's logical search-action p95 must be less than five
-seconds and all SSO requests must succeed. Its AppReg GETs that receive HTTP
+seconds and all SSO journeys must complete. Its AppReg GETs that receive HTTP
 502 or 504 are retried once after one second by default. A recovered gateway
 attempt and its delay remain visible as support evidence but are excluded from
 the logical action duration; exhausting
@@ -186,6 +186,12 @@ remain useful for diagnosing gateway availability rather than judging the
 logical action after recovery. Effective configuration, retry events and phase
 changes are printed prominently. A ten-actor/two-session result is evidence of
 ten concurrent access actors, not ten distinct users or server-side sessions.
+
+During SSO, only the final authenticated AppReg `/` and `/sso/me` validation
+GETs retry once after HTTP 502/504. No Entra, credential, KMSI or callback step
+is retried. As soon as a completed SSO failure means the remaining fixed
+candidates cannot fill the requested pool, the waiting actors exit rather than
+waiting for the remaining setup deadline.
 
 Run the read-only prototype locally with the group-duration metric enabled:
 
@@ -206,10 +212,11 @@ Run the read-only prototype locally with the group-duration metric enabled:
 ```
 
 The authentication rate, setup timeout, completion grace and gateway retry
-settings are internal controls rather than Jenkins parameters. Action pace and
-spread are supplied by the corresponding Jenkins parameters. Their shown values
-are the defaults. The authentication setup timeout must be long enough to
-contain the configured session-pool injection ramp and actor spread. Jenkins may
+settings are internal controls rather than Jenkins parameters. The authentication
+rate applies to both read-only and seeded mixed workloads. Action pace and spread
+are supplied by the corresponding Jenkins parameters. Their shown values are the
+defaults. The authentication setup timeout must be long enough to contain the
+configured session-pool injection ramp and actor spread. Jenkins may
 override the retry defaults with `PROTOTYPE_GATEWAY_RETRIES` and
 `PROTOTYPE_GATEWAY_RETRY_DELAY_SECONDS`; both effective values are logged.
 
@@ -289,9 +296,15 @@ authoritative response-time verdict. It reports every scheduled action's
 attempted, succeeded and failed counts, logical p95, applicable `NFR006` or
 `NFR007` limit and PASS/FAIL result. A failed action is recorded without
 discarding that actor's remaining independently seeded actions. Operations with
-no scheduled samples are explicitly `NOT MEASURED`. Gatling's HTML group timings deliberately retain the wall-clock
-effect of support retries and remain useful for diagnosing the raw journey;
-they are not the retry-adjusted NFR value.
+no scheduled samples are explicitly `NOT MEASURED`. The deterministic plan is
+reserved feeder capacity, while the hard measured-window deadline determines
+how many operations actually start. A final slot that falls on that boundary is
+reported as unused plan capacity; it does not turn otherwise successful,
+within-limit operations into failures. Every operation that starts must still
+succeed, and every scheduled action must have a measured sample. Gatling's HTML
+group timings deliberately retain the wall-clock effect of support retries and
+remain useful for diagnosing the raw journey; they are not the retry-adjusted
+NFR value.
 
 Validate its defaults, boundaries and phase transitions without authenticating
 or sending HTTP traffic:

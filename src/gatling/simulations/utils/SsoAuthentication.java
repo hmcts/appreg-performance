@@ -1,8 +1,11 @@
 package utils;
 
 import io.gatling.javaapi.core.ChainBuilder;
+import io.gatling.javaapi.core.CheckBuilder;
 import io.gatling.javaapi.core.Session;
 import io.gatling.javaapi.http.HttpRequestActionBuilder;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -15,14 +18,22 @@ import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.core.CoreDsl.regex;
 import static io.gatling.javaapi.core.CoreDsl.jsonPath;
+import static io.gatling.javaapi.core.CoreDsl.pause;
 import static io.gatling.javaapi.http.HttpDsl.header;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.GatewayRetryPolicy.shouldFailRequest;
+import static utils.GatewayRetryPolicy.shouldRetry;
 
 /** Replays AppReg's SSO protocol at HTTP level without writing credentials to disk or logs. */
 public final class SsoAuthentication {
   private static final String MICROSOFT_LOGIN_BASE_URL = "https://login.microsoftonline.com";
   private static final int MAX_TEST_ACCOUNTS = 500;
+  private static final int FINAL_APPREG_GET_RETRIES = 1;
+  private static final Duration FINAL_APPREG_GET_RETRY_DELAY = Duration.ofSeconds(1);
+  private static final String FINAL_GET_ATTEMPT_KEY = "ssoFinalGetAttempt";
+  private static final String FINAL_GET_PENDING_KEY = "ssoFinalGetRetryPending";
+  private static final String FINAL_GET_STATUS_KEY = "ssoFinalGetStatus";
   private static final Map<String, String> BROWSER_HEADERS = Map.of(
     "Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language", "en-GB,en;q=0.9",
@@ -166,13 +177,63 @@ public final class SsoAuthentication {
               .disableFollowRedirect()
               .headers(BROWSER_HEADERS)
               .check(status().in(200, 302)))))
-        .exec(http("AppReg authenticated home").get("/").headers(BROWSER_HEADERS).check(status().is(200)))
-        .exec(http("AppReg session check").get("/sso/me")
-          .transformResponse(DiagnosticLogging.logIfStatusAtLeast("AppReg session check", 400))
-          .header("Accept", "application/json")
-          .check(status().is(200))
-          .check(jsonPath("$.authenticated").is("true")))
+        .exec(retryingFinalAppRegGet(
+          "AppReg authenticated home",
+          http("AppReg authenticated home").get("/").headers(BROWSER_HEADERS)))
+        .exec(retryingFinalAppRegGet(
+          "AppReg session check",
+          http("AppReg session check").get("/sso/me").header("Accept", "application/json"),
+          jsonPath("$.authenticated").is("true")))
     );
+  }
+
+  /** Retries only the final read-only AppReg validation GETs, never an Entra or callback step. */
+  private static ChainBuilder retryingFinalAppRegGet(
+      String operation,
+      HttpRequestActionBuilder request,
+      CheckBuilder... successfulResponseChecks) {
+    var attempt = exec(request
+        .transformResponse(DiagnosticLogging.logIfStatusAtLeast(operation, 400))
+        .check(status().saveAs(FINAL_GET_STATUS_KEY))
+        .checkIf((response, session) -> shouldFailRequest(
+            response.status().code(), session.getInt(FINAL_GET_ATTEMPT_KEY),
+            FINAL_APPREG_GET_RETRIES)).then(status().is(200))
+        .checkIf((response, session) -> response.status().code() == 200).then(
+          successfulResponseChecks));
+
+    return exec(session -> session
+        .set(FINAL_GET_ATTEMPT_KEY, 0)
+        .set(FINAL_GET_PENDING_KEY, true))
+      .doWhile(session -> session.getBoolean(FINAL_GET_PENDING_KEY)).on(
+        exec(attempt)
+          .exec(session -> evaluateFinalAppRegGet(operation, session))
+          .doIf(session -> session.getBoolean(FINAL_GET_PENDING_KEY)).then(
+            pause(FINAL_APPREG_GET_RETRY_DELAY)))
+      .exec(session -> session.removeAll(
+        FINAL_GET_ATTEMPT_KEY, FINAL_GET_PENDING_KEY, FINAL_GET_STATUS_KEY));
+  }
+
+  private static Session evaluateFinalAppRegGet(String operation, Session session) {
+    int attempt = session.getInt(FINAL_GET_ATTEMPT_KEY) + 1;
+    int statusCode = session.getInt(FINAL_GET_STATUS_KEY);
+    if (statusCode == 200) {
+      if (attempt > 1 && !session.isFailed()) {
+        System.out.printf(
+            "APPREG_SSO_GET_RECOVERED timestamp=%s operation=%s attempt=%d "
+                + "accountOffset=%s%n",
+            Instant.now(), operation, attempt, session.get("accountOffset"));
+      }
+      return session.set(FINAL_GET_ATTEMPT_KEY, attempt).set(FINAL_GET_PENDING_KEY, false);
+    }
+
+    boolean willRetry = shouldRetry(statusCode, attempt, FINAL_APPREG_GET_RETRIES);
+    System.out.printf(
+        "APPREG_SSO_GET_RETRY timestamp=%s operation=%s status=%d attempt=%d "
+            + "maxAttempts=%d retry=%s delaySeconds=%s accountOffset=%s%n",
+        Instant.now(), operation, statusCode, attempt, FINAL_APPREG_GET_RETRIES + 1,
+        willRetry, willRetry ? FINAL_APPREG_GET_RETRY_DELAY.toSeconds() : "-",
+        session.get("accountOffset"));
+    return session.set(FINAL_GET_ATTEMPT_KEY, attempt).set(FINAL_GET_PENDING_KEY, willRetry);
   }
 
   private static Session promotePostLoginContinuation(Session session) {
