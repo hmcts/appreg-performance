@@ -1,13 +1,5 @@
 package simulations;
 
-import io.gatling.javaapi.core.Simulation;
-import java.util.Iterator;
-import java.util.Map;
-import scenarios.ResultMultipleApplicationsScenario;
-import utils.Environment;
-import utils.AuthenticationStage;
-import utils.SsoAuthentication;
-
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
 import static io.gatling.javaapi.core.CoreDsl.feed;
 import static io.gatling.javaapi.core.CoreDsl.global;
@@ -17,9 +9,16 @@ import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.AppRegHttp.protocol;
-import static utils.Headers.XSRF_TOKEN_COOKIE;
 import static utils.Environment.requiredEnvironmentVariable;
 import static utils.Headers.COMMON_HEADER;
+import static utils.Headers.XSRF_TOKEN_COOKIE;
+
+import io.gatling.javaapi.core.Simulation;
+import java.util.Iterator;
+import java.util.Map;
+import scenarios.ResultMultipleApplicationsScenario;
+import utils.AuthenticationStage;
+import utils.SsoAuthentication;
 
 /** One-user proof that applies the same result to three isolated Applications in one list. */
 public class ResultMultipleApplicationsProofSimulation extends Simulation {

@@ -1,14 +1,5 @@
 package simulations;
 
-import io.gatling.javaapi.core.Simulation;
-import java.util.Iterator;
-import java.util.Map;
-import scenarios.CloseApplicationListScenario;
-import scenarios.UpdateApplicationListScenario;
-import utils.Environment;
-import utils.AuthenticationStage;
-import utils.SsoAuthentication;
-
 import static io.gatling.javaapi.core.CoreDsl.atOnceUsers;
 import static io.gatling.javaapi.core.CoreDsl.feed;
 import static io.gatling.javaapi.core.CoreDsl.global;
@@ -22,6 +13,14 @@ import static utils.Environment.requiredEnvironmentVariable;
 import static utils.Headers.APPREG_API_MEDIA_TYPE;
 import static utils.Headers.COMMON_HEADER;
 import static utils.Headers.XSRF_TOKEN_COOKIE;
+
+import io.gatling.javaapi.core.Simulation;
+import java.util.Iterator;
+import java.util.Map;
+import scenarios.CloseApplicationListScenario;
+import scenarios.UpdateApplicationListScenario;
+import utils.AuthenticationStage;
+import utils.SsoAuthentication;
 
 /** One-user proof that validates a seeded close-ready Application List through the UI. */
 public class UpdateAndCloseApplicationListProofSimulation extends Simulation {

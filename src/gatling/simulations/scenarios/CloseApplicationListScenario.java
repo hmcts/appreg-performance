@@ -1,15 +1,14 @@
 package scenarios;
 
-import io.gatling.javaapi.core.ChainBuilder;
-import utils.Headers;
-import utils.WorkloadAction;
-
 import static io.gatling.javaapi.core.CoreDsl.StringBody;
-import static io.gatling.javaapi.core.CoreDsl.exec;
 import static io.gatling.javaapi.core.CoreDsl.group;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static java.util.Objects.requireNonNull;
+
+import io.gatling.javaapi.core.ChainBuilder;
+import utils.Headers;
+import utils.WorkloadAction;
 
 /** Replays the recorded UI flow for closing a close-ready Application List. */
 public final class CloseApplicationListScenario {
