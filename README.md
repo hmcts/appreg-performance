@@ -123,6 +123,12 @@ Current modes:
 | `application-diagnostic` | Seed data and run a bounded pooled-session workload using the `performance` profile scaled to the requested actors and minutes |
 | `performance` | Seed isolated ramp-up and measured data, then run the pooled-session phase-based workload with 500 actors and a configurable measured period |
 
+`Jenkinsfile_nightly` runs the fixed `performance` mode on the frontend
+nightly schedule (`H 07 * * 1-5`). Each scheduled build resets the guarded Test
+database once, creates fresh seed allocations and runs one 500-actor,
+100-session, 30-minute workload. It does not retry or start a separate CNP
+build.
+
 The phase-based modes follow an attack, sustain and release load profile:
 
 ```text

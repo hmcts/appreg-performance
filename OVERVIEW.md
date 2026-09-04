@@ -371,10 +371,11 @@ but the current user-facing CNP modes do not select it.
 
 ## Nightly Jenkins execution
 
-`Jenkinsfile_nightly` is separate from the CNP run-mode pipeline. It targets
-AppReg staging, enables SSO, fixes `PERFORMANCE_TEST_USERS` to one and runs the
-default `AppRegSimulation` through the shared performance-test pipeline. It is
-not the deterministic mixed workload.
+`Jenkinsfile_nightly` runs at the same hashed weekday schedule as the frontend
+nightly pipeline (`H 07 * * 1-5`). It performs one guarded Test database reset,
+creates fresh seed allocations and executes the canonical 500-actor,
+100-session, 30-minute `performance` workload in a single Jenkins build. It
+does not retry or delegate to the parameterised CNP job.
 
 ## Reports and diagnostics
 
