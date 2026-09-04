@@ -49,6 +49,14 @@ BEGIN
 END
 $$;
 
+-- Cancel in-flight client queries so they do not block the test-data reset.
+SELECT pg_cancel_backend(pid)
+FROM pg_stat_activity
+WHERE datname = current_database()
+  AND pid <> pg_backend_pid()
+  AND backend_type = 'client backend'
+  AND state = 'active';
+
 truncate table appreg.application_codes cascade;
 truncate table appreg.application_lists cascade;
 truncate table appreg.application_list_entries cascade;
