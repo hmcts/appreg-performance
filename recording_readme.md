@@ -8,7 +8,7 @@ Raw recordings are not performance tests. They must be cleaned up, parameterised
 
 - Java 21 is installed and available as `java`.
 - An approved AppReg environment and dedicated test account are available.
-- Gatling Recorder has been configured with a local certificate authority (CA), as described in `README.adoc`.
+- Gatling Recorder has been configured with a local certificate authority (CA) using the paths below.
 - The following paths exist locally:
 
   ```text
@@ -77,10 +77,10 @@ The `recorded/` directory is intentionally ignored by Git. Do not commit the gen
 Instead:
 
 1. Identify the minimum AppReg HTTP requests needed for the business action.
-2. Move the cleaned implementation into the appropriate class under `src/gatling/simulations/scenarios/`.
+2. Move the cleaned implementation into the appropriate class under `src/gatling/java/scenarios/`.
 3. Replace recorded IDs, dates, text, anti-forgery tokens and search values with session variables, feeders or generated safe data.
 4. Add useful checks, including expected status codes and identifiers/results required by later steps.
-5. Create a dedicated one-user proof simulation under `src/gatling/simulations/simulations/`.
+5. Create a dedicated one-user proof simulation under `src/gatling/java/simulations/`.
 6. Run `./gradlew gatlingClasses`, then run the proof against an approved environment.
 
 See `AGENTS.md` for the project's modular scenario, test-data and safety conventions.

@@ -12,27 +12,74 @@ properties([
     choice(
       name: 'RUN_MODE',
       choices: ['framework-proof', 'application-diagnostic', 'performance'],
-      description: 'Framework proof runs one-user proofs; application diagnostic is a short capped workload; performance runs the full 500-user benchmark.'
+      description: 'Select the execution type.<br/><br/>'
+        + 'framework-proof: Run twelve business proofs sequentially with one authenticated session.<br/>'
+        + 'application-diagnostic: Run a configurable bounded seeded workload.<br/>'
+        + 'performance: Run the canonical seeded 500-actor NFR workload.'
     ),
     string(
       name: 'MAX_USERS',
-      defaultValue: '1',
-      description: 'Users for application-diagnostic mode, capped at 500. Ignored by framework-proof and performance modes.'
+      defaultValue: '10',
+      description: 'Concurrent workload actors.<br/><br/>'
+        + 'framework-proof: Not used; the proof uses one actor.<br/>'
+        + 'application-diagnostic: Between 1 and 500; default 10.<br/>'
+        + 'performance: Not used; always 500.'
+    ),
+    string(
+      name: 'SESSION_POOL_SIZE',
+      defaultValue: '',
+      description: 'Authenticated sessions shared round-robin by workload actors.<br/><br/>'
+        + 'framework-proof: Not used; the proof uses one session.<br/>'
+        + 'application-diagnostic: Between 1 and MAX_USERS; blank uses MAX_USERS.<br/>'
+        + 'performance: Between 1 and 500; blank uses 100.'
+    ),
+    string(
+      name: 'AUTHENTICATION_SPARE_USERS',
+      defaultValue: '10',
+      description: 'Additional SSO candidates available when required sessions fail authentication.<br/><br/>'
+        + 'framework-proof: Not used.<br/>'
+        + 'application-diagnostic: Between 0 and 500 minus SESSION_POOL_SIZE; default 10.<br/>'
+        + 'performance: Between 0 and 500 minus SESSION_POOL_SIZE; default 10.'
+    ),
+    string(
+      name: 'AUTHENTICATION_RATE_PER_SECOND',
+      defaultValue: '0.15',
+      description: 'Progressive SSO journeys started per second during workload setup.<br/><br/>'
+        + 'framework-proof: Not used.<br/>'
+        + 'application-diagnostic: Greater than 0 and no more than 1; default 0.15.<br/>'
+        + 'performance: Greater than 0 and no more than 1; default 0.15 (about 734 seconds for 110 candidates).'
     ),
     string(
       name: 'RUN_DURATION_MINUTES',
-      defaultValue: '5',
-      description: 'Duration for application-diagnostic mode in minutes. Ignored by framework-proof and performance modes.'
+      defaultValue: '30',
+      description: 'Measured steady-state workload duration.<br/><br/>'
+        + 'framework-proof: Not used.<br/>'
+        + 'application-diagnostic: Between 1 and 70 minutes; MAX_USERS multiplied by minutes must not exceed 35,000.<br/>'
+        + 'performance: Between 1 and 70 minutes; default 30.'
     ),
     string(
-      name: 'WORKLOAD_RELEASE_INTERVAL_SECONDS',
-      defaultValue: '1',
-      description: 'Delay between retained sessions starting workload after authentication. Applies to workload modes only.'
+      name: 'ACTION_PACE_SECONDS',
+      defaultValue: '60',
+      description: 'Minimum interval between business-action starts for each workload actor.<br/><br/>'
+        + 'framework-proof: Not used.<br/>'
+        + 'application-diagnostic: Between 60 and 3,600 seconds; default 60.<br/>'
+        + 'performance: Between 60 and 3,600 seconds; default 60.'
+    ),
+    string(
+      name: 'ACTION_SPREAD_SECONDS',
+      defaultValue: '60',
+      description: 'Interval across which deterministic initial actor offsets are distributed.<br/><br/>'
+        + 'framework-proof: Not used.<br/>'
+        + 'application-diagnostic: Between 0 and 3,600 seconds; default 60; zero starts all actors together.<br/>'
+        + 'performance: Between 0 and 3,600 seconds; default 60; zero starts all actors together.'
     ),
     booleanParam(
       name: 'RESET_DATABASE',
       defaultValue: false,
-      description: 'Restore the approved masked Test database baseline before the selected run'
+      description: 'Restore the approved masked Test database baseline before seeding; destructive and disabled by default.<br/><br/>'
+        + 'framework-proof: Applied before proof data is seeded when selected.<br/>'
+        + 'application-diagnostic: Applied before workload data is seeded when selected.<br/>'
+        + 'performance: Applied before workload data is seeded when selected.'
     )
   ])
 ])
@@ -145,14 +192,6 @@ def dbSeedCommand = '''
         ''|*[!0-9]*) echo "Scheduled action counts must be non-negative integers" >&2; exit 1 ;;
       esac
       scheduled_total=$((scheduled_total + scheduled_count))
-      case "$action" in
-        create_list|other_operations) continue ;;
-      esac
-      allocation_count="$(profile_value "$action")"
-      if [ "$allocation_count" -lt "$scheduled_count" ]; then
-        echo "Allocation for $action is $allocation_count; deterministic schedule requires $scheduled_count" >&2
-        exit 1
-      fi
     done
     expected_total=$((concurrent_users * actions_per_user))
     if [ "$scheduled_total" -ne "$expected_total" ]; then
@@ -192,18 +231,28 @@ def dbSeedCommand = '''
     workload_plan="$(./gradlew --no-daemon --quiet printWorkloadPlan \
       -DappRegWorkloadProfile="$workload_profile" \
       -DappRegMaxUsers="$max_users" \
-      -DappRegDurationMinutes="$run_duration_minutes")"
+      -DappRegDurationMinutes="$run_duration_minutes" \
+      -DappRegWorkloadSessionPoolSize="$SESSION_POOL_SIZE" \
+      -DappRegWorkloadAuthenticationSpareUsers="$AUTHENTICATION_SPARE_USERS" \
+      -DappRegWorkloadAuthenticationRatePerSecond="$WORKLOAD_AUTHENTICATION_RATE_PER_SECOND" \
+      -DappRegWorkloadAuthenticationSetupTimeoutMinutes="$WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES" \
+      -DappRegWorkloadActionPaceSeconds="$WORKLOAD_ACTION_PACE_SECONDS" \
+      -DappRegWorkloadActionSpreadSeconds="$WORKLOAD_ACTION_SPREAD_SECONDS" \
+      -DappRegWorkloadRampDownGraceSeconds="$WORKLOAD_RAMP_DOWN_GRACE_SECONDS")"
     scheduled_count_for() {
       printf '%s\n' "$workload_plan" | awk -F= -v key="$1" '$1 == key { print $2; exit }'
     }
     allocation_count_for() {
-      scheduled_count="$(scheduled_count_for "$1")"
-      if [ -z "$scheduled_count" ]; then
-        echo "No deterministic scheduled count for $1" >&2
+      ramp_count="$(scheduled_count_for "ramp_up_$1")"
+      measured_count="$(scheduled_count_for "measured_$1")"
+      if [ -z "$ramp_count" ] || [ -z "$measured_count" ]; then
+        echo "No deterministic ramp-up or measured count for $1" >&2
         exit 1
       fi
+      # Seed both phase allocations in one database pass; they are split into non-overlapping
+      # feeder files after generation.
       # Keep one canonical row for a proof or a rounded-zero low-volume action.
-      count=$((scheduled_count + proof_reserve))
+      count=$((ramp_count + measured_count + proof_reserve))
       if [ "$count" -lt 1 ]; then count=1; fi
       printf '%s' "$count"
     }
@@ -374,41 +423,136 @@ withNightlyPipeline(type, product, component) {
                     env.AUTH_MODE = 'sso-login'
                     env.PERFORMANCE_TEST_USERS = '1'
                     def runMode = params.RUN_MODE ?: 'framework-proof'
-                    def diagnosticUsers = (params.MAX_USERS ?: '1').toString().trim()
-                    def diagnosticMinutes = (params.RUN_DURATION_MINUTES ?: '5').toString().trim()
-                    def workloadReleaseInterval = (params.WORKLOAD_RELEASE_INTERVAL_SECONDS ?: '1.5').toString().trim()
+                    def diagnosticUsers = (params.MAX_USERS ?: '10').toString().trim()
+                    def requestedSessionPoolSize = (params.SESSION_POOL_SIZE ?: '').toString().trim()
+                    def authenticationSpareUsers = (params.AUTHENTICATION_SPARE_USERS ?: '10').toString().trim()
+                    def requestedDurationMinutes = (params.RUN_DURATION_MINUTES ?: '30').toString().trim()
+                    def authenticationRateText = (params.AUTHENTICATION_RATE_PER_SECOND ?: '0.15').toString().trim()
+                    def actionPaceSeconds = (params.ACTION_PACE_SECONDS ?: '60').toString().trim()
+                    def actionSpreadSeconds = (params.ACTION_SPREAD_SECONDS ?: '60').toString().trim()
+                    def workloadSetupTimeoutMinutes = (env.WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES ?: '15').toString().trim()
+                    def workloadRampDownGraceSeconds = (env.WORKLOAD_RAMP_DOWN_GRACE_SECONDS ?: '60').toString().trim()
+                    def workloadGatewayGetRetries = (env.WORKLOAD_GATEWAY_GET_RETRIES ?: '1').toString().trim()
+                    def workloadGatewayGetRetryDelaySeconds = (env.WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS ?: '1').toString().trim()
+                    def workloadBulkUploadPollTimeoutSeconds = (env.WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS ?: '30').toString().trim()
+                    def gatlingConsoleWritePeriodSeconds = (env.GATLING_CONSOLE_WRITE_PERIOD_SECONDS ?: '30').toString().trim()
                     def runModes = [
-                        'application-diagnostic': [profile: 'performance', users: diagnosticUsers, minutes: diagnosticMinutes, proofs: false],
-                        'framework-proof':         [profile: 'smoke', users: '1', minutes: '1', proofs: true],
-                        'performance':             [profile: 'performance', users: '500', minutes: '70', proofs: false]
+                        'application-diagnostic': [profile: 'performance', users: diagnosticUsers, minutes: requestedDurationMinutes, proofs: false, workload: true, seed: true],
+                        'framework-proof':         [profile: 'smoke', users: '1', minutes: '1', proofs: true, workload: false, seed: true],
+                        'performance':             [profile: 'performance', users: '500', minutes: requestedDurationMinutes, proofs: false, workload: true, seed: true]
                     ]
                     def selectedRun = runModes[runMode]
                     if (selectedRun == null) {
                         error "Unsupported RUN_MODE: ${runMode}"
                     }
-                    if (runMode == 'application-diagnostic') {
-                        if (!(diagnosticUsers ==~ /\d+/) || diagnosticUsers.toInteger() < 1 || diagnosticUsers.toInteger() > 500) {
+                    def sessionPoolSize = requestedSessionPoolSize
+                    if (!sessionPoolSize) {
+                        sessionPoolSize = runMode == 'performance' ? '100' : selectedRun.users
+                    }
+                    if (selectedRun.workload) {
+                        if (runMode == 'application-diagnostic'
+                            && (!(diagnosticUsers ==~ /\d+/)
+                            || diagnosticUsers.toInteger() < 1
+                            || diagnosticUsers.toInteger() > 500)) {
                             error 'application-diagnostic requires MAX_USERS to be an integer from 1 to 500'
                         }
-                        if (!(diagnosticMinutes ==~ /\d+/) || diagnosticMinutes.toInteger() < 1) {
-                            error 'application-diagnostic requires RUN_DURATION_MINUTES to be a positive integer'
+                        if (!(selectedRun.minutes ==~ /\d+/)
+                            || selectedRun.minutes.toInteger() < 1
+                            || selectedRun.minutes.toInteger() > 70) {
+                            error "${runMode} requires RUN_DURATION_MINUTES to be an integer from 1 to 70"
                         }
-                        if ((diagnosticUsers.toInteger() * diagnosticMinutes.toInteger()) > 35000) {
-                            error 'application-diagnostic requires MAX_USERS * RUN_DURATION_MINUTES to be 35000 or less'
+                        if ((selectedRun.users.toInteger() * selectedRun.minutes.toInteger()) > 35000) {
+                            error "${runMode} requires actors multiplied by RUN_DURATION_MINUTES to be 35000 or less"
                         }
                     }
-                    if (!(workloadReleaseInterval ==~ /\d+(\.\d+)?/) || workloadReleaseInterval ==~ /0*\.?0*/) {
-                        error 'WORKLOAD_RELEASE_INTERVAL_SECONDS must be a positive number'
+                    if (selectedRun.workload) {
+                        if (!(sessionPoolSize ==~ /\d+/)
+                            || sessionPoolSize.toInteger() < 1
+                            || sessionPoolSize.toInteger() > selectedRun.users.toInteger()) {
+                            error "${runMode} requires SESSION_POOL_SIZE to be an integer from 1 to the actor count"
+                        }
+                        if (!(authenticationSpareUsers ==~ /\d+/)
+                            || authenticationSpareUsers.toInteger() > 500
+                            || sessionPoolSize.toInteger() + authenticationSpareUsers.toInteger() > 500) {
+                            error 'AUTHENTICATION_SPARE_USERS must be an integer from 0 to 500 minus SESSION_POOL_SIZE'
+                        }
+                        if (!(actionPaceSeconds ==~ /\d+/)
+                            || actionPaceSeconds.toInteger() < 60
+                            || actionPaceSeconds.toInteger() > 3600) {
+                            error 'ACTION_PACE_SECONDS must be an integer from 60 to 3600 seconds'
+                        }
+                        if (!(actionSpreadSeconds ==~ /\d+/)
+                            || actionSpreadSeconds.toInteger() > 3600) {
+                            error 'ACTION_SPREAD_SECONDS must be an integer from 0 to 3600 seconds'
+                        }
+                        double authenticationRatePerSecond
+                        try {
+                            authenticationRatePerSecond = authenticationRateText.toDouble()
+                        } catch (NumberFormatException ignored) {
+                            error 'AUTHENTICATION_RATE_PER_SECOND must be greater than 0 and no more than 1'
+                        }
+                        if (authenticationRatePerSecond != authenticationRatePerSecond
+                            || authenticationRatePerSecond <= 0
+                            || authenticationRatePerSecond > 1) {
+                            error 'AUTHENTICATION_RATE_PER_SECOND must be greater than 0 and no more than 1'
+                        }
+                        if (!(workloadSetupTimeoutMinutes ==~ /\d+/)
+                            || workloadSetupTimeoutMinutes.toInteger() < 1
+                            || workloadSetupTimeoutMinutes.toInteger() > 1440) {
+                            error 'WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES must be from 1 to 1440'
+                        }
+                        def authenticationRampSeconds = Math.ceil(
+                            (sessionPoolSize.toInteger() + authenticationSpareUsers.toInteger())
+                                / authenticationRatePerSecond).toInteger()
+                        if (authenticationRampSeconds + actionSpreadSeconds.toInteger()
+                            >= workloadSetupTimeoutMinutes.toInteger() * 60) {
+                            error 'Session authentication at AUTHENTICATION_RATE_PER_SECOND plus actor spread must finish before the setup timeout'
+                        }
                     }
-                    env.RUN_DB_RESET = (params.RESET_DATABASE ?: false).toString()
-                    env.RUN_DB_SEED = 'true'
+                    if (!(gatlingConsoleWritePeriodSeconds ==~ /\d+/)
+                        || gatlingConsoleWritePeriodSeconds.toInteger() < 1
+                        || gatlingConsoleWritePeriodSeconds.toInteger() > 3600) {
+                        error 'GATLING_CONSOLE_WRITE_PERIOD_SECONDS must be from 1 to 3600'
+                    }
+                    if (selectedRun.workload) {
+                        if (!(workloadRampDownGraceSeconds ==~ /\d+/)
+                            || workloadRampDownGraceSeconds.toInteger() > 3600) {
+                            error 'WORKLOAD_RAMP_DOWN_GRACE_SECONDS must be from 0 to 3600'
+                        }
+                        if (!(workloadGatewayGetRetries ==~ /\d+/)
+                            || workloadGatewayGetRetries.toInteger() > 5) {
+                            error 'WORKLOAD_GATEWAY_GET_RETRIES must be from 0 to 5'
+                        }
+                        if (!(workloadGatewayGetRetryDelaySeconds ==~ /\d+/)
+                            || workloadGatewayGetRetryDelaySeconds.toInteger() > 3600) {
+                            error 'WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS must be from 0 to 3600'
+                        }
+                        if (!(workloadBulkUploadPollTimeoutSeconds ==~ /\d+/)
+                            || workloadBulkUploadPollTimeoutSeconds.toInteger() < 1
+                            || workloadBulkUploadPollTimeoutSeconds.toInteger() > 3600) {
+                            error 'WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS must be from 1 to 3600'
+                        }
+                    }
+                    env.RUN_DB_RESET = (selectedRun.seed && (params.RESET_DATABASE ?: false)).toString()
+                    env.RUN_DB_SEED = selectedRun.seed.toString()
+                    env.RUN_MODE = runMode
                     env.WORKLOAD_PROFILE = selectedRun.profile
                     env.RUN_PROOF_SMOKES = selectedRun.proofs.toString()
-                    env.RUN_PERFTEST = (!selectedRun.proofs).toString()
+                    env.RUN_PERFTEST = selectedRun.workload.toString()
                     env.MAX_USERS = selectedRun.users
                     env.RUN_DURATION_MINUTES = selectedRun.minutes
-                    env.WORKLOAD_RELEASE_INTERVAL_SECONDS = workloadReleaseInterval
-                    if (params.RESET_DATABASE) {
+                    env.SESSION_POOL_SIZE = sessionPoolSize
+                    env.AUTHENTICATION_SPARE_USERS = authenticationSpareUsers
+                    env.WORKLOAD_AUTHENTICATION_RATE_PER_SECOND = authenticationRateText
+                    env.WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES = workloadSetupTimeoutMinutes
+                    env.WORKLOAD_ACTION_PACE_SECONDS = actionPaceSeconds
+                    env.WORKLOAD_ACTION_SPREAD_SECONDS = actionSpreadSeconds
+                    env.WORKLOAD_RAMP_DOWN_GRACE_SECONDS = workloadRampDownGraceSeconds
+                    env.WORKLOAD_GATEWAY_GET_RETRIES = workloadGatewayGetRetries
+                    env.WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS = workloadGatewayGetRetryDelaySeconds
+                    env.WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS = workloadBulkUploadPollTimeoutSeconds
+                    env.GATLING_CONSOLE_WRITE_PERIOD_SECONDS = gatlingConsoleWritePeriodSeconds
+                    if (env.RUN_DB_RESET == 'true') {
                         sh dbResetCommand
                     }
 
@@ -417,10 +561,16 @@ withNightlyPipeline(type, product, component) {
                     }
 
                     try {
-                        sh '''
+                        sh '''#!/bin/bash -xe
+                            set -o pipefail
                             export JAVA_HOME="$(ls -d /usr/lib/jvm/temurin-21-jdk-*)"
                             export PATH="$JAVA_HOME/bin:$PATH"
                             java -version
+                            echo "Gatling console write period: $GATLING_CONSOLE_WRITE_PERIOD_SECONDS seconds"
+
+                            mkdir -p build
+                            rm -f build/reports/gatling/workload-nfr-summary.txt \
+                              build/jenkins-gatling-console.log
 
                             if [ "$RUN_DB_SEED" = "true" ]; then
                               . build/seed-allocation.env
@@ -435,46 +585,17 @@ withNightlyPipeline(type, product, component) {
                               fi
                             done
                             if [ "$RUN_PROOF_SMOKES" = "true" ]; then
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.AppRegSimulation
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.ActivityAuditReportProofSimulation
-
                               if [ "$RUN_DB_SEED" != "true" ]; then
                                 echo "RUN_PROOF_SMOKES=true requires RUN_DB_SEED=true" >&2
                                 exit 1
                               fi
 
-                              # Requires the canonical editable list and entry allocation created by RUN_DB_SEED.
+                              # One virtual user reuses one SSO session across the complete seeded proof set.
                               ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.UpdateApplicationProofSimulation
-                              # Requires the separate ordinary open list allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.UpdateApplicationListProofSimulation
-                              # Requires the separate close-ready list and entry allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.UpdateAndCloseApplicationListProofSimulation
-                              # Requires the dedicated empty list allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.AddApplicationProofSimulation
-                              # Requires the dedicated three-entry bulk target allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.ResultMultipleApplicationsProofSimulation
-                              # Requires the dedicated single-result list and entry allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.ResultApplicationProofSimulation
-                              # Requires the dedicated empty bulk-upload list allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.BulkApplicationUploadProofSimulation
-                              # Requires the dedicated three-entry bulk-fees allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.BulkUpdateFeesProofSimulation
-                              # Requires the dedicated three-entry bulk-officials allocation created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.BulkUpdateOfficialsProofSimulation
-                              # Requires the dedicated Application with an existing result created by RUN_DB_SEED.
-                              ./gradlew --no-daemon gatlingRun \
-                                --simulation simulations.UpdateApplicationResultProofSimulation
+                                -Dgatling.data.console.writePeriod="$GATLING_CONSOLE_WRITE_PERIOD_SECONDS" \
+                                --simulation simulations.FrameworkProofSimulation \
+                                2>&1 | tee build/jenkins-gatling-console.log \
+                                | sed '/APPREG_TRACE_CONTEXT/d'
                             fi
 
                             if [ "$RUN_PERFTEST" = "true" ]; then
@@ -487,43 +608,73 @@ withNightlyPipeline(type, product, component) {
                                 exit 1
                               fi
 
-                              mkdir -p build/workload-data
+                              mkdir -p build/workload-data/ramp-up build/workload-data/measured
                               workload_plan="$(./gradlew --no-daemon --quiet printWorkloadPlan \
                                 -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
                                 -DappRegMaxUsers="$MAX_USERS" \
-                                -DappRegDurationMinutes="$RUN_DURATION_MINUTES")"
+                                -DappRegDurationMinutes="$RUN_DURATION_MINUTES" \
+                                -DappRegWorkloadSessionPoolSize="$SESSION_POOL_SIZE" \
+                                -DappRegWorkloadAuthenticationSpareUsers="$AUTHENTICATION_SPARE_USERS" \
+                                -DappRegWorkloadAuthenticationRatePerSecond="$WORKLOAD_AUTHENTICATION_RATE_PER_SECOND" \
+                                -DappRegWorkloadAuthenticationSetupTimeoutMinutes="$WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES" \
+                                -DappRegWorkloadActionPaceSeconds="$WORKLOAD_ACTION_PACE_SECONDS" \
+                                -DappRegWorkloadActionSpreadSeconds="$WORKLOAD_ACTION_SPREAD_SECONDS" \
+                                -DappRegWorkloadRampDownGraceSeconds="$WORKLOAD_RAMP_DOWN_GRACE_SECONDS")"
                               scheduled_count_for() {
                                 printf '%s\n' "$workload_plan" | awk -F= -v key="$1" '$1 == key { print $2; exit }'
                               }
                               for feeder in update-application update-list add-application result-application \
                                 result-multiple update-result close-list bulk-officials bulk-fees bulk-upload; do
                                 action_key="$(printf '%s' "$feeder" | tr '-' '_')"
-                                scheduled_count="$(scheduled_count_for "$action_key")"
-                                if [ -z "$scheduled_count" ]; then
-                                  echo "No deterministic scheduled count for $action_key" >&2
+                                ramp_count="$(scheduled_count_for "ramp_up_$action_key")"
+                                measured_count="$(scheduled_count_for "measured_$action_key")"
+                                if [ -z "$ramp_count" ] || [ -z "$measured_count" ]; then
+                                  echo "No deterministic ramp-up or measured count for $action_key" >&2
                                   exit 1
                                 fi
                                 data_start_row=2
                                 if [ "$RUN_PROOF_SMOKES" = "true" ]; then data_start_row=3; fi
-                                # Retain exactly the rows consumed by the deterministic plan.
-                                # Reserved seed rows remain out of the workload feeder.
-                                awk -F, -v start="$data_start_row" -v count="$scheduled_count" \
+                                # Row 1 is the CSV header and an optional proof row comes next. The
+                                # measured slice begins immediately after the ramp-up slice, which is
+                                # the isolation guarantee for mutable test data.
+                                awk -F, -v start="$data_start_row" -v count="$ramp_count" \
                                   'NR == 1 || (NR >= start && NR < start + count)' \
-                                  "build/performance-data/$feeder.csv" > "build/workload-data/$feeder.csv"
-                                generated_count=$(($(wc -l < "build/workload-data/$feeder.csv") - 1))
-                                if [ "$generated_count" -ne "$scheduled_count" ]; then
-                                  echo "Deterministic workload feeder $feeder has $generated_count rows; expected $scheduled_count" >&2
+                                  "build/performance-data/$feeder.csv" > "build/workload-data/ramp-up/$feeder.csv"
+                                measured_start_row=$((data_start_row + ramp_count))
+                                awk -F, -v start="$measured_start_row" -v count="$measured_count" \
+                                  'NR == 1 || (NR >= start && NR < start + count)' \
+                                  "build/performance-data/$feeder.csv" > "build/workload-data/measured/$feeder.csv"
+                                generated_ramp_count=$(($(wc -l < "build/workload-data/ramp-up/$feeder.csv") - 1))
+                                generated_measured_count=$(($(wc -l < "build/workload-data/measured/$feeder.csv") - 1))
+                                if [ "$generated_ramp_count" -ne "$ramp_count" ]; then
+                                  echo "Ramp-up feeder $feeder has $generated_ramp_count rows; expected $ramp_count" >&2
+                                  exit 1
+                                fi
+                                if [ "$generated_measured_count" -ne "$measured_count" ]; then
+                                  echo "Measured feeder $feeder has $generated_measured_count rows; expected $measured_count" >&2
                                   exit 1
                                 fi
                               done
 
                               ./gradlew --no-daemon gatlingRun \
+                                -Dgatling.data.console.writePeriod="$GATLING_CONSOLE_WRITE_PERIOD_SECONDS" \
                                 -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
                                 -DappRegMaxUsers="$MAX_USERS" \
                                 -DappRegDurationMinutes="$RUN_DURATION_MINUTES" \
-                                -DappRegWorkloadReleaseIntervalSeconds="$WORKLOAD_RELEASE_INTERVAL_SECONDS" \
+                                -DappRegWorkloadSessionPoolSize="$SESSION_POOL_SIZE" \
+                                -DappRegWorkloadAuthenticationSpareUsers="$AUTHENTICATION_SPARE_USERS" \
+                                -DappRegWorkloadAuthenticationRatePerSecond="$WORKLOAD_AUTHENTICATION_RATE_PER_SECOND" \
+                                -DappRegWorkloadAuthenticationSetupTimeoutMinutes="$WORKLOAD_AUTHENTICATION_SETUP_TIMEOUT_MINUTES" \
+                                -DappRegWorkloadActionPaceSeconds="$WORKLOAD_ACTION_PACE_SECONDS" \
+                                -DappRegWorkloadActionSpreadSeconds="$WORKLOAD_ACTION_SPREAD_SECONDS" \
+                                -DappRegWorkloadRampDownGraceSeconds="$WORKLOAD_RAMP_DOWN_GRACE_SECONDS" \
+                                -DappRegGatewayGetRetries="$WORKLOAD_GATEWAY_GET_RETRIES" \
+                                -DappRegGatewayGetRetryDelaySeconds="$WORKLOAD_GATEWAY_GET_RETRY_DELAY_SECONDS" \
+                                -DappRegBulkUploadPollTimeoutSeconds="$WORKLOAD_BULK_UPLOAD_POLL_TIMEOUT_SECONDS" \
                                 -DappRegPerformanceDataDirectory="$PWD/build/workload-data" \
-                                --simulation simulations.AppRegWorkloadSimulation
+                                --simulation simulations.AppRegWorkloadSimulation \
+                                2>&1 | tee build/jenkins-gatling-console.log \
+                                | sed '/APPREG_TRACE_CONTEXT/d'
                             fi
                         '''
                     } finally {
@@ -541,6 +692,22 @@ withNightlyPipeline(type, product, component) {
 
 def publishGatlingReports() {
     def reportsDirectory = 'build/reports/gatling'
+    def nfrSummaryPath = "${reportsDirectory}/workload-nfr-summary.txt"
+
+    archiveArtifacts allowEmptyArchive: true, artifacts: 'build/jenkins-gatling-console.log'
+
+    if (env.RUN_PERFTEST == 'true' && !fileExists(nfrSummaryPath)) {
+        sh "mkdir -p ${reportsDirectory}"
+        writeFile(
+            file: nfrSummaryPath,
+            text: '''========== WORKLOAD NFR SUMMARY ==========
+Result classification: FRAMEWORK_OR_SETUP_FAILURE
+No complete workload summary was produced; inspect the console log for the setup or framework failure.
+Overall asserted workload-operation verdict: FAIL
+==========================================
+'''
+        )
+    }
 
     if (!fileExists(reportsDirectory)) {
         echo "No Gatling reports found in ${reportsDirectory}; nothing to publish."
@@ -559,6 +726,10 @@ def publishGatlingReports() {
     def archivedReportLinks = reportLinks.collect { report ->
         "<li><a href=\"${reportsDirectory}/${report.path}\">${report.name}</a></li>"
     }.join('\n')
+    if (fileExists(nfrSummaryPath)) {
+        publishedReportLinks = "<li><a href=\"workload-nfr-summary.txt\">Workload NFR summary</a></li>\n${publishedReportLinks}"
+        archivedReportLinks = "<li><a href=\"${nfrSummaryPath}\">Workload NFR summary</a></li>\n${archivedReportLinks}"
+    }
 
     writeFile(
         file: "${reportsDirectory}/index.html",

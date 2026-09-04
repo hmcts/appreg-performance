@@ -22,17 +22,6 @@ gatling {
   gatlingVersion = '3.15.1'
 }
 
-sourceSets {
-  gatling {
-    java {
-      srcDir 'src/gatling/simulations'
-    }
-    resources {
-      srcDir 'src/gatling/resources'
-    }
-  }
-}
-
 tasks.named('gatlingRecorder') {
   // Keep browser recordings separate from curated performance journeys.
   simulationPackage = 'recorded'
@@ -42,10 +31,22 @@ tasks.named('gatlingRecorder') {
 tasks.named('gatlingRun') {
   // Keep CI and the default local run focused on the curated load profile.
   simulationClassName = 'simulations.AppRegSimulation'
+  systemProperties = ['gatling.data.console.writePeriod':
+      System.getProperty('gatling.data.console.writePeriod', '5')]
 }
 
 tasks.register('printWorkloadPlan', JavaExec) {
   classpath = sourceSets.gatling.runtimeClasspath
   mainClass = 'utils.WorkloadPlanPrinter'
   systemProperties System.properties
+}
+
+tasks.register('workloadSelfCheck', JavaExec) {
+  classpath = sourceSets.gatling.runtimeClasspath
+  mainClass = 'utils.WorkloadProfile'
+}
+
+tasks.register('traceContextSelfCheck', JavaExec) {
+  classpath = sourceSets.gatling.runtimeClasspath
+  mainClass = 'utils.AppRegTraceContext'
 }
