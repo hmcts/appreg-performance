@@ -291,6 +291,24 @@ Gatling writes HTML reports below `build/reports/gatling/`. Jenkins archives the
 report directories, retained workload NFR summary and Gatling HTML index even
 when execution fails.
 
+Jenkins also archives the complete `build/jenkins-gatling-console.log`. Download
+that single file and analyse any HTTP 502/504 responses locally:
+
+```bash
+./scripts/analyse_pt.sh ~/Downloads/jenkins-gatling-console.log
+```
+
+The standalone script uses the current Azure CLI login to query only the Test
+Application Gateway access log. Its output places each sanitised Gatling failure
+beside the uniquely matched gateway timestamp, path, status, backend status,
+timeout reason, latency and resource. `ERRORINFO_UPSTREAM_TIMED_OUT` is direct
+timeout evidence. For older gateway rows that omit `error_info`, the fallback
+requires a unique path/status/time match, no backend status, matching
+Gatling/gateway durations and a gateway wait of at least 20 seconds. Anything
+missing or ambiguous remains `NOT_PROVEN`; raw Gatling failures are never
+rewritten. Use `./scripts/analyse_pt.sh --help` for the Test defaults and
+environment overrides.
+
 Selected failures emit sanitised diagnostic lines. Passwords, access tokens,
 cookies and raw response bodies must not be logged.
 

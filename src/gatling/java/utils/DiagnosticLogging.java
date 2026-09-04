@@ -69,12 +69,18 @@ public final class DiagnosticLogging {
   private static void log(String requestName, Response response, Session session) {
     int status = response.status().code();
     System.err.printf(
-        "APPREG_HTTP_DIAGNOSTIC timestamp=%s traceId=%s request=%s status=%d "
+        "APPREG_HTTP_DIAGNOSTIC timestamp=%s traceId=%s phase=%s action=%s actor=%s "
+            + "request=%s path=%s status=%d responseMillis=%d "
             + "retryAfter=%s user=%s accountOffset=%s authState=%s%n",
-        Instant.now(),
+        Instant.ofEpochMilli(response.endTimestamp()),
         AppRegTraceContext.currentTraceId(session),
-        requestName,
+        AppRegTraceContext.currentPhase(session),
+        AppRegTraceContext.currentAction(session),
+        AppRegTraceContext.currentActor(session),
+        sanitise(requestName),
+        sanitisePath(response.request().getUri().getPath()),
         status,
+        Math.max(0, response.endTimestamp() - response.startTimestamp()),
         status == 429 ? response.headers().get("Retry-After") : "-",
         sessionValue(session, "username"),
         sessionValue(session, "accountOffset"),
@@ -146,6 +152,15 @@ public final class DiagnosticLogging {
   private static String shortValue(String value) {
     if (value == null) return "-";
     return value.length() > 80 ? value.substring(0, 80) : value;
+  }
+
+  private static String sanitise(String value) {
+    return value == null ? "-" : value.replaceAll("[^A-Za-z0-9_.-]", "_");
+  }
+
+  private static String sanitisePath(String value) {
+    if (value == null || value.isBlank()) return "/";
+    return value.replaceAll("[^A-Za-z0-9_./{}-]", "_");
   }
 
   private static boolean isEnabled(String environmentVariableName) {

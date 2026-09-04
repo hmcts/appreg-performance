@@ -383,6 +383,15 @@ retain `workload-nfr-summary.txt`, whose classification distinguishes NFR timing
 workload functional and framework/setup failures. Both Jenkins pipelines archive
 the report directories and publish an HTML index, including after a failed run.
 
+The CNP pipeline additionally archives one complete, unfiltered
+`build/jenkins-gatling-console.log`. `scripts/analyse_pt.sh` accepts a downloaded
+copy and independently queries the Test Application Gateway access log. It
+reports the matched gateway reason, backend status, latency and resource for
+each Gatling 502/504. Only a unique match with direct timeout evidence, or the
+documented older-log timeout fingerprint with no backend response, is eligible
+for client-infrastructure exclusion. The raw Gatling result remains unchanged;
+missing or ambiguous gateway evidence is never treated as a timeout.
+
 Selected HTTP failures emit sanitised request, status and session-state
 diagnostics. Optional SSO diagnostics summarise continuation-page shape without
 logging raw HTML, tokens, cookies or credentials.

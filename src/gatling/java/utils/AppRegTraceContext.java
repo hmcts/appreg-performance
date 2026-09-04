@@ -37,6 +37,18 @@ public final class AppRegTraceContext {
     return session.contains(TRACE_ID_KEY) ? session.getString(TRACE_ID_KEY) : "-";
   }
 
+  public static String currentPhase(Session session) {
+    return session.contains(PHASE_KEY) ? session.getString(PHASE_KEY) : "-";
+  }
+
+  public static String currentAction(Session session) {
+    return session.contains(ACTION_KEY) ? session.getString(ACTION_KEY) : "-";
+  }
+
+  public static String currentActor(Session session) {
+    return session.contains(ACTOR_KEY) ? Integer.toString(session.getInt(ACTOR_KEY)) : "-";
+  }
+
   public static Request signAppRegRequest(Request request, Session session) {
     if (!shouldTrace(request.getUri().getHost(), session.contains(TRACE_ID_KEY))) {
       return request;
