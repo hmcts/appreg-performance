@@ -1,4 +1,4 @@
-@Library("Infrastructure") _
+@Library("Infrastructure@2.5.1")
 
 def product = "appreg"
 def type = "java"
