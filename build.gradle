@@ -31,8 +31,11 @@ tasks.named('gatlingRecorder') {
 tasks.named('gatlingRun') {
   // Keep CI and the default local run focused on the curated load profile.
   simulationClassName = 'simulations.AppRegSimulation'
-  systemProperties = ['gatling.data.console.writePeriod':
-      System.getProperty('gatling.data.console.writePeriod', '5')]
+  systemProperties = [
+    'gatling.data.console.writePeriod': System.getProperty('gatling.data.console.writePeriod', '5'),
+    'appRegActivityAuditReportPollTimeoutSeconds':
+      System.getProperty('appRegActivityAuditReportPollTimeoutSeconds', '120')
+  ]
 }
 
 tasks.register('printWorkloadPlan', JavaExec) {
@@ -49,4 +52,9 @@ tasks.register('workloadSelfCheck', JavaExec) {
 tasks.register('traceContextSelfCheck', JavaExec) {
   classpath = sourceSets.gatling.runtimeClasspath
   mainClass = 'utils.AppRegTraceContext'
+}
+
+tasks.register('activityAuditReportSelfCheck', JavaExec) {
+  classpath = sourceSets.gatling.runtimeClasspath
+  mainClass = 'scenarios.ActivityAuditReportScenario'
 }

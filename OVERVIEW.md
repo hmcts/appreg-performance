@@ -199,9 +199,9 @@ authentication later fails.
 | --- | --- | --- | --- |
 | `FrameworkProofSimulation` | Authenticate once and orchestrate the selected proof journeys sequentially | Includes the effects listed below | Orchestrator |
 | `AppRegSimulation` | Basic Applications List HTML, JavaScript and optional API journey | Read-only | Yes |
-| `ApplicationListSearchProofSimulation` | Search Application Lists | Read-only | No |
+| `ApplicationListSearchProofSimulation` | Search Application Lists | Read-only | Yes |
 | `ActivityAuditReportProofSimulation` | Generate, poll and download an Activity Audit report | Does not change AppReg records | Yes |
-| `ApplicationListCreateProofSimulation` | Create an Application List | Creates data | No |
+| `ApplicationListCreateProofSimulation` | Create an Application List | Creates data | Yes |
 | `UpdateApplicationProofSimulation` | Update one seeded Application | Changes data | Yes |
 | `UpdateApplicationListProofSimulation` | Update one seeded open Application List | Changes data | Yes |
 | `UpdateAndCloseApplicationListProofSimulation` | Update and close a seeded close-ready list | Changes data | Yes |
@@ -219,9 +219,10 @@ All executable proof simulations assert 100% successful requests. Proofs that
 use seeded data read their allocation identifiers from required environment
 variables and fail at startup when those variables are absent.
 
-The CNP proof sequence does not currently include the journeys from
-`ApplicationListSearchProofSimulation`, `ApplicationListCreateProofSimulation`
-or `ResultMultipleApplicationsSetupSimulation`.
+The CNP proof sequence covers all nightly action types, but does not include
+`ResultMultipleApplicationsSetupSimulation`, which is a manual setup helper.
+It also requires successful completion of the whole sequence; successful HTTP
+requests alone cannot mask a session-only failure or skipped proofs.
 
 ## Deterministic mixed workload
 
@@ -333,8 +334,8 @@ The seeded-mode execution order is:
 ### `framework-proof`
 
 - Uses the `smoke` allocation.
-- Launches `FrameworkProofSimulation` once and runs the same twelve business
-  proofs previously listed as separate Jenkins invocations.
+- Launches `FrameworkProofSimulation` once and runs fourteen business proofs,
+  including every nightly workload action.
 - Authenticates one virtual user once, then retains that Gatling session and
   cookie jar for the complete sequence.
 - Starts each proof when the preceding proof completes. The sequence remains

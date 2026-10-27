@@ -8,12 +8,14 @@ import java.util.Map;
 import scenarios.ActivityAuditReportScenario;
 import scenarios.AddApplicationScenario;
 import scenarios.AppRegScenario;
+import scenarios.ApplicationListCreateScenario;
 import scenarios.BulkApplicationUploadScenario;
 import scenarios.BulkUpdateFeesScenario;
 import scenarios.BulkUpdateOfficialsScenario;
 import scenarios.CloseApplicationListScenario;
 import scenarios.ResultApplicationScenario;
 import scenarios.ResultMultipleApplicationsScenario;
+import scenarios.SearchScenario;
 import scenarios.UpdateApplicationListScenario;
 import scenarios.UpdateApplicationResultScenario;
 import scenarios.UpdateApplicationScenario;
@@ -60,25 +62,26 @@ public class FrameworkProofSimulation extends Simulation {
   private static final String UPDATE_RESULT_ENTRY_ID = requiredEnvironmentVariable("APPREG_SEED_UPDATE_RESULT_ENTRY_ID");
 
   private final Iterator<Map<String, Object>> ssoUserFeeder = SsoAuthentication.users(1);
+  private volatile boolean completed;
 
   public FrameworkProofSimulation() {
     var proof = scenario("AppReg framework proof suite").exitBlockOnFail().on(
       feed(ssoUserFeeder)
         .exec(AuthenticationStage.authenticateFrameworkProof())
-        .exec(session -> logProof(session, "01/12 - Applications list"))
+        .exec(session -> logProof(session, "01/14 - Applications list"))
         .exec(AppRegScenario.applicationsList(true))
-        .exec(session -> logProof(session, "02/12 - Activity Audit report"))
+        .exec(session -> logProof(session, "02/14 - Activity Audit report"))
         .exec(ActivityAuditReportScenario.generateActivityAuditReport())
-        .exec(session -> logProof(session, "03/12 - Update Application"))
+        .exec(session -> logProof(session, "03/14 - Update Application"))
         .exec(session -> session
           .set("applicationListId", EDITABLE_LIST_ID)
           .set("applicationEntryId", EDITABLE_ENTRY_ID))
         .exec(UpdateApplicationScenario.updateApplication())
-        .exec(session -> logProof(session, "04/12 - Update Application List"))
+        .exec(session -> logProof(session, "04/14 - Update Application List"))
         .exec(refreshXsrfToken())
         .exec(session -> session.set("applicationListId", UPDATE_LIST_ID))
         .exec(UpdateApplicationListScenario.updateApplicationList())
-        .exec(session -> logProof(session, "05/12 - Update and close Application List"))
+        .exec(session -> logProof(session, "05/14 - Update and close Application List"))
         .exec(refreshXsrfToken())
         .exec(session -> session
           .set("applicationListId", CLOSE_READY_LIST_ID)
@@ -89,11 +92,11 @@ public class FrameworkProofSimulation extends Simulation {
           .check(status().is(200)))
         .exec(UpdateApplicationListScenario.updateApplicationList())
         .exec(CloseApplicationListScenario.closeApplicationList())
-        .exec(session -> logProof(session, "06/12 - Add Application"))
+        .exec(session -> logProof(session, "06/14 - Add Application"))
         .exec(refreshXsrfToken())
         .exec(session -> session.set("applicationListId", ADD_APPLICATION_LIST_ID))
         .exec(AddApplicationScenario.addApplication())
-        .exec(session -> logProof(session, "07/12 - Result multiple Applications"))
+        .exec(session -> logProof(session, "07/14 - Result multiple Applications"))
         .exec(refreshXsrfToken())
         .exec(session -> session
           .set("applicationListId", BULK_TARGET_LIST_ID)
@@ -101,17 +104,17 @@ public class FrameworkProofSimulation extends Simulation {
           .set("entryIdTwo", BULK_TARGET_ENTRY_ID_TWO)
           .set("entryIdThree", BULK_TARGET_ENTRY_ID_THREE))
         .exec(ResultMultipleApplicationsScenario.resultMultipleApplications())
-        .exec(session -> logProof(session, "08/12 - Result Application"))
+        .exec(session -> logProof(session, "08/14 - Result Application"))
         .exec(refreshXsrfToken())
         .exec(session -> session
           .set("applicationListId", SINGLE_RESULT_LIST_ID)
           .set("applicationEntryId", SINGLE_RESULT_ENTRY_ID))
         .exec(ResultApplicationScenario.resultApplication())
-        .exec(session -> logProof(session, "09/12 - Bulk Application upload"))
+        .exec(session -> logProof(session, "09/14 - Bulk Application upload"))
         .exec(refreshXsrfToken())
         .exec(session -> session.set("applicationListId", BULK_UPLOAD_LIST_ID))
         .exec(BulkApplicationUploadScenario.bulkUploadApplications())
-        .exec(session -> logProof(session, "10/12 - Bulk update fees"))
+        .exec(session -> logProof(session, "10/14 - Bulk update fees"))
         .exec(refreshXsrfToken())
         .exec(session -> session
           .set("applicationListId", BULK_FEES_LIST_ID)
@@ -119,7 +122,7 @@ public class FrameworkProofSimulation extends Simulation {
           .set("entryIdTwo", BULK_FEES_ENTRY_ID_TWO)
           .set("entryIdThree", BULK_FEES_ENTRY_ID_THREE))
         .exec(BulkUpdateFeesScenario.bulkUpdateFees())
-        .exec(session -> logProof(session, "11/12 - Bulk update officials"))
+        .exec(session -> logProof(session, "11/14 - Bulk update officials"))
         .exec(refreshXsrfToken())
         .exec(session -> session
           .set("applicationListId", BULK_OFFICIALS_LIST_ID)
@@ -127,16 +130,34 @@ public class FrameworkProofSimulation extends Simulation {
           .set("entryIdTwo", BULK_OFFICIALS_ENTRY_ID_TWO)
           .set("entryIdThree", BULK_OFFICIALS_ENTRY_ID_THREE))
         .exec(BulkUpdateOfficialsScenario.bulkUpdateOfficials())
-        .exec(session -> logProof(session, "12/12 - Update Application Result"))
+        .exec(session -> logProof(session, "12/14 - Update Application Result"))
         .exec(refreshXsrfToken())
         .exec(session -> session
           .set("applicationListId", UPDATE_RESULT_LIST_ID)
           .set("applicationEntryId", UPDATE_RESULT_ENTRY_ID))
-        .exec(UpdateApplicationResultScenario.updateApplicationResult()));
+        .exec(UpdateApplicationResultScenario.updateApplicationResult())
+        .exec(session -> logProof(session, "13/14 - Create Application List"))
+        .exec(refreshXsrfToken())
+        .exec(ApplicationListCreateScenario.createApplicationList())
+        .exec(session -> logProof(session, "14/14 - Search Application Lists"))
+        .exec(SearchScenario.searchApplicationLists())
+        .exec(session -> {
+          completed = !session.isFailed();
+          return session;
+        }));
 
     setUp(proof.injectOpen(atOnceUsers(1)))
       .protocols(protocol())
       .assertions(global().successfulRequests().percent().gte(100.0));
+  }
+
+  @Override
+  public void after() {
+    // HTTP assertions cannot detect session-only failures or proofs skipped by exitBlockOnFail.
+    if (!completed) {
+      throw new IllegalStateException("Framework proof suite did not successfully complete all 14 steps");
+    }
+    System.out.println("FRAMEWORK PROOF COMPLETE 14/14");
   }
 
   private static ActionBuilder refreshXsrfToken() {
@@ -156,7 +177,7 @@ public class FrameworkProofSimulation extends Simulation {
       FRAMEWORK PROOF CONFIGURATION
       Authenticated users : 1
       SSO journeys        : 1
-      Business proofs     : 12
+      Business proofs     : 14
       Session reuse       : enabled
       ================================================================================
       %n""");

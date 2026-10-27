@@ -13,7 +13,7 @@ properties([
       name: 'RUN_MODE',
       choices: ['framework-proof', 'application-diagnostic', 'performance'],
       description: 'Select the execution type.<br/><br/>'
-        + 'framework-proof: Run twelve business proofs sequentially with one authenticated session.<br/>'
+        + 'framework-proof: Run fourteen business proofs sequentially with one authenticated session.<br/>'
         + 'application-diagnostic: Run a configurable bounded seeded workload.<br/>'
         + 'performance: Run the canonical seeded 500-actor NFR workload.'
     ),

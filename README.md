@@ -119,7 +119,7 @@ Current modes:
 
 | Mode | Execution |
 | --- | --- |
-| `framework-proof` | Seed data, authenticate one user once and run the twelve-proof set sequentially in one Gatling session |
+| `framework-proof` | Seed data, authenticate one user once and run the fourteen-proof set sequentially in one Gatling session |
 | `application-diagnostic` | Seed data and run a bounded pooled-session workload using the `performance` profile scaled to the requested actors and minutes |
 | `performance` | Seed isolated ramp-up and measured data, then run the pooled-session phase-based workload with 500 actors and a configurable measured period |
 
@@ -284,12 +284,28 @@ mutable record.
 
 The `framework-proof` mode launches `FrameworkProofSimulation` once. It performs
 one SSO journey, retains that virtual user's session and cookies, and runs the
-twelve selected business proofs sequentially. Each proof starts when the
+fourteen selected business proofs sequentially. Each proof starts when the
 preceding proof finishes, so the sequence remains single-threaded without an
 artificial delay. Authentication remains outside the business-action groups.
 Individual proof simulations remain available for focused local diagnosis.
-The mode does not execute every proof class present in the source tree; see
-[OVERVIEW.md](OVERVIEW.md) for the exact current list.
+The sequence includes every nightly workload action, plus list browsing and
+the Activity Audit report; see [OVERVIEW.md](OVERVIEW.md) for the current list.
+The run fails if it exits before completing the full sequence or finishes with
+a failed session, even when all HTTP requests succeeded. A successful run logs
+`FRAMEWORK PROOF COMPLETE 14/14`.
+
+Activity Audit report polling accepts the documented `RECEIVED`, `VALIDATING`
+and `PROCESSING` states and waits for `COMPLETED` before downloading the report.
+The default polling deadline is 120 seconds, configurable with
+`-DappRegActivityAuditReportPollTimeoutSeconds=1..3600`. A failed job, unknown
+status or expired deadline fails the proof. HTTP request timeouts still apply
+to any poll already in flight.
+
+Run the dependency-free polling-state and timeout-boundary check with:
+
+```bash
+./gradlew activityAuditReportSelfCheck
+```
 
 ## Reports and diagnostics
 
