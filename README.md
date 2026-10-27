@@ -309,6 +309,61 @@ Run the dependency-free polling-state and timeout-boundary check with:
 
 ## Reports and diagnostics
 
+### Temporary client timing capture
+
+For the next short Jenkins run, set `CLIENT_DIAGNOSTICS=true` and keep
+`RUN_MODE=application-diagnostic`, `MAX_USERS=10`, `SESSION_POOL_SIZE=10`,
+`RUN_DURATION_MINUTES=10` and `RESET_DATABASE=false`.
+The switch defaults to false and does not change workload allocation or NFRs.
+It enables extra instrumentation, so this is a diagnostic run, not a clean
+benchmark.
+
+Jenkins archives `build/client-diagnostics/client.jfr` and the generated JFR
+settings even when Gatling fails normally. Recordings retain approximately the
+last 256 MB / one hour. An abruptly killed process or lost agent may prevent
+the recording from being dumped or archived.
+
+The recording includes JVM samples, GC/safepoint activity, thread parks, slow
+file writes and available JDK socket/TLS events. Native Netty socket operations
+may not generate JDK socket events. Additional `appreg.ClientTransport` events
+capture Gatling/Netty connection-pool, DNS, connect, TLS, HTTP-write,
+response-header and response-completion boundaries:
+
+- `request_signed` and `request_ready` bracket the existing trace-console write.
+- `request_write` marks entry to Netty's HTTP write path, not proof that bytes
+  have reached the network.
+- These markers and `response_completed` carry the existing trace/span IDs.
+- DNS, connection and response-header events carry the JFR event-loop thread;
+  channel IDs and remote hosts are included when the underlying log provides
+  typed values. They cannot always be uniquely assigned to one request when an
+  event loop has multiple requests in flight. Do not infer exact per-request
+  first-byte or connection-reuse timings from thread proximity alone.
+
+Transport events use an exact allowlist of Gatling 3.15.1 / Netty log templates.
+Raw log arguments are never formatted or archived: HTTP URLs, headers, cookies,
+tokens and bodies are deliberately excluded. Do not replace this appender with
+ordinary DEBUG/TRACE console logging. The standard JFR profile's environment,
+system-property, JVM-argument, process-command, exception-message and old-object
+capture events are explicitly disabled to avoid recording credentials.
+Treat JFR artifacts as internal diagnostics:
+JVM recordings can still contain class, thread, host and filesystem information.
+
+Open the recording with JDK Mission Control, or inspect the custom events with:
+
+```bash
+jfr print --events appreg.ClientTransport client.jfr
+```
+
+For local use, add `-DappRegClientDiagnostics=true` to `./gradlew gatlingRun`.
+Run the dependency-free capture and secret-rejection check with:
+
+```bash
+./gradlew clientDiagnosticsSelfCheck
+```
+
+Leave the switch off after this investigation and revert the temporary
+instrumentation once the cause has been identified.
+
 Gatling writes HTML reports below `build/reports/gatling/`. Jenkins archives the
 report directories, retained workload NFR summary and Gatling HTML index even
 when execution fails.

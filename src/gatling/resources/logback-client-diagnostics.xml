@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Do not attach a normal encoder to these DEBUG loggers: they include HTTP secrets.
+         The appender emits only allowlisted, structured JFR events. -->
+    <appender name="TRANSPORT" class="utils.ClientDiagnostics" />
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%-5level] %logger{15} - %msg%n%rEx</pattern>
+        </encoder>
+        <immediateFlush>false</immediateFlush>
+    </appender>
+    <logger name="io.gatling.http.client.impl.DefaultHttpClient" level="DEBUG" additivity="false">
+        <appender-ref ref="TRANSPORT" />
+    </logger>
+    <logger name="io.gatling.http.client.impl.HttpAppHandler" level="DEBUG" additivity="false">
+        <appender-ref ref="TRANSPORT" />
+    </logger>
+    <logger name="io.gatling.http.client.pool.ChannelPool" level="DEBUG" additivity="false">
+        <appender-ref ref="TRANSPORT" />
+    </logger>
+    <logger name="io.netty.resolver.dns.DnsQueryContext" level="DEBUG" additivity="false">
+        <appender-ref ref="TRANSPORT" />
+    </logger>
+    <logger name="io.netty.resolver.dns.DnsNameResolver" level="DEBUG" additivity="false">
+        <appender-ref ref="TRANSPORT" />
+    </logger>
+    <root level="WARN">
+        <appender-ref ref="CONSOLE" />
+    </root>
+</configuration>

@@ -13,6 +13,7 @@ public final class AppRegHttp {
       .userAgentHeader(Headers.USER_AGENT)
       .doNotTrackHeader("1")
       .sign(AppRegTraceContext::signAppRegRequest)
+      .transformResponse((response, session) -> ClientDiagnostics.responseCompleted(response))
       .inferHtmlResources()
       .silentResources();
   }

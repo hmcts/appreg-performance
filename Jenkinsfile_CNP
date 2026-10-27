@@ -74,6 +74,12 @@ properties([
         + 'performance: Between 0 and 3,600 seconds; default 60; zero starts all actors together.'
     ),
     booleanParam(
+      name: 'CLIENT_DIAGNOSTICS',
+      defaultValue: false,
+      description: 'Temporary client transport/JVM timing recording; archives a bounded JFR file. '
+        + 'Use for a short diagnostic run; adds instrumentation overhead. No HTTP bodies or headers are logged.'
+    ),
+    booleanParam(
       name: 'RESET_DATABASE',
       defaultValue: false,
       description: 'Restore the approved masked Test database baseline before seeding; destructive and disabled by default.<br/><br/>'
@@ -571,6 +577,7 @@ withNightlyPipeline(type, product, component) {
                             mkdir -p build
                             rm -f build/reports/gatling/workload-nfr-summary.txt \
                               build/jenkins-gatling-console.log
+                            rm -rf build/client-diagnostics
 
                             if [ "$RUN_DB_SEED" = "true" ]; then
                               . build/seed-allocation.env
@@ -593,6 +600,7 @@ withNightlyPipeline(type, product, component) {
                               # One virtual user reuses one SSO session across the complete seeded proof set.
                               ./gradlew --no-daemon gatlingRun \
                                 -Dgatling.data.console.writePeriod="$GATLING_CONSOLE_WRITE_PERIOD_SECONDS" \
+                                -DappRegClientDiagnostics="${CLIENT_DIAGNOSTICS:-false}" \
                                 --simulation simulations.FrameworkProofSimulation \
                                 2>&1 | tee build/jenkins-gatling-console.log \
                                 | sed '/APPREG_TRACE_CONTEXT/d'
@@ -658,6 +666,7 @@ withNightlyPipeline(type, product, component) {
 
                               ./gradlew --no-daemon gatlingRun \
                                 -Dgatling.data.console.writePeriod="$GATLING_CONSOLE_WRITE_PERIOD_SECONDS" \
+                                -DappRegClientDiagnostics="${CLIENT_DIAGNOSTICS:-false}" \
                                 -DappRegWorkloadProfile="$WORKLOAD_PROFILE" \
                                 -DappRegMaxUsers="$MAX_USERS" \
                                 -DappRegDurationMinutes="$RUN_DURATION_MINUTES" \
@@ -695,6 +704,7 @@ def publishGatlingReports() {
     def nfrSummaryPath = "${reportsDirectory}/workload-nfr-summary.txt"
 
     archiveArtifacts allowEmptyArchive: true, artifacts: 'build/jenkins-gatling-console.log'
+    archiveArtifacts allowEmptyArchive: true, artifacts: 'build/client-diagnostics/**'
 
     if (env.RUN_PERFTEST == 'true' && !fileExists(nfrSummaryPath)) {
         sh "mkdir -p ${reportsDirectory}"

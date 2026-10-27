@@ -36,6 +36,38 @@ tasks.named('gatlingRun') {
     'appRegActivityAuditReportPollTimeoutSeconds':
       System.getProperty('appRegActivityAuditReportPollTimeoutSeconds', '120')
   ]
+  if (Boolean.getBoolean('appRegClientDiagnostics')) {
+    dependsOn 'configureClientDiagnostics'
+    systemProperties += [
+      'appRegClientDiagnostics': 'true',
+      'logback.configurationFile': 'logback-client-diagnostics.xml'
+    ]
+    jvmArgs = (jvmArgs ?: gatling.jvmArgs) + [
+      "-XX:StartFlightRecording=filename=${layout.buildDirectory.file('client-diagnostics/client.jfr').get().asFile}," +
+      "settings=${layout.buildDirectory.file('client-diagnostics/client.jfc').get().asFile}," +
+      'dumponexit=true,maxsize=256m,maxage=1h'
+    ]
+  }
+}
+
+tasks.register('configureClientDiagnostics', Exec) {
+  def launcher = javaToolchains.launcherFor(java.toolchain)
+  def output = layout.buildDirectory.file('client-diagnostics/client.jfc')
+  doFirst { output.get().asFile.parentFile.mkdirs() }
+  commandLine launcher.get().metadata.installationPath.file('bin/jfr').asFile,
+    'configure', '--input', launcher.get().metadata.installationPath.file('lib/jfr/profile.jfc').asFile,
+    '--output', output.get().asFile,
+    'jdk.SocketRead#enabled=true', 'jdk.SocketRead#threshold=0ms',
+    'jdk.SocketWrite#enabled=true', 'jdk.SocketWrite#threshold=0ms',
+    'jdk.TLSHandshake#enabled=true', 'jdk.ThreadPark#threshold=20ms',
+    'jdk.FileWrite#enabled=true', 'jdk.FileWrite#threshold=20ms',
+    // The standard profile records credentials from environment variables and JVM arguments.
+    'jdk.InitialEnvironmentVariable#enabled=false', 'jdk.InitialSystemProperty#enabled=false',
+    'jdk.JVMInformation#enabled=false', 'jdk.SystemProcess#enabled=false', 'jdk.ProcessStart#enabled=false',
+    'jdk.InitialSecurityProperty#enabled=false', 'jdk.SecurityPropertyModification#enabled=false',
+    'jdk.JavaExceptionThrow#enabled=false', 'jdk.JavaErrorThrow#enabled=false',
+    'jdk.OldObjectSample#enabled=false',
+    '+appreg.ClientTransport#enabled=true'
 }
 
 tasks.register('printWorkloadPlan', JavaExec) {
@@ -57,4 +89,10 @@ tasks.register('traceContextSelfCheck', JavaExec) {
 tasks.register('activityAuditReportSelfCheck', JavaExec) {
   classpath = sourceSets.gatling.runtimeClasspath
   mainClass = 'scenarios.ActivityAuditReportScenario'
+}
+
+tasks.register('clientDiagnosticsSelfCheck', JavaExec) {
+  dependsOn 'configureClientDiagnostics'
+  classpath = sourceSets.gatling.runtimeClasspath
+  mainClass = 'utils.ClientDiagnosticsSelfCheck'
 }

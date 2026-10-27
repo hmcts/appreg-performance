@@ -58,11 +58,13 @@ public final class AppRegTraceContext {
     String spanId = newIdentifier(8);
     var signed = request.copyWithCopiedHeaders();
     signed.getHeaders().set(TRACEPARENT, header(traceId, spanId));
+    ClientDiagnostics.requestBoundary("request_signed", signed);
     System.out.printf(
         "APPREG_TRACE_CONTEXT timestamp=%s traceId=%s spanId=%s phase=%s action=%s actor=%d request=%s path=%s%n",
         Instant.now(), traceId, spanId, session.getString(PHASE_KEY),
         session.getString(ACTION_KEY), session.getInt(ACTOR_KEY), sanitise(request.getName()),
         sanitisePath(request.getUri().getPath()));
+    ClientDiagnostics.requestBoundary("request_ready", signed);
     return signed;
   }
 
