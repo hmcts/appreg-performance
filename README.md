@@ -230,6 +230,26 @@ authentication, actor setup, measured steady state and ramp-down.
 | `appRegWorkloadRampDownGraceSeconds` | `60` | Time allowed for an in-flight final action to complete |
 | `appRegGatewayGetRetries` | `1` | Retries allowed for a GET that returns HTTP 502/504; `0` disables recovery |
 | `appRegGatewayGetRetryDelaySeconds` | `1` | Delay before a safe GET retry |
+
+Primary GETs also retry a typed Netty `SslHandshakeTimeoutException` (including
+wrapped causes) **once, after one second**. Setting `appRegGatewayGetRetries=0`
+disables this too. POSTs, other TLS/socket errors and error-message text do not
+qualify; an already-failed session is never cleared to permit a retry.
+
+Gatling 3.15.1 exposes the original throwable through its crash logger, not the
+Java DSL. A selective, non-forwarding appender captures only the active primary
+GET's typed failure; it never prints raw requests, exception messages or stacks.
+The first attempt remains KO in Gatling, with `APPREG_TLS_GET_*` incident markers
+and separate observed/recovered/exhausted TLS counts in the NFR summary. As with
+gateway GET recovery, retry overhead is excluded from logical p95; recovery does
+not erase the reliability incident or change thresholds.
+
+Run `./gradlew tlsGetRetrySelfCheck` for a local-only proof using a stalled TLS
+socket (about 55 seconds). It verifies actual Gatling recovery/exhaustion, the
+one-retry ceiling, disabled retries, prior-failure preservation, existing 502
+recovery and rejection of POSTs and other exception types. No TEST data is used.
+Run this proof when upgrading Gatling: its typed crash-logger integration is
+version-specific.
 | `appRegBulkUploadPollTimeoutSeconds` | `30` | Maximum wait for a bulk-upload job to leave `RECEIVED`, `VALIDATING` or `PROCESSING` |
 | `gatling.data.console.writePeriod` | `5` directly; `10` through local runners; `30` through Jenkins | Seconds between Gatling console-statistics blocks |
 

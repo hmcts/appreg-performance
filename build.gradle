@@ -96,3 +96,9 @@ tasks.register('clientDiagnosticsSelfCheck', JavaExec) {
   classpath = sourceSets.gatling.runtimeClasspath
   mainClass = 'utils.ClientDiagnosticsSelfCheck'
 }
+
+tasks.register('tlsGetRetrySelfCheck', JavaExec) {
+  classpath = sourceSets.gatling.runtimeClasspath
+  mainClass = 'utils.TlsGetRetrySelfCheck'
+  jvmArgs = gatling.jvmArgs
+}
