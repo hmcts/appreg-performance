@@ -107,7 +107,7 @@ public final class GetRetrySelfCheck {
           default -> 200;
         };
         String body = "{}";
-        if (path.equals("/applications-list")) {
+        if (path.equals("/") || path.equals("/applications-list")) {
           body = "<title>HMCTS Applications Register - Home - GOV.UK</title>"
               + "<script src=\"main-proof.js\"></script>";
         } else if (path.equals("/bad-check")) {
@@ -136,7 +136,11 @@ public final class GetRetrySelfCheck {
           body = "{\"status\":\"FAILED\"}";
         }
         var bytes = body.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().add("Content-Type", "application/json");
+        exchange.getResponseHeaders().add("Content-Type",
+            path.equals("/") || path.equals("/applications-list") ? "text/html" : "application/json");
+        if (path.equals("/cached-page") || path.equals("/main-proof.js")) {
+          exchange.getResponseHeaders().add("Cache-Control", "public, max-age=3600");
+        }
         exchange.sendResponseHeaders(status, bytes.length);
         try (var output = exchange.getResponseBody()) { output.write(bytes); }
         exchange.close();
@@ -253,6 +257,15 @@ public final class GetRetrySelfCheck {
       GatewayGetRetry.resetCounts();
       var proof = scenario("Safe GET retry proof")
           .exec(GetRetrySelfCheck::typedChecks)
+          .exec(http("cache warmup").get(plainUrl + "/cached-page"))
+          .exec(GatewayGetRetry.retryingGet("cached GET", http("cached GET")
+              .get(plainUrl + "/cached-page")))
+          .exec(session -> {
+            require(!session.isFailed() && hits("/cached-page") == 1,
+                "A successful cache hit failed the GET helper");
+            return session;
+          })
+          .exitHereIfFailed()
           .exec(GatewayGetRetry.retryingGet("close recovery", http("close recovery")
               .get(plainUrl + "/close-recover-first")))
           .exec(session -> {
@@ -342,6 +355,7 @@ public final class GetRetrySelfCheck {
             require(session.isFailed() && hits("/post") == 0, "POST reached the network");
             return session.markAsSucceeded();
           })
+          .exec(http("page warmup").get(plainUrl))
           .exec(AppRegScenario.applicationsList(true))
           .exec(ActivityAuditReportScenario.generateActivityAuditReport())
           .exec(session -> {
@@ -368,7 +382,8 @@ public final class GetRetrySelfCheck {
             checksCompleted = true;
             return session;
           });
-      setUp(proof.injectOpen(atOnceUsers(1))).protocols(http.baseUrl(plainUrl));
+      setUp(proof.injectOpen(atOnceUsers(1))).protocols(
+          http.baseUrl(plainUrl).inferHtmlResources().silentResources());
     }
 
     @Override

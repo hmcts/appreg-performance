@@ -113,7 +113,10 @@ public final class GatewayGetRetry {
     session = session.set(ATTEMPT_KEY, attempt)
         .set(ApplicationListFailureLogger.STATUS_SESSION_KEY, statusCode);
     if (failureType == null && !isTransient(statusCode)) {
-      return complete(operation, session, statusCode == 200 && !session.isFailed());
+      // Cache hits can skip response checks and leave no saved HTTP metadata.
+      // The request checks enforce status/body requirements on network responses;
+      // honour Gatling's outcome instead of treating absent metadata as failure.
+      return complete(operation, session, !session.isFailed());
     }
 
     if (failureType != null) {
