@@ -12,6 +12,7 @@ import static io.gatling.javaapi.http.HttpDsl.RawFileBodyPart;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.GatewayGetRetry.retryingGet;
+import static utils.GatewayGetRetry.retryingGetBefore;
 
 /** Replays the recorded UI flow for asynchronously uploading Application Entries from CSV. */
 public final class BulkApplicationUploadScenario {
@@ -47,20 +48,20 @@ public final class BulkApplicationUploadScenario {
       .exec(session -> session.set(
         POLL_DEADLINE_SESSION_KEY,
         System.nanoTime() + Duration.ofSeconds(POLL_TIMEOUT_SECONDS).toNanos()))
-      .exec(retryingGet(
+      .exec(retryingGetBefore(
         "Check bulk upload completion",
         http("Check bulk upload completion")
           .get("/jobs/#{bulkUploadJobId}")
-          .header("Accept", Headers.APPREG_API_MEDIA_TYPE),
+          .header("Accept", Headers.APPREG_API_MEDIA_TYPE), POLL_DEADLINE_SESSION_KEY,
         jsonPath("$.status").saveAs("bulkUploadStatus")))
       .asLongAs(session -> isInProgress(session.getString("bulkUploadStatus"))
           && System.nanoTime() < session.getLong(POLL_DEADLINE_SESSION_KEY)).on(
         pause(2)
-          .exec(retryingGet(
+          .exec(retryingGetBefore(
             "Check bulk upload completion",
             http("Check bulk upload completion")
               .get("/jobs/#{bulkUploadJobId}")
-              .header("Accept", Headers.APPREG_API_MEDIA_TYPE),
+              .header("Accept", Headers.APPREG_API_MEDIA_TYPE), POLL_DEADLINE_SESSION_KEY,
             jsonPath("$.status").saveAs("bulkUploadStatus"))))
         .exec(session -> {
           var uploadStatus = session.getString("bulkUploadStatus");

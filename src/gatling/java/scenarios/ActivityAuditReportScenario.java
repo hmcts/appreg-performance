@@ -18,6 +18,8 @@ import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
 import static io.gatling.javaapi.http.HttpDsl.status;
 import static utils.Headers.COMMON_HEADER;
+import static utils.GatewayGetRetry.retryingGet;
+import static utils.GatewayGetRetry.retryingGetBefore;
 
 /** Generates and downloads an Activity Audit report using AppReg's asynchronous report-job flow. */
 public final class ActivityAuditReportScenario {
@@ -42,10 +44,9 @@ public final class ActivityAuditReportScenario {
         .set("activityAuditReportDateTo", DATE_TO)
         .set("activityAuditReportActivity", ACTIVITY_TYPE))
       .exec(exitBlockOnFail().on(
-        exec(http("Reports page")
+        exec(retryingGet("Reports page", http("Reports page")
           .get("/reports")
-          .headers(COMMON_HEADER)
-          .check(status().is(200)))
+          .headers(COMMON_HEADER)))
         .exec(getCookieValue(CookieKey(Headers.XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
         .exec(http("Start Activity Audit report")
           .post("/reports/activity-audit/jobs")
@@ -72,10 +73,9 @@ public final class ActivityAuditReportScenario {
             + " lastStatus=" + reportStatus + " timeoutSeconds=" + POLL_TIMEOUT_SECONDS);
           return session.markAsFailed();
         })
-        .exec(http("Download Activity Audit report")
+        .exec(retryingGet("Download Activity Audit report", http("Download Activity Audit report")
           .get("/reports/jobs/#{activityAuditReportJobId}/download")
-          .header("Accept", "text/csv")
-          .check(status().is(200)))))
+          .header("Accept", "text/csv")))))
     );
   }
 
@@ -116,10 +116,10 @@ public final class ActivityAuditReportScenario {
   }
 
   private static ChainBuilder checkReportCompletion() {
-    return exec(http("Check Activity Audit report completion")
+    return retryingGetBefore("Check Activity Audit report completion",
+      http("Check Activity Audit report completion")
       .get("/jobs/#{activityAuditReportJobId}")
-      .header("Accept", Headers.APPREG_API_MEDIA_TYPE)
-      .check(status().is(200))
-      .check(jsonPath("$.status").saveAs("activityAuditReportStatus")));
+      .header("Accept", Headers.APPREG_API_MEDIA_TYPE), POLL_DEADLINE,
+      jsonPath("$.status").saveAs("activityAuditReportStatus"));
   }
 }

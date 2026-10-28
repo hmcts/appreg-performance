@@ -132,9 +132,14 @@ The shared HTTP protocol:
 - infers HTML resources and marks inferred resources silent; and
 - shares the AppReg API media type and XSRF header conventions across actions.
 
-Reusable business-scenario GET requests may retry a gateway HTTP 502/504 under
-a bounded policy. POST, PUT and other non-GET requests are never retried.
-Retries are recorded as gateway evidence; an exhausted retry fails normally.
+All 47 explicit safe GET sites share a per-request budget of up to three retries
+(four attempts total), one second apart by default, for HTTP 502/504, typed TLS
+handshake timeouts and premature response closes. Failure types share the budget.
+This policy never replays non-GET requests or stateful authentication exchanges.
+Transport failures remain raw Gatling KOs; gateway/transport incidents and
+recoveries stay visible. Exhausted recovery fails the operation.
+Polling retains the original job/deadline; retries cannot schedule new attempts
+past expiry. In-flight requests retain their normal HTTP timeout.
 
 `AppRegSimulation` loads `/applications-list`, checks the page title, extracts
 and loads the current main JavaScript asset, and optionally calls the
@@ -146,7 +151,7 @@ authenticated `/application-lists` API.
 extracts the changing Entra continuation values, submits the configured account
 credentials, follows the AppReg callback, verifies the authenticated home page
 and checks `/sso/me`. Only the final read-only AppReg `/` and `/sso/me` requests
-retry once after HTTP 502/504; Entra, password, KMSI and callback requests are
+use the same safe-GET recovery policy; Entra, password, KMSI and callback requests are
 never retried.
 
 Credentials come from environment variables. Account names may be generated

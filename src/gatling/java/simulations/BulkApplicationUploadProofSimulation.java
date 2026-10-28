@@ -11,7 +11,7 @@ import static io.gatling.javaapi.core.CoreDsl.*;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
-import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.GatewayGetRetry.retryingGet;
 import static utils.AppRegHttp.protocol;
 import static utils.Headers.XSRF_TOKEN_COOKIE;
 import static utils.Environment.requiredEnvironmentVariable;
@@ -25,7 +25,8 @@ public class BulkApplicationUploadProofSimulation extends Simulation {
     var httpProtocol = protocol();
     var upload = scenario("AppReg bulk application upload proof").exitBlockOnFail().on(
       feed(ssoUserFeeder).exec(AuthenticationStage.authenticateFrameworkProof())
-        .exec(http("Application lists page").get("/applications-list").headers(COMMON_HEADER).check(status().is(200)))
+        .exec(retryingGet("Application lists page", http("Application lists page")
+          .get("/applications-list").headers(COMMON_HEADER)))
         .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
         .exec(session -> session.set("applicationListId", SEEDED_LIST_ID))
         .exec(BulkApplicationUploadScenario.bulkUploadApplications()));

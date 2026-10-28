@@ -161,7 +161,7 @@ For `application-diagnostic`, actors must be between 1 and 500, duration must be
 from 1 to 70 minutes, and actors multiplied by minutes must not exceed 35,000.
 
 During SSO, only the final authenticated AppReg `/` and `/sso/me` validation
-GETs retry once after HTTP 502/504. No Entra, credential, KMSI or callback step
+GETs use the shared policy (up to three retries). No Entra, credential, KMSI or callback step
 is retried. Ten additional candidate users are available by default to replace
 failed whole SSO journeys without changing the requested session-pool size.
 Once the pool is full, later scheduled candidates exit without attempting SSO.
@@ -203,10 +203,14 @@ create extra sessions or retry the failed state-changing SSO journey.
 
 Pooling shares authentication state, not test data: every actor retains its own
 plan index and every mutable feeder row remains queue-backed and single-use.
-Reusable business-scenario GET requests retry HTTP 502/504 once by default.
+All 47 audited explicit safe GET sites use the shared policy, including proof
+setup, page/bootstrap reads, report polling/downloads and post-login validation.
+Each GET permits three retries (four attempts including the original) by default,
+with one budget across HTTP 502/504, typed Netty `SslHandshakeTimeoutException`
+and Gatling `PrematureCloseException`, including wrapped causes.
 Each transient attempt and recovery is logged, and recovered attempt time plus
 the configured retry delay is excluded from the seeded workload's logical
-business-operation p95. POST, PUT and other non-GET requests are never retried;
+business-operation p95. This recovery policy never replays non-GET requests;
 their failures remain normal functional failures. Exhausting a GET retry also
 fails the request and the workload.
 
@@ -228,30 +232,42 @@ authentication, actor setup, measured steady state and ramp-down.
 | `appRegWorkloadActionPaceSeconds` | `60` | Minimum interval between action starts; values below 60 are rejected |
 | `appRegWorkloadActionSpreadSeconds` | `60` | Stable initial actor offsets; `0` requests an intentional burst |
 | `appRegWorkloadRampDownGraceSeconds` | `60` | Time allowed for an in-flight final action to complete |
-| `appRegGatewayGetRetries` | `1` | Retries allowed for a GET that returns HTTP 502/504; `0` disables recovery |
+| `appRegGatewayGetRetries` | `3` | Per-GET retry allowance across all allowlisted failures; range `0`–`3`; `0` disables recovery |
 | `appRegGatewayGetRetryDelaySeconds` | `1` | Delay before a safe GET retry |
+| `appRegBulkUploadPollTimeoutSeconds` | `30` | Maximum wait for a bulk-upload job to leave `RECEIVED`, `VALIDATING` or `PROCESSING` |
+| `gatling.data.console.writePeriod` | `5` directly; `10` through local runners; `30` through Jenkins | Seconds between Gatling console-statistics blocks |
 
-Primary GETs also retry a typed Netty `SslHandshakeTimeoutException` (including
-wrapped causes) **once, after one second**. Setting `appRegGatewayGetRetries=0`
-disables this too. POSTs, other TLS/socket errors and error-message text do not
-qualify; an already-failed session is never cleared to permit a retry.
+The retry allowance resets for each GET, not for each failure type. For example,
+504 → TLS timeout → premature close → success uses all three retries. Other
+TLS/socket errors, ordinary 4xx/500 responses and failed content checks do not
+qualify. An already-failed session is never cleared to permit a retry.
 
 Gatling 3.15.1 exposes the original throwable through its crash logger, not the
 Java DSL. A selective, non-forwarding appender captures only the active primary
 GET's typed failure; it never prints raw requests, exception messages or stacks.
-The first attempt remains KO in Gatling, with `APPREG_TLS_GET_*` incident markers
-and separate observed/recovered/exhausted TLS counts in the NFR summary. As with
-gateway GET recovery, retry overhead is excluded from logical p95; recovery does
+Transport failures remain KO in Gatling, with `APPREG_TRANSPORT_GET_*` markers
+carrying the exact exception type and observed/recovered/exhausted transport
+counts in the NFR summary. Existing gateway markers and counters remain; mixed
+recoveries count in both affected categories. Retry overhead is excluded from logical p95; recovery does
 not erase the reliability incident or change thresholds.
 
-Run `./gradlew tlsGetRetrySelfCheck` for a local-only proof using a stalled TLS
-socket (about 55 seconds). It verifies actual Gatling recovery/exhaustion, the
-one-retry ceiling, disabled retries, prior-failure preservation, existing 502
-recovery and rejection of POSTs and other exception types. No TEST data is used.
+Run `./gradlew getRetrySelfCheck` (`tlsGetRetrySelfCheck` remains an alias) for
+a local-only proof using stalled TLS and truncated HTTP responses (about 50 seconds).
+It checks coverage of all 47 eligible sites, recovery/exhaustion, the three-retry
+cap, fresh per-GET budgets, mixed failures, polling deadlines, disabled retries,
+prior-failure preservation, page/report flows and exclusion of POSTs and other
+exception types. No TEST data is used.
 Run this proof when upgrading Gatling: its typed crash-logger integration is
 version-specific.
-| `appRegBulkUploadPollTimeoutSeconds` | `30` | Maximum wait for a bulk-upload job to leave `RECEIVED`, `VALIDATING` or `PROCESSING` |
-| `gatling.data.console.writePeriod` | `5` directly; `10` through local runners; `30` through Jenkins | Seconds between Gatling console-statistics blocks |
+
+Job polling retains the original job and monotonic deadline. Recovery does not
+repeat the creation POST or reset that deadline; it cannot schedule new attempts
+after expiry. In-flight requests retain Gatling's normal HTTP timeout and may
+finish after the polling deadline.
+
+The nightly verdict remains based on logical success and unchanged p95 limits.
+Standalone business proofs retain their stricter raw HTTP success assertions,
+so they can fail even when a transport retry recovers.
 
 Jenkins supplies the pool, spare candidates, authentication rate, pace and
 spread from `SESSION_POOL_SIZE`, `AUTHENTICATION_SPARE_USERS`,

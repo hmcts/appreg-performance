@@ -29,7 +29,7 @@ import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
-import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.GatewayGetRetry.retryingGet;
 import static utils.AppRegHttp.protocol;
 import static utils.Environment.requiredEnvironmentVariable;
 import static utils.Headers.APPREG_API_MEDIA_TYPE;
@@ -86,10 +86,9 @@ public class FrameworkProofSimulation extends Simulation {
         .exec(session -> session
           .set("applicationListId", CLOSE_READY_LIST_ID)
           .set("applicationEntryId", CLOSE_READY_ENTRY_ID))
-        .exec(http("Get seeded close-ready application")
+        .exec(retryingGet("Get seeded close-ready application", http("Get seeded close-ready application")
           .get("/application-lists/#{applicationListId}/entries/#{applicationEntryId}")
-          .header("Accept", APPREG_API_MEDIA_TYPE)
-          .check(status().is(200)))
+          .header("Accept", APPREG_API_MEDIA_TYPE)))
         .exec(UpdateApplicationListScenario.updateApplicationList())
         .exec(CloseApplicationListScenario.closeApplicationList())
         .exec(session -> logProof(session, "06/14 - Add Application"))

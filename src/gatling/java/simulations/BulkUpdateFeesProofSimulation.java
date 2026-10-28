@@ -7,7 +7,7 @@ import static io.gatling.javaapi.core.CoreDsl.scenario;
 import static io.gatling.javaapi.http.HttpDsl.CookieKey;
 import static io.gatling.javaapi.http.HttpDsl.getCookieValue;
 import static io.gatling.javaapi.http.HttpDsl.http;
-import static io.gatling.javaapi.http.HttpDsl.status;
+import static utils.GatewayGetRetry.retryingGet;
 import static utils.AppRegHttp.protocol;
 import static utils.Environment.requiredEnvironmentVariable;
 import static utils.Headers.COMMON_HEADER;
@@ -32,10 +32,9 @@ public class BulkUpdateFeesProofSimulation extends Simulation {
     var httpProtocol = protocol();
     var bulkUpdateFees = scenario("AppReg bulk update fees proof").exitBlockOnFail().on(
       feed(ssoUserFeeder).exec(AuthenticationStage.authenticateFrameworkProof())
-        .exec(http("Application lists page")
+        .exec(retryingGet("Application lists page", http("Application lists page")
           .get("/applications-list")
-          .headers(COMMON_HEADER)
-          .check(status().is(200)))
+          .headers(COMMON_HEADER)))
         .exec(getCookieValue(CookieKey(XSRF_TOKEN_COOKIE).saveAs("xsrfToken")))
         .exec(session -> session
           .set("applicationListId", SEEDED_LIST_ID)

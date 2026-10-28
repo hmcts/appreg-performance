@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.ThrowableProxy;
 import ch.qos.logback.core.AppenderBase;
 import io.gatling.http.request.builder.HttpRequestBuilder;
+import io.gatling.http.client.impl.PrematureCloseException;
 import io.gatling.javaapi.core.Session;
 import io.gatling.javaapi.http.HttpRequestActionBuilder;
 import io.netty.handler.codec.http.HttpMethod;
@@ -15,17 +16,17 @@ import org.slf4j.LoggerFactory;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Captures typed failures only while a primary GET is being retried. */
-public final class TlsHandshakeTimeouts extends AppenderBase<ILoggingEvent> {
-  static final String KEY = "gatewayGetTlsFailureKey";
+public final class GetTransportFailures extends AppenderBase<ILoggingEvent> {
+  static final String KEY = "gatewayGetTransportFailureKey";
   private static final String LOGGER = "io.gatling.http.engine.GatlingHttpListener$";
-  private static final ConcurrentHashMap<String, AtomicBoolean> active = new ConcurrentHashMap<>();
+  private static final ConcurrentHashMap<String, AtomicReference<String>> active = new ConcurrentHashMap<>();
 
   static {
     var logger = (Logger) LoggerFactory.getLogger(LOGGER);
-    var appender = new TlsHandshakeTimeouts();
+    var appender = new GetTransportFailures();
     appender.setContext(logger.getLoggerContext());
     appender.start();
     logger.addAppender(appender);
@@ -42,13 +43,13 @@ public final class TlsHandshakeTimeouts extends AppenderBase<ILoggingEvent> {
     }
     var name = attributes.requestName().apply(session.asScala()).toOption().get();
     var key = "Request '" + name + "' failed for user " + session.userId();
-    active.put(key, new AtomicBoolean());
+    active.put(key, new AtomicReference<>());
     return session.set(KEY, key);
   }
 
-  static boolean finish(Session session) {
+  static String finish(Session session) {
     var flag = active.remove(session.getString(KEY));
-    return flag != null && flag.get();
+    return flag == null ? null : flag.get();
   }
 
   @Override
@@ -63,8 +64,8 @@ public final class TlsHandshakeTimeouts extends AppenderBase<ILoggingEvent> {
     var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
     for (Throwable cause = proxy.getThrowable(); cause != null && seen.add(cause);
          cause = cause.getCause()) {
-      if (cause instanceof SslHandshakeTimeoutException) {
-        flag.set(true);
+      if (cause instanceof SslHandshakeTimeoutException || cause instanceof PrematureCloseException) {
+        flag.set(cause.getClass().getSimpleName());
         return;
       }
     }
